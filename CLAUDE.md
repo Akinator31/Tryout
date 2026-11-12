@@ -90,9 +90,12 @@ vault with the original stack study (in French) and its sources.
   - terminal and desktop sessions, queue, heartbeat loss, cleanup, network isolation, profile
     refusal;
   - Selkies under gVisor on a Raspberry Pi 5 (arm64), behind a base path.
-- The roadmap is organised in milestones (`docs/roadmap.md`): M1 Deployable (ghcr.io images,
-  YAML + JSON Schema config, mTLS, rate limiting) is next, then M2 Live, M3 Design (theme,
-  Figma, React embed; the UI kit is chosen there), M4 Operate, M5 Hosting options.
+- The roadmap is organised in milestones (`docs/roadmap.md`): M1 Deployable is in progress
+  (ghcr.io images done, ADR 0013; next: YAML + JSON Schema config, mTLS, rate limiting), then
+  M2 Live, M3 Design (theme, Figma, React embed; the UI kit is chosen there), M4 Operate, M5
+  Hosting options.
+- CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
+  `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module
   `github.com/Akinator31/Tryout/apps/node`, docs at <https://akinator31.github.io/Tryout/>).
 - Queue state is in Postgres (`apps/control-plane/src/queue.ts`, ADRs 0007 and 0011), tested through its

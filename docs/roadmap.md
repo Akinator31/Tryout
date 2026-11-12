@@ -6,7 +6,7 @@ moves to [Done](#done) when it ships. There are no dates.
 | Milestone | Goal | Status |
 |---|---|---|
 | [M0 — Proof of concept](#m0-proof-of-concept) | Show that the stack works end to end | Done |
-| [M1 — Deployable](#m1-deployable) | Run Tryout on real infrastructure without building anything on the node | Next |
+| [M1 — Deployable](#m1-deployable) | Run Tryout on real infrastructure without building anything on the node | In progress |
 | [M2 — Live](#m2-live) | A first public deployment, a public repository and versioned releases | Planned |
 | [M3 — Design](#m3-design) | A dark, clear and robust visitor experience, designed before it is built | Planned |
 | [M4 — Operate](#m4-operate) | See and control what runs: admin UI, metrics, logs | Planned |
@@ -29,7 +29,6 @@ the control plane and its nodes on different networks.
 
 | Item | Replaces | Notes |
 |---|---|---|
-| Published images on GitHub Packages (`ghcr.io`) for the node (agent + gateway) and the control plane, multi-arch, built by CI on `main` and on tags | Images built locally | Decide whether the sample `cli-hello` image is published too |
 | YAML configuration validated by one JSON Schema, shared by TypeScript and Go | JSON configuration | Clear errors at startup; the schema is documented |
 | HTTPS with mutual TLS between the control plane and the agent | HTTP + token | ADR; the agent still never calls the control plane |
 | Per-IP limits on ticket creation and on open event streams | No rate limiting | Also bounds waiting tickets kept alive by half-open streams (ADR 0012) |
@@ -119,3 +118,6 @@ and session metrics.
   [0011](decisions/0011-queue-implementation.md).
 - Ticket changes pushed over SSE, with Postgres `LISTEN/NOTIFY` across instances. The open
   stream is the heartbeat. See ADR [0012](decisions/0012-ticket-push-sse.md).
+- **M1:** multi-architecture images on `ghcr.io` for the node, the control plane and the sample
+  project, published by CI on `main` and on tags. See [Published images](published-images.md)
+  and ADR [0013](decisions/0013-published-images.md).

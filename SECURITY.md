@@ -119,7 +119,9 @@ Internet.
 - **Keep the kernel, Docker, runc (≥ 1.2.8 or 1.3.3) and gVisor up to date.** Several past
   container escapes (CVE-2019-5736, CVE-2024-21626, CVE-2025-31133/52565/52881) were fixed in
   runc.
-- **Pin project images by digest**, and do not build images on the node.
+- **Pin project images by digest**, and do not build images on the node. Run Tryout itself from
+  the published images (see the Published images page, `docs/published-images.md`), pinned
+  by digest, and check their provenance.
 - **Keep AppArmor and seccomp enabled** on the host.
 - **Keep PostgreSQL private to the control plane.** Never expose it on a network that nodes or
   the Internet can reach, and use a strong password. It holds the ids of live sessions.

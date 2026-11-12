@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
 
 permissions:
@@ -10,7 +11,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a run that may be publishing images.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   node:
@@ -71,30 +73,112 @@ jobs:
       - run: shellcheck scripts/*.sh examples/*/*.sh
 
   images:
-    name: Images (amd64 + arm64)
+    # Pull requests: build only, with a read-only token.
+    name: Image ${{ matrix.name }} (amd64 + arm64)
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: tryout-node
+            context: apps/node
+            description: Tryout node, agent and gateway binaries in one image
+          - name: tryout-control-plane
+            context: apps/control-plane
+            description: Tryout control plane, queue and embed page
+          - name: tryout-example-cli-hello
+            context: examples/cli-hello
+            description: Sample Tryout terminal project (ttyd)
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
-      - name: Node image
-        uses: docker/build-push-action@v7
+      - uses: docker/build-push-action@v7
         with:
-          context: apps/node
+          context: ${{ matrix.context }}
           platforms: linux/amd64,linux/arm64
           push: false
-      - name: Control plane image
+          cache-from: type=gha,scope=${{ matrix.name }}
+
+  publish:
+    # main and v* tags: build and push to ghcr.io, only after every test passed.
+    # See docs/published-images.md and ADR 0013.
+    name: Publish ${{ matrix.name }} (amd64 + arm64)
+    if: github.event_name == 'push'
+    needs: [node, control-plane, shellcheck, e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: tryout-node
+            context: apps/node
+            description: Tryout node, agent and gateway binaries in one image
+          - name: tryout-control-plane
+            context: apps/control-plane
+            description: Tryout control plane, queue and embed page
+          - name: tryout-example-cli-hello
+            context: examples/cli-hello
+            description: Sample Tryout terminal project (ttyd)
+    steps:
+      - uses: actions/checkout@v7
+      - name: Image name
+        id: name
+        # The namespace follows the repository owner, so a fork publishes to its own.
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.name }}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@v6
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+        with:
+          images: ${{ steps.name.outputs.image }}
+          tags: |
+            type=edge,branch=main
+            type=sha,format=short
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.name }}
+            org.opencontainers.image.description=${{ matrix.description }}
+          annotations: |
+            org.opencontainers.image.description=${{ matrix.description }}
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        id: build
         uses: docker/build-push-action@v7
         with:
-          context: apps/control-plane
+          context: ${{ matrix.context }}
           platforms: linux/amd64,linux/arm64
-          push: false
-      - name: Example CLI project
-        uses: docker/build-push-action@v7
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+      - name: GitHub build attestation
+        # Artifact attestations need a public repository on GitHub's free plans.
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest@v4
         with:
-          context: examples/cli-hello
-          platforms: linux/amd64,linux/arm64
-          push: false
+          subject-name: ${{ steps.name.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
 
   e2e:
     name: End-to-end (dev profile)

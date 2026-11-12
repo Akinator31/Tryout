@@ -18,6 +18,7 @@ nav = [
   { "Guides" = [
     "configuration.md",
     "project-images.md",
+    "published-images.md",
     "exposure.md",
     "performance.md",
   ] },
@@ -36,6 +37,7 @@ nav = [
     "decisions/0010-fresh-container-per-session.md",
     "decisions/0011-queue-implementation.md",
     "decisions/0012-ticket-push-sse.md",
+    "decisions/0013-published-images.md",
   ] },
   { "Project" = [
     "roadmap.md",
