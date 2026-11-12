@@ -43,15 +43,30 @@ services:
     restart: unless-stopped
 
   control-plane:
-    image: node:24-alpine
-    working_dir: /app
-    command: ["node", "src/server.ts"]
+    build: ../apps/control-plane
     environment:
       TRYOUT_CONFIG: /app/config.json
+      DATABASE_URL: postgres://tryout:tryout@postgres:5432/tryout
     volumes:
-      - ../apps/control-plane/src:/app/src:ro
       - ./config.dev.json:/app/config.json:ro
     ports: ["3000:3000"]
+    networks: [control]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: tryout
+      POSTGRES_PASSWORD: tryout   # dev only
+      POSTGRES_DB: tryout
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tryout"]
+      interval: 2s
+      retries: 30
+    volumes:
+      - postgres:/var/lib/postgresql/data
     networks: [control]
     restart: unless-stopped
 
@@ -60,3 +75,4 @@ networks:
 
 volumes:
   gateway-admin: {}
+  postgres: {}
