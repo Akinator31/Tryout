@@ -56,6 +56,9 @@ Key facts that are easy to forget:
 - **Measured costs**: gVisor uses 2–2.5× the CPU of runc for Selkies desktops on a Raspberry Pi 5,
   with negligible overhead for terminals. Without the resolution cap, a HiDPI client pushes near-4K
   at 60 fps and saturates a small node.
+- **Config schema**: `schema/tryout.schema.json` validates the control plane's YAML and the
+  agent's `POST /v1/sessions` body (`$defs/workload` is shared). Edit only that file, then run
+  `scripts/sync-schema.sh` to refresh its three copies; tests and CI fail on a stale copy.
 - **Docker client**: a hand-written Engine API client (`apps/node/internal/dockerapi`, API
   v1.47), with no SDK dependency.
 - **Docker Desktop**: its socket is `root:root` inside the VM, which is why the dev compose runs
@@ -66,7 +69,8 @@ Key facts that are easy to forget:
 ```
 apps/control-plane/   TypeScript, Node ≥ 24 (native type stripping); queue.ts is the core module
 apps/node/            Go: cmd/agent, cmd/gateway, internal/dockerapi; one image, two binaries
-deploy/               compose.dev.yaml, config.dev.json, .env.example
+deploy/               compose.dev.yaml, tryout.dev.yaml (control plane config), .env.example
+schema/               tryout.schema.json (source of truth) + testdata/ fixtures shared by TS and Go
 examples/cli-hello/   sample terminal project (ttyd)
 scripts/              e2e-cli.ts, e2e-queue.ts, e2e-sse.ts, feasibility-node.sh
 docs/                 Zensical documentation (English); decisions/ holds the ADRs
@@ -91,7 +95,8 @@ vault with the original stack study (in French) and its sources.
     refusal;
   - Selkies under gVisor on a Raspberry Pi 5 (arm64), behind a base path.
 - The roadmap is organised in milestones (`docs/roadmap.md`): M1 Deployable is in progress
-  (ghcr.io images done, ADR 0013; next: YAML + JSON Schema config, mTLS, rate limiting), then
+  (ghcr.io images done, ADR 0013; YAML config + JSON Schema done, ADR 0014; next: mTLS, rate
+  limiting), then
   M2 Live, M3 Design (theme, Figma, React embed; the UI kit is chosen there), M4 Operate, M5
   Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to

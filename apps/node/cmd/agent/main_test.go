@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/Akinator31/Tryout/apps/node/internal/spec"
 )
 
 func testAgent(profile string, allowRunc bool) *agent {
@@ -115,5 +117,51 @@ func TestContainerSpecHardening(t *testing.T) {
 	_ = term.validate(a)
 	if !a.containerSpec(term, "net").HostConfig.ReadonlyRootfs {
 		t.Error("terminal sessions must have a read-only rootfs")
+	}
+}
+
+func TestParseSessionReqUsesSchema(t *testing.T) {
+	a := testAgent("dev", false)
+	ok := `{"id":"` + strings.Repeat("a", 26) + `","project":"p","image":"img","kind":"terminal","port":7681,"max_age_s":60}`
+	r, err := a.parseSessionReq([]byte(ok))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Runtime != "runsc" || r.Limits.Pids != 128 {
+		t.Errorf("policy defaults not applied: %+v", r)
+	}
+	unknown := strings.Replace(ok, `"port":7681`, `"port":7681,"privileged":true`, 1)
+	if _, err := a.parseSessionReq([]byte(unknown)); err == nil || !strings.Contains(err.Error(), "/privileged") {
+		t.Errorf("unknown field must be rejected by the schema: %v", err)
+	}
+}
+
+// The schema's reserved names must be exactly what the agent locks, or the
+// control plane would accept a configuration the agent then refuses (or the
+// reverse).
+func TestSchemaReservedEnvMatchesLockedEnv(t *testing.T) {
+	names, prefixes := spec.ReservedEnv()
+	if !slices.Equal(prefixes, []string{"TRYOUT_"}) {
+		t.Errorf("reserved prefixes: %v", prefixes)
+	}
+	want := map[string]bool{}
+	for _, kind := range []string{"terminal", "desktop"} {
+		for k := range lockedEnv(sessionReq{Kind: kind}) {
+			if !strings.HasPrefix(k, "TRYOUT_") {
+				want[k] = true
+			}
+		}
+	}
+	got := map[string]bool{}
+	for _, n := range names {
+		got[n] = true
+		if !isReservedEnv(n) {
+			t.Errorf("schema reserves %s but the agent does not lock it", n)
+		}
+	}
+	for k := range want {
+		if !got[k] {
+			t.Errorf("agent locks %s but the schema does not reserve it", k)
+		}
 	}
 }

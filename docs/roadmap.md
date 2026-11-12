@@ -29,7 +29,6 @@ the control plane and its nodes on different networks.
 
 | Item | Replaces | Notes |
 |---|---|---|
-| YAML configuration validated by one JSON Schema, shared by TypeScript and Go | JSON configuration | Clear errors at startup; the schema is documented |
 | HTTPS with mutual TLS between the control plane and the agent | HTTP + token | ADR; the agent still never calls the control plane |
 | Per-IP limits on ticket creation and on open event streams | No rate limiting | Also bounds waiting tickets kept alive by half-open streams (ADR 0012) |
 | Unit test for the node-postgres `LISTEN` reconnect | Manual check | Follow-up of ADR 0012 |
@@ -121,3 +120,6 @@ and session metrics.
 - **M1:** multi-architecture images on `ghcr.io` for the node, the control plane and the sample
   project, published by CI on `main` and on tags. See [Published images](published-images.md)
   and ADR [0013](decisions/0013-published-images.md).
+- **M1:** YAML configuration validated by one JSON Schema, shared by the control plane and the
+  agent, with every error reported at startup. See [Configuration](configuration.md) and ADR
+  [0014](decisions/0014-yaml-configuration-json-schema.md).

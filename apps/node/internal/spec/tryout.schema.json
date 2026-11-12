@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://akinator31.github.io/Tryout/schema/v1/tryout.schema.json",
+  "title": "Tryout control plane configuration",
+  "description": "Configuration file of the Tryout control plane. $defs/session_request is the agent API contract for POST /v1/sessions; it shares $defs/workload with the project definition.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["embed_frame_ancestors", "nodes", "projects"],
+  "properties": {
+    "listen": {
+      "description": "Address the control plane listens on, as [host]:port.",
+      "type": "string",
+      "pattern": "^[^\\s]*:[0-9]{1,5}$",
+      "default": ":3000"
+    },
+    "embed_frame_ancestors": {
+      "description": "Origins allowed to embed /embed/<project> in an iframe ('self' is always allowed).",
+      "type": "array",
+      "items": { "$ref": "#/$defs/origin" },
+      "uniqueItems": true
+    },
+    "nodes": {
+      "description": "Nodes (agent + gateway) by name.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/node" },
+      "minProperties": 1
+    },
+    "projects": {
+      "description": "Projects by name; the name is the one used in /embed/<project>.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/project" },
+      "minProperties": 1
+    }
+  },
+  "$defs": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+    },
+    "origin": {
+      "description": "A scheme and host, with an optional port and an optional leading wildcard label: https://example.org, https://*.example.org, http://localhost:3000.",
+      "type": "string",
+      "pattern": "^https?://(\\*\\.)?[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)*(:[0-9]{1,5})?$"
+    },
+    "duration": {
+      "description": "A duration such as 90s, 15m or 1h30m.",
+      "type": "string",
+      "minLength": 2,
+      "pattern": "^([0-9]+h)?([0-9]+m)?([0-9]+s)?$"
+    },
+    "session_url": {
+      "type": "string",
+      "pattern": "^https?://[^\\s]*\\{session\\}"
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent_url", "agent_token", "public_url", "max_sessions"],
+      "properties": {
+        "agent_url": {
+          "description": "URL of the agent's private API.",
+          "type": "string",
+          "pattern": "^https?://[^\\s/]+$"
+        },
+        "agent_token": {
+          "description": "Token shared with the agent (AGENT_TOKEN). Use ${VAR} to read it from the environment.",
+          "type": "string",
+          "minLength": 16
+        },
+        "public_url": {
+          "description": "URL template loaded by the browser; {session} is replaced by the session id.",
+          "$ref": "#/$defs/session_url"
+        },
+        "probe_url": {
+          "description": "URL template reachable from the control plane, to check that a session answers. Defaults to public_url.",
+          "$ref": "#/$defs/session_url"
+        },
+        "max_sessions": {
+          "description": "Cap on concurrent sessions on the node, all projects combined.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/workload" }],
+      "unevaluatedProperties": false,
+      "required": ["node", "max_sessions", "max_age"],
+      "properties": {
+        "node": { "description": "Node that runs the project.", "$ref": "#/$defs/name" },
+        "max_sessions": {
+          "description": "Concurrent sessions for this project. Later visitors wait in the queue.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_age": { "description": "Maximum session age.", "$ref": "#/$defs/duration" }
+      }
+    },
+    "session_request": {
+      "description": "Body of the agent's POST /v1/sessions.",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/workload" }],
+      "unevaluatedProperties": false,
+      "required": ["id", "project", "max_age_s"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9]{26}$" },
+        "project": { "$ref": "#/$defs/name" },
+        "max_age_s": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "workload": {
+      "description": "What runs in a session container. Shared by the configuration and the agent API.",
+      "type": "object",
+      "required": ["image", "kind", "port"],
+      "properties": {
+        "image": {
+          "description": "Docker image, preferably pinned by digest.",
+          "type": "string",
+          "pattern": "^[^\\s]+$"
+        },
+        "kind": {
+          "description": "Selects the hardening profile.",
+          "enum": ["terminal", "desktop"]
+        },
+        "port": {
+          "description": "HTTP port of the container.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "runtime": {
+          "description": "Container runtime (runsc, runc...). Defaults to the node's runtime.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "strip_prefix": {
+          "description": "Strip /s/<id> before forwarding, for an application that cannot serve under a base path.",
+          "type": "boolean"
+        },
+        "limits": {
+          "description": "Resource limits; defaults depend on the kind.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "memory_mb": { "type": "integer", "minimum": 16 },
+            "cpus": { "type": "number", "exclusiveMinimum": 0 },
+            "pids": { "type": "integer", "minimum": 16 }
+          }
+        },
+        "env": {
+          "description": "Project environment variables. Variables set by the agent are reserved.",
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "not": { "$ref": "#/$defs/reserved_env" }
+          },
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "reserved_env": {
+      "description": "Variables set by the agent, which a project cannot override. Must match the agent's locked environment.",
+      "type": "string",
+      "anyOf": [
+        { "type": "string", "pattern": "^TRYOUT_" },
+        {
+          "type": "string",
+          "enum": [
+            "HOME",
+            "PUID",
+            "PGID",
+            "SUBFOLDER",
+            "HARDEN_DESKTOP",
+            "START_DOCKER",
+            "NO_GAMEPAD",
+            "SELKIES_FILE_TRANSFERS",
+            "SELKIES_MICROPHONE_ENABLED",
+            "SELKIES_WEBCAM_ENABLED",
+            "SELKIES_PRINTING_ENABLED",
+            "SELKIES_GAMEPAD_ENABLED",
+            "SELKIES_SECOND_SCREEN"
+          ]
+        }
+      ]
+    }
+  }
+}
