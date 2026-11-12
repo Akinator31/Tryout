@@ -24,7 +24,6 @@ const wire = (v: TicketView) => ({
 });
 
 export function createHandler(cfg: Config, queue: Queue) {
-  const stream = (ticket: string, req: IncomingMessage, res: ServerResponse) => streamTicket(queue, ticket, req, res);
   return async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://x");
     const parts = url.pathname.split("/").filter(Boolean);
@@ -57,7 +56,7 @@ export function createHandler(cfg: Config, queue: Queue) {
     // GET /api/tickets/:id/events — SSE stream of the ticket's view (ADR 0012).
     // While the stream is open, the ticket's heartbeat is kept alive.
     if (req.method === "GET" && parts[0] === "api" && parts[1] === "tickets" && parts[3] === "events" && parts.length === 4) {
-      return stream(parts[2], req, res);
+      return streamTicket(queue, parts[2], req, res);
     }
 
     // GET /api/tickets/:id — poll (doubles as heartbeat)
@@ -95,11 +94,17 @@ async function streamTicket(queue: Queue, ticket: string, req: IncomingMessage, 
     open = false;
     unwatch();
   });
-  const stop = await queue.watch(ticket, (v) => {
-    if (!open) return;
-    if (v) res.write(`event: ticket\ndata: ${JSON.stringify(wire(v))}\n\n`);
-    if (!v || v.state === "ended") res.end();
-  });
+  let stop: () => void;
+  try {
+    stop = await queue.watch(ticket, (v) => {
+      if (!open) return;
+      if (v) res.write(`event: ticket\ndata: ${JSON.stringify(wire(v))}\n\n`);
+      if (!v || v.state === "ended") res.end();
+    });
+  } catch (e) {
+    res.end(); // headers are sent: end the stream so the browser reconnects
+    throw e;
+  }
   if (open) unwatch = stop;
   else stop(); // the visitor left while watch() was resolving
 }

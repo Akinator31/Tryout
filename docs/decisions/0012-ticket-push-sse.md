@@ -37,7 +37,7 @@ and replaces the 2 s polling of [0011](0011-queue-implementation.md) in the embe
   subscription, the heartbeat and the resynchronisation; the HTTP layer only writes events. The
   `Db` port gains `listen(channel, onNotify, onConnect)`. node-postgres uses a dedicated
   connection outside the pool and reconnects after 1 s. PGlite uses its built-in `listen`.
-- **Countdown**: every view carries `ends_in_s`; the page counts down locally between messages.
+- **Countdown**: every `active` view carries `ends_in_s`; the page counts down locally between messages.
 - **Polling stays**: `GET /api/tickets/<ticket>` still works and still counts as a heartbeat, for
   scripts and clients without `EventSource`.
 
@@ -46,12 +46,17 @@ and replaces the 2 s polling of [0011](0011-queue-implementation.md) in the embe
 - A promotion reaches the visitor as soon as the transaction commits, and a waiting visitor
   costs one open connection instead of one request every 2 s.
 - Each instance holds one more Postgres connection, for `LISTEN`.
+- The notification trigger uses `CREATE OR REPLACE TRIGGER`, so PostgreSQL 14 or later is
+  required.
 - Browsers allow only six HTTP/1.1 connections per origin. More than five embeds of the same
   control plane on one page would block, so serve the control plane over HTTP/2 (see
   [Public exposure](../exposure.md)).
 - A peer that vanishes without closing its connection (sleeping laptop, dropped network) keeps
-  its ticket alive until the TCP connection or the proxy times out, instead of 30 s. The
-  project's maximum age still bounds it. The server enables TCP keepalive on the stream's
-  socket to shorten this on direct connections.
+  its ticket alive until the TCP connection or the proxy times out, instead of 30 s. For an
+  active session the project's maximum age still bounds it; a waiting ticket has no such bound
+  and keeps its place in line. The server enables TCP keepalive on the stream's socket (first
+  probe after 10 s): with Linux defaults (9 probes, 75 s apart) a vanished peer on a direct
+  connection is dropped after about 11 minutes. Behind a proxy, the proxy's own timeouts
+  apply.
 - There is no cap on open streams per IP yet; it comes with the rate limiting on the
   [Roadmap](../roadmap.md).

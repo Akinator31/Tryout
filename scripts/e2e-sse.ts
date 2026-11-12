@@ -15,6 +15,9 @@ async function stream(ticket: string) {
   if (res.status !== 200 || !res.headers.get("content-type")?.startsWith("text/event-stream")) {
     fail(`stream refused: ${res.status} ${res.headers.get("content-type")}`);
   }
+  if (res.headers.get("cache-control") !== "no-store" || res.headers.get("x-accel-buffering") !== "no") {
+    fail("stream must not be cached or buffered");
+  }
   const views: any[] = [];
   const closed = (async () => {
     let buf = "";

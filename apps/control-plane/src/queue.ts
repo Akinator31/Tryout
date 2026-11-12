@@ -207,13 +207,15 @@ export async function createQueue(deps: {
   let delivery: Promise<void> = Promise.resolve();
   let lastResync = now();
 
+  const ticketsOf = (ws: Iterable<Watcher>) => [...new Set([...ws].map((w) => w.ticket))];
+
   function refresh(targets: Watcher[]): Promise<void> {
     if (targets.length === 0) return delivery;
     delivery = delivery
       .then(async () => {
         const live = targets.filter((w) => watchers.has(w));
         if (live.length === 0) return;
-        const rows = await db.query<Row>(SELECT_WITH_POSITION, [[...new Set(live.map((w) => w.ticket))]]);
+        const rows = await db.query<Row>(SELECT_WITH_POSITION, [ticketsOf(live)]);
         const byId = new Map(rows.map((r) => [r.id, r]));
         for (const w of live) {
           if (!watchers.has(w)) continue;
@@ -318,7 +320,8 @@ export async function createQueue(deps: {
         `UPDATE tickets SET last_seen = $2 WHERE id = $1 AND state <> 'ended' RETURNING project`,
         [ticket, now()],
       );
-      // Unknown or ended tickets still get one delivery (null or the ended view).
+      // Unknown or ended tickets still get one delivery (null or the ended view),
+      // then stop; they match no project's notifications in the meantime.
       const w: Watcher = { ticket, project: row?.project ?? "", listener };
       watchers.add(w); // before the first read, so no change is missed
       await refresh([w]);
@@ -333,7 +336,7 @@ export async function createQueue(deps: {
       const t = now();
       if (watchers.size > 0) {
         await db.query(`UPDATE tickets SET last_seen = $2 WHERE id = ANY($1::text[]) AND state <> 'ended'`, [
-          [...new Set([...watchers].map((w) => w.ticket))],
+          ticketsOf(watchers),
           t,
         ]);
       }

@@ -4,7 +4,7 @@
 
 | Variable | Role |
 |---|---|
-| `DATABASE_URL` | Required. PostgreSQL connection string; the schema is created at startup. |
+| `DATABASE_URL` | Required. PostgreSQL (14 or later) connection string; the schema is created at startup. |
 | `TRYOUT_CONFIG` | Path of the JSON configuration file (default `config.json`). |
 
 The configuration file (see `deploy/config.dev.json`):
