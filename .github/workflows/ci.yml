@@ -73,11 +73,41 @@ jobs:
       - run: shellcheck scripts/*.sh examples/*/*.sh
 
   images:
-    # Built on every run; pushed to ghcr.io only from main and version tags,
-    # and only after every test passed. See docs/published-images.md.
+    # Pull requests: build only, with a read-only token.
     name: Image ${{ matrix.name }} (amd64 + arm64)
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: tryout-node
+            context: apps/node
+            description: Tryout node, agent and gateway binaries in one image
+          - name: tryout-control-plane
+            context: apps/control-plane
+            description: Tryout control plane, queue and embed page
+          - name: tryout-example-cli-hello
+            context: examples/cli-hello
+            description: Sample Tryout terminal project (ttyd)
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/amd64,linux/arm64
+          push: false
+          cache-from: type=gha,scope=${{ matrix.name }}
+
+  publish:
+    # main and v* tags: build and push to ghcr.io, only after every test passed.
+    # See docs/published-images.md and ADR 0013.
+    name: Publish ${{ matrix.name }} (amd64 + arm64)
+    if: github.event_name == 'push'
     needs: [node, control-plane, shellcheck, e2e]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -96,8 +126,6 @@ jobs:
           - name: tryout-example-cli-hello
             context: examples/cli-hello
             description: Sample Tryout terminal project (ttyd)
-    env:
-      PUSH: ${{ github.event_name == 'push' }}
     steps:
       - uses: actions/checkout@v7
       - name: Image name
@@ -124,20 +152,18 @@ jobs:
             org.opencontainers.image.description=${{ matrix.description }}
           annotations: |
             org.opencontainers.image.description=${{ matrix.description }}
-      - name: Log in to ghcr.io
-        if: env.PUSH == 'true'
-        uses: docker/login-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build${{ github.event_name == 'push' && ' and push' || '' }}
+      - name: Build and push
         id: build
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
           platforms: linux/amd64,linux/arm64
-          push: ${{ env.PUSH == 'true' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
@@ -147,7 +173,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
       - name: GitHub build attestation
         # Artifact attestations need a public repository on GitHub's free plans.
-        if: env.PUSH == 'true' && !github.event.repository.private
+        if: ${{ !github.event.repository.private }}
         uses: actions/attest@v4
         with:
           subject-name: ${{ steps.name.outputs.image }}

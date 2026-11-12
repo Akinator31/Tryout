@@ -21,10 +21,12 @@ main repository. A fork publishes to its own namespace with no change to the wor
 | `1` | the latest `v1.x.y` release (not created for `0.x`) | |
 | `latest` | the latest release | evaluation only |
 | `edge` | the latest commit on `main` | testing unreleased changes |
-| `sha-<commit>` | one commit (seven characters) | reproducing a build |
+| `sha-<commit>` | one published commit (seven characters) | reproducing a build |
 
 Images are pushed only after the unit, integration and end-to-end tests of the same commit
-passed. Pull requests build the images without pushing them.
+passed. Pull requests build the images without pushing them. When several commits land on `main`
+in quick succession, CI may skip the queued runs in between, so not every commit gets a
+`sha-*` tag.
 
 **Pin by digest in production**, as for project images:
 
@@ -55,6 +57,7 @@ gh attestation verify oci://ghcr.io/akinator31/tryout-node:edge --repo Akinator3
 
 ## Visibility
 
-Packages published from a private repository are private. After making a repository public,
-open each package's settings on GitHub (**Packages → Package settings → Change visibility**) and
-make it public, or nodes will need a registry login to pull.
+A package published to `ghcr.io` for the first time can be private, whatever the repository's
+visibility. After the first publication, and after making a repository public, open each
+package's settings on GitHub (**Packages → Package settings → Change visibility**) and check that
+it is public, or nodes will need a registry login to pull.
