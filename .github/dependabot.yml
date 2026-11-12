@@ -12,7 +12,15 @@ updates:
     directory: /apps/control-plane
     schedule: { interval: weekly }
     commit-message: { prefix: build }
+    ignore:
+      # Types must match the Node runtime; move both together to the next LTS on purpose.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directories: [/apps/node, /apps/control-plane, /examples/cli-hello]
     schedule: { interval: weekly }
     commit-message: { prefix: build }
+    ignore:
+      # Node majors are chosen deliberately (LTS only), together with @types/node.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
