@@ -18,13 +18,26 @@ for graphical ones. Each project is assigned to a node.
 
 ### Control plane — `apps/control-plane`
 
+| Module | Role |
+|---|---|
+| `queue.ts` | **The core.** Interface: `join`, `poll`, `release`, `tick`. Behind it: per-project and per-node caps, FIFO promotion, session start, heartbeat loss, maximum age, start timeout. State lives in Postgres. |
+| `runtime.ts` | `SessionRuntime` adapter for real nodes: agent API + readiness probe through the gateway. Tests use an in-memory adapter. |
+| `db.ts` | Database port; adapters for node-postgres and, in tests, PGlite. |
+| `http.ts` | Embed page, demo page, queue API. Thin. |
+| `config.ts`, `server.ts` | Configuration loading and wiring. |
+
+What it does:
+
 - Loads the configuration (nodes and projects).
 - Manages **tickets**: a visitor joins a project's queue and waits for a free slot.
 - Enforces two caps: sessions per project and sessions per node.
 - Starts a session through the agent, checks that it answers through the gateway, then hands
   the URL to the browser.
-- Ends a session when the visitor leaves, when the heartbeat is lost (~30 s), or when the
-  maximum age is reached.
+- Ends a session when the visitor leaves, when the heartbeat is lost (~30 s), when the
+  maximum age is reached, or when a start takes more than 180 s.
+- Keeps its state in **Postgres**: sessions survive a control plane restart, and several
+  instances can share one database. Promotion is serialized by a transaction-scoped advisory
+  lock, so caps hold even with concurrent instances.
 - Serves the `/embed/<project>` page that portfolios embed in an iframe.
 
 ### Agent — `apps/node/cmd/agent`
@@ -68,7 +81,7 @@ for graphical ones. Each project is assigned to a node.
 ## Repository layout
 
 ```
-apps/control-plane/   control plane (TypeScript, Node ≥ 24, no runtime dependency)
+apps/control-plane/   control plane (TypeScript, Node ≥ 24, Postgres via node-postgres)
 apps/node/            agent + gateway (Go), one binary each, one image
 deploy/               dev compose file, sample configuration
 examples/             sample project images

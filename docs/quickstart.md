@@ -25,6 +25,7 @@ opens an iframe to `/embed/<project>`.
 | control plane | `localhost:3000` | queue and embed page |
 | gateway | `localhost:8080` | public proxy for sessions (`/s/<id>/`) |
 | agent | internal network only | creates and destroys sessions |
+| postgres | internal network only | control plane state (queue, sessions) |
 
 The `webtop` project downloads about 4 GB the first time.
 
@@ -34,7 +35,7 @@ The `webtop` project downloads about 4 GB the first time.
 node scripts/e2e-cli.ts      # queue → gateway → ttyd WebSocket → commands
 node scripts/e2e-queue.ts    # session cap, promotion, heartbeat loss
 (cd apps/node && go test ./...)
-(cd apps/control-plane && npm ci && npm run typecheck)
+(cd apps/control-plane && npm ci && npm run typecheck && npm test)
 ```
 
 ## Stop

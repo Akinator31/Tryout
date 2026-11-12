@@ -1,6 +1,6 @@
 # 0007 — Queue and leases in Postgres
 
-**Status:** accepted (the POC uses an in-memory queue)
+**Status:** accepted, implemented; refined by [0011](0011-queue-implementation.md)
 
 ## Context
 
@@ -23,4 +23,6 @@
 ## Consequences
 
 - One dependency (Postgres) and no Redis.
-- The POC's in-memory scheduler already implements the same semantics, to be ported.
+- State survives control plane restarts; several instances can share one database.
+- How the decision was implemented, and where it departs from the text above, is recorded in
+  [0011](0011-queue-implementation.md).

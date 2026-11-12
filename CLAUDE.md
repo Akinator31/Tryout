@@ -64,7 +64,7 @@ Key facts that are easy to forget:
 ## Repository layout
 
 ```
-apps/control-plane/   TypeScript, Node ≥ 24 (native type stripping), no runtime deps
+apps/control-plane/   TypeScript, Node ≥ 24 (native type stripping); queue.ts is the core module
 apps/node/            Go: cmd/agent, cmd/gateway, internal/dockerapi; one image, two binaries
 deploy/               compose.dev.yaml, config.dev.json, .env.example
 examples/cli-hello/   sample terminal project (ttyd)
@@ -90,12 +90,35 @@ vault with the original stack study (in French) and its sources.
   - terminal and desktop sessions, queue, heartbeat loss, cleanup, network isolation, profile
     refusal;
   - Selkies under gVisor on a Raspberry Pi 5 (arm64), behind a base path.
-- The POC shortcuts still in place are listed in `docs/roadmap.md`: in-memory queue (target:
-  Postgres), polling (target: SSE), plain HTML embed page (target: React + Chakra UI), JSON config
+- The POC shortcuts still in place are listed in `docs/roadmap.md`: polling (target: SSE),
+  plain HTML embed page (target: React + Chakra UI), JSON config
   (target: YAML + JSON Schema), HTTP between control plane and agent (target: mTLS), path routing
   only.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module
   `github.com/Akinator31/Tryout/apps/node`, docs at <https://akinator31.github.io/Tryout/>).
+- Queue state is in Postgres (`apps/control-plane/src/queue.ts`, ADRs 0007 and 0011), tested through its
+  interface with PGlite locally and PostgreSQL in CI.
+- UI work (React embed page, admin) starts from the maintainer's **Figma** designs. Ask for the
+  Figma file before designing any screen.
+
+## Workflow skills
+
+The `mattpocock-skills:*` skills are available. Use them at these moments:
+
+| Moment | Skill |
+|---|---|
+| Before a large piece of work (queue model, mTLS, config format…) | `grilling`, to stress-test the design with the maintainer |
+| Before restructuring a component or adding a module | `codebase-design` |
+| Implementing behaviour with clear rules (queue, leases, agent policy) | `tdd` |
+| Naming and domain vocabulary | `domain-modeling`; ADRs stay in `docs/decisions/` |
+| Exploring a UI from the Figma designs | `prototype` |
+| Steps only a human can do (rootless daemon, gVisor, KVM VM, tunnels) | `wizard` |
+| A real bug or a regression | `diagnosing-bugs` |
+| Before opening or merging a PR | `code-review`, including the security invariants below |
+| Editing this file | `writing-for-agents` |
+
+The rules below take precedence over any skill convention: commit format, no AI mentions, ADR
+location, English only.
 
 ## Commands
 
@@ -103,7 +126,7 @@ vault with the original stack study (in French) and its sources.
 # Go (node)
 (cd apps/node && test -z "$(gofmt -l .)" && go vet ./... && go test -race ./...)
 # TypeScript (control plane)
-(cd apps/control-plane && npm ci && npm run typecheck)
+(cd apps/control-plane && npm ci && npm run typecheck && npm test)   # TEST_DATABASE_URL for real Postgres
 # Shell
 shellcheck scripts/*.sh examples/*/*.sh
 # Docs
@@ -135,11 +158,15 @@ CI (`.github/workflows/ci.yml`) runs all of the above, plus multi-arch image bui
   date.
 - **Keep the docs in mind**: re-read the relevant pages (see above) before designing or changing
   something, rather than relying on memory.
+- **Pull requests**: open one when a feature is finished, after running `code-review` and fixing
+  its findings. Check Dependabot PRs regularly and recommend merge or close; ask the maintainer
+  before merging or closing.
 - **Remember across sessions**: save anything worth keeping between sessions in the persistent
   memory: decisions, the maintainer's preferences, environment facts that must not go into this
   public repository. Update this file when the project's state or rules change.
 - **Security invariants** (do not weaken without an ADR and a `SECURITY.md` update):
   - only the agent has a Docker socket;
+  - PostgreSQL is reachable by the control plane only;
   - the hardening is hard-coded in the agent, not configurable;
   - sessions have no egress;
   - nodes never call the control plane;
