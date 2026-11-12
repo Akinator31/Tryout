@@ -18,7 +18,8 @@
 - To admit a ticket: lock the project row, count assigned, starting, active and draining
   sessions, then promote the oldest waiting ticket with `SKIP LOCKED`.
 - Timings: heartbeat ~10 s, lease lost after ~30 s, maximum age per project.
-- Push changes to browsers with `LISTEN/NOTIFY` and SSE.
+- Push changes to browsers with `LISTEN/NOTIFY` and SSE (implemented in
+  [0012](0012-ticket-push-sse.md)).
 
 ## Consequences
 

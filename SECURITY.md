@@ -64,7 +64,7 @@ can turn them off.
 | Session authentication | The URL carries a 130-bit random id, checked on every request, WebSocket included. No cookies. |
 | Response headers | The gateway rewrites every response, whatever the session serves: enforced `frame-ancestors`; `X-Frame-Options`, `Set-Cookie` and `Service-Worker-Allowed` stripped; `Referrer-Policy: no-referrer` (the URL is the secret); `nosniff`; `no-store`. Browser cookies are not forwarded to the session. |
 | Selkies features | File transfer, microphone, webcam, printing, gamepads and second screen are disabled and locked. The visitor cannot re-enable them. |
-| Lifetime | Maximum session age. A session ends about 30 s after its heartbeat is lost. The agent keeps a safety net: it removes expired containers and orphan networks even if the control plane is gone. |
+| Lifetime | Maximum session age. A session ends about 30 s after its heartbeat is lost (the event stream closes or polling stops). A peer that vanishes without closing its connection is only detected when the TCP connection or the proxy times out (about 11 minutes with Linux TCP keepalive defaults on a direct connection). The maximum age bounds an active session; a waiting ticket keeps its place until then. The agent keeps a safety net: it removes expired containers and orphan networks even if the control plane is gone. |
 | Call direction | The control plane calls the agent with a token. The node holds no credential towards the rest of the infrastructure. |
 | State store | PostgreSQL is reachable by the control plane only: the dev compose file puts it on an internal network that no node component joins. |
 | Prerequisites | The agent **refuses to start** if the declared profile is not met (see below). |
@@ -129,7 +129,7 @@ Internet.
 - **Pre-release**:
   - the control plane → agent link is HTTP with a token (no TLS or mTLS yet): expose the agent
     API on a private network only;
-  - there is no rate limiting on ticket creation yet.
+  - there is no rate limiting on ticket creation or open event streams yet.
 - **A session URL can be shared** by the visitor who received it. This is by design: it only
   grants access to that session, for its lifetime.
 - **Resource-exhaustion denial of service** remains possible within the configured limits.

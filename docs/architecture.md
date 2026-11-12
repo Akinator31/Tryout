@@ -20,10 +20,10 @@ for graphical ones. Each project is assigned to a node.
 
 | Module | Role |
 |---|---|
-| `queue.ts` | **The core.** Interface: `join`, `poll`, `release`, `tick`. Behind it: per-project and per-node caps, FIFO promotion, session start, heartbeat loss, maximum age, start timeout. State lives in Postgres. |
+| `queue.ts` | **The core.** Interface: `join`, `poll`, `watch`, `release`, `tick`. Behind it: per-project and per-node caps, FIFO promotion, session start, heartbeat loss, maximum age, start timeout, change notifications (`LISTEN/NOTIFY`). State lives in Postgres. |
 | `runtime.ts` | `SessionRuntime` adapter for real nodes: agent API + readiness probe through the gateway. Tests use an in-memory adapter. |
-| `db.ts` | Database port; adapters for node-postgres and, in tests, PGlite. |
-| `http.ts` | Embed page, demo page, queue API. Thin. |
+| `db.ts` | Database port (queries, transactions, `LISTEN`); adapters for node-postgres and, in tests, PGlite. |
+| `http.ts` | Embed page, demo page, queue API and its SSE stream. Thin. |
 | `config.ts`, `server.ts` | Configuration loading and wiring. |
 
 What it does:
@@ -38,6 +38,8 @@ What it does:
 - Keeps its state in **Postgres**: sessions survive a control plane restart, and several
   instances can share one database. Promotion is serialized by a transaction-scoped advisory
   lock, so caps hold even with concurrent instances.
+- Pushes every ticket change to the visitor over server-sent events. A trigger on the tickets
+  table sends a Postgres `NOTIFY`, so a change made by any instance reaches every instance.
 - Serves the `/embed/<project>` page that portfolios embed in an iframe.
 
 ### Agent — `apps/node/cmd/agent`
@@ -66,8 +68,11 @@ What it does:
 ## Life of a session
 
 1. The portfolio shows `/embed/my-project` in an iframe.
-2. The page creates a ticket (`POST /api/projects/my-project/tickets`) and polls
-   `GET /api/tickets/<ticket>` every 2 s. Polling doubles as the heartbeat.
+2. The page creates a ticket (`POST /api/projects/my-project/tickets`) and opens the stream
+   `GET /api/tickets/<ticket>/events`. The server pushes the ticket's view on every change and
+   every 10 s. The open stream doubles as the heartbeat
+   ([ADR 0012](decisions/0012-ticket-push-sse.md)). `GET /api/tickets/<ticket>` remains for
+   polling clients.
 3. When a slot is free, the control plane generates a 130-bit session id and calls
    `POST /v1/sessions` on the agent.
 4. The agent creates the network and the container, attaches the gateway, and publishes the

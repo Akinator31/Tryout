@@ -1,4 +1,4 @@
-// HTTP layer: embed page, demo page, queue API. Thin by design; the
+// HTTP layer: embed page, demo page, queue API and its SSE stream. Thin by design; the
 // behaviour lives in the Queue module. Covered by scripts/e2e-*.ts.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
@@ -53,6 +53,12 @@ export function createHandler(cfg: Config, queue: Queue) {
       }
     }
 
+    // GET /api/tickets/:id/events — SSE stream of the ticket's view (ADR 0012).
+    // While the stream is open, the ticket's heartbeat is kept alive.
+    if (req.method === "GET" && parts[0] === "api" && parts[1] === "tickets" && parts[3] === "events" && parts.length === 4) {
+      return streamTicket(queue, parts[2], req, res);
+    }
+
     // GET /api/tickets/:id — poll (doubles as heartbeat)
     // POST /api/tickets/:id/release — tab closed (sendBeacon)
     if (parts[0] === "api" && parts[1] === "tickets" && parts[2]) {
@@ -70,4 +76,35 @@ export function createHandler(cfg: Config, queue: Queue) {
     if (url.pathname === "/healthz") return json(res, 200, { ok: true });
     json(res, 404, { error: "not found" });
   };
+}
+
+async function streamTicket(queue: Queue, ticket: string, req: IncomingMessage, res: ServerResponse) {
+  if (!(await queue.poll(ticket))) return json(res, 404, { error: "unknown ticket" });
+  res.writeHead(200, {
+    "content-type": "text/event-stream",
+    "cache-control": "no-store",
+    "x-accel-buffering": "no", // nginx and compatible proxies: do not buffer
+  });
+  // Detect vanished peers on direct connections; behind a proxy, the proxy decides.
+  req.socket.setKeepAlive(true, 10_000);
+  res.write("retry: 3000\n\n");
+  let open = true;
+  let unwatch = () => {};
+  res.on("close", () => {
+    open = false;
+    unwatch();
+  });
+  let stop: () => void;
+  try {
+    stop = await queue.watch(ticket, (v) => {
+      if (!open) return;
+      if (v) res.write(`event: ticket\ndata: ${JSON.stringify(wire(v))}\n\n`);
+      if (!v || v.state === "ended") res.end();
+    });
+  } catch (e) {
+    res.end(); // headers are sent: end the stream so the browser reconnects
+    throw e;
+  }
+  if (open) unwatch = stop;
+  else stop(); // the visitor left while watch() was resolving
 }

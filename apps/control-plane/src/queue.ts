@@ -1,9 +1,10 @@
 // Queue: the control plane's deep module.
 //
-// Interface: join / poll / release / tick. Behind it: per-project and
-// per-node caps, FIFO promotion, session start and readiness, heartbeat
-// loss, maximum age. State lives in Postgres (ADR 0007) so several control
-// plane instances can share it; time comes from an injected clock.
+// Interface: join / poll / watch / release / tick. Behind it: per-project
+// and per-node caps, FIFO promotion, session start and readiness, heartbeat
+// loss, maximum age, change notifications. State lives in Postgres (ADR 0007)
+// so several control plane instances can share it; time comes from an
+// injected clock.
 import { randomBytes } from "node:crypto";
 import type { Db } from "./db.ts";
 
@@ -45,9 +46,16 @@ export interface Queue {
   join(project: string): Promise<TicketView>;
   /** Current state of a ticket; also counts as a heartbeat. Null if unknown. */
   poll(ticket: string): Promise<TicketView | null>;
+  /**
+   * Pushes a ticket's view to `listener`: once at once, then on every change
+   * (from any instance) and every 10 s. While watched, the ticket's heartbeat
+   * is kept alive by tick(). The last call carries the ended view, or null if
+   * the ticket is unknown or gone. Returns a function that stops watching.
+   */
+  watch(ticket: string, listener: (view: TicketView | null) => void): Promise<() => void>;
   /** The visitor leaves: ends the ticket and frees its slot. */
   release(ticket: string): Promise<TicketView | null>;
-  /** Expires tickets and promotes waiting ones. Call periodically. */
+  /** Keeps watched tickets alive, expires tickets, promotes waiting ones. Call every few seconds. */
   tick(): Promise<void>;
 }
 
@@ -58,6 +66,10 @@ const HEARTBEAT_LOST_MS = 30_000;
 // restart must not hold a slot forever. The runtime gets an AbortSignal that
 // fires at this deadline, so both sides share one timeout.
 export const START_TIMEOUT_MS = 180_000;
+// Watchers get a fresh view this often, even without changes (missed
+// notifications, countdown drift, keepalive for proxies).
+const RESYNC_MS = 10_000;
+const CHANNEL = "tryout_tickets";
 // Ended tickets stay readable for a while so the page can show why it ended.
 const FORGET_ENDED_MS = 5 * 60_000;
 const START_FAILED = "Could not start the session.";
@@ -82,6 +94,16 @@ const SCHEMA = [
   ended_at    double precision
 )`,
   `CREATE INDEX IF NOT EXISTS tickets_project_state ON tickets (project, state, seq)`,
+  // Any state change may move every waiting ticket of the project, so the
+  // payload is the project. NOTIFY is sent on commit and deduplicated per
+  // transaction; heartbeats (last_seen) do not notify.
+  `CREATE OR REPLACE FUNCTION tickets_notify() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM pg_notify('${CHANNEL}', NEW.project);
+  RETURN NULL;
+END $$`,
+  `CREATE OR REPLACE TRIGGER tickets_notify AFTER UPDATE OF state ON tickets
+  FOR EACH ROW WHEN (OLD.state IS DISTINCT FROM NEW.state) EXECUTE FUNCTION tickets_notify()`,
 ];
 
 // A waiting ticket's position: 1 + the waiting tickets of the same project ahead of it.
@@ -89,7 +111,7 @@ const SELECT_WITH_POSITION = `
   SELECT t.*, CASE WHEN t.state = 'waiting' THEN 1 + (
     SELECT count(*)::int FROM tickets o
     WHERE o.project = t.project AND o.state = 'waiting' AND o.seq < t.seq) END AS position
-  FROM tickets t WHERE t.id = $1`;
+  FROM tickets t WHERE t.id = ANY($1::text[])`;
 
 interface Row {
   id: string;
@@ -178,6 +200,45 @@ export async function createQueue(deps: {
     }
   }
 
+  // Watchers registered on this instance. Deliveries go through one chain so
+  // a listener never sees an older view after a newer one.
+  interface Watcher { ticket: string; project: string; listener: (view: TicketView | null) => void }
+  const watchers = new Set<Watcher>();
+  let delivery: Promise<void> = Promise.resolve();
+  let lastResync = now();
+
+  const ticketsOf = (ws: Iterable<Watcher>) => [...new Set([...ws].map((w) => w.ticket))];
+
+  function refresh(targets: Watcher[]): Promise<void> {
+    if (targets.length === 0) return delivery;
+    delivery = delivery
+      .then(async () => {
+        const live = targets.filter((w) => watchers.has(w));
+        if (live.length === 0) return;
+        const rows = await db.query<Row>(SELECT_WITH_POSITION, [ticketsOf(live)]);
+        const byId = new Map(rows.map((r) => [r.id, r]));
+        for (const w of live) {
+          if (!watchers.has(w)) continue;
+          const row = byId.get(w.ticket);
+          const v = row ? view(row) : null;
+          if (v === null || v.state === "ended") watchers.delete(w); // last delivery
+          try {
+            w.listener(v);
+          } catch (e) {
+            log("watch listener failed", { ticket: w.ticket, err: String(e) });
+          }
+        }
+      })
+      .catch((e) => log("watch refresh failed", { err: String(e) }));
+    return delivery;
+  }
+
+  await db.listen(
+    CHANNEL,
+    (project) => void refresh([...watchers].filter((w) => w.project === project)),
+    () => void refresh([...watchers]), // (re)connected: notifications may have been missed
+  );
+
   const ref = (row: Row): SessionRef => ({ sessionId: row.session_id!, project: row.project, node: row.node });
   const inFlight = new Map<string, AbortController>(); // starts run by this instance
 
@@ -246,13 +307,25 @@ export async function createQueue(deps: {
         [randomId(), project, p.node, now()],
       );
       await schedule();
-      const [current] = await db.query<Row>(SELECT_WITH_POSITION, [row.id]);
+      const [current] = await db.query<Row>(SELECT_WITH_POSITION, [[row.id]]);
       return view(current);
     },
     async poll(ticket) {
       await db.query(`UPDATE tickets SET last_seen = $2 WHERE id = $1 AND state <> 'ended'`, [ticket, now()]);
-      const [row] = await db.query<Row>(SELECT_WITH_POSITION, [ticket]);
+      const [row] = await db.query<Row>(SELECT_WITH_POSITION, [[ticket]]);
       return row ? view(row) : null;
+    },
+    async watch(ticket, listener) {
+      const [row] = await db.query<{ project: string }>(
+        `UPDATE tickets SET last_seen = $2 WHERE id = $1 AND state <> 'ended' RETURNING project`,
+        [ticket, now()],
+      );
+      // Unknown or ended tickets still get one delivery (null or the ended view),
+      // then stop; they match no project's notifications in the meantime.
+      const w: Watcher = { ticket, project: row?.project ?? "", listener };
+      watchers.add(w); // before the first read, so no change is missed
+      await refresh([w]);
+      return () => void watchers.delete(w);
     },
     async release(ticket) {
       await end(ticket);
@@ -261,6 +334,12 @@ export async function createQueue(deps: {
     },
     async tick() {
       const t = now();
+      if (watchers.size > 0) {
+        await db.query(`UPDATE tickets SET last_seen = $2 WHERE id = ANY($1::text[]) AND state <> 'ended'`, [
+          ticketsOf(watchers),
+          t,
+        ]);
+      }
       const expired = await db.query<{ id: string; timed_out: boolean }>(
         `SELECT id, (state = 'starting' AND start_deadline <= $3) AS timed_out FROM tickets
          WHERE state <> 'ended' AND (
@@ -272,6 +351,10 @@ export async function createQueue(deps: {
       for (const e of expired) await end(e.id, e.timed_out ? START_FAILED : undefined);
       await db.query(`DELETE FROM tickets WHERE state = 'ended' AND ended_at < $1`, [t - FORGET_ENDED_MS]);
       await schedule();
+      if (t - lastResync >= RESYNC_MS) {
+        lastResync = t;
+        void refresh([...watchers]);
+      }
     },
   };
   return queue;

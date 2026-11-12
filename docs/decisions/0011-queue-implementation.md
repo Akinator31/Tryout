@@ -29,7 +29,8 @@ details:
   as soon as the ticket ends on this instance. `tick` also expires `starting` tickets past their
   deadline, which covers an instance that died mid-start.
 - **Timings**: the browser polls every 2 s, which doubles as the heartbeat. A ticket is lost after
-  30 s without a poll. Ended tickets are kept 5 minutes so the page can show why they ended.
+  30 s without a poll. (The embed page now streams instead of polling; see
+  [0012](0012-ticket-push-sse.md).) Ended tickets are kept 5 minutes so the page can show why they ended.
 - **Clock**: times come from an injected clock (epoch milliseconds), which keeps tests
   deterministic.
 
@@ -40,4 +41,4 @@ details:
   later, at the cost of an injectable clock in tests.
 - A ticket that was `starting` on an instance that died is not resumed: it keeps its slot until
   its deadline (≤ 180 s), and the agent's reaper removes the container later.
-- `LISTEN/NOTIFY` and SSE are not implemented yet (see the [Roadmap](../roadmap.md)).
+- `LISTEN/NOTIFY` and SSE were added later, in [0012](0012-ticket-push-sse.md).

@@ -34,6 +34,7 @@ The `webtop` project downloads about 4 GB the first time.
 ```bash
 node scripts/e2e-cli.ts      # queue → gateway → ttyd WebSocket → commands
 node scripts/e2e-queue.ts    # session cap, promotion, heartbeat loss
+node scripts/e2e-sse.ts      # pushed promotion, stream as heartbeat, stream end
 (cd apps/node && go test ./...)
 (cd apps/control-plane && npm ci && npm run typecheck && npm test)
 ```
