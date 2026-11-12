@@ -2,7 +2,7 @@
 // SessionRuntime (the agent + readiness probe seam).
 import { PGlite } from "@electric-sql/pglite";
 import { pgDb, type Db, type Query } from "../src/db.ts";
-import type { SessionRuntime, StartRequest } from "../src/queue.ts";
+import type { SessionRef, SessionRuntime } from "../src/queue.ts";
 
 /** PGlite by default; a real Postgres when TEST_DATABASE_URL is set (CI). */
 export async function freshDb(): Promise<Db> {
@@ -27,21 +27,29 @@ export function fakeClock(start = 1_000_000) {
   return { now: () => t, advance: (ms: number) => { t += ms; } };
 }
 
-type Pending = { req: StartRequest; resolve: (url: string) => void; reject: (e: Error) => void };
+type Pending = { req: SessionRef; resolve: (url: string) => void; reject: (e: Error) => void };
 
 /**
- * Fake runtime. By default a start succeeds immediately; with manual=true
- * starts stay pending until the test resolves or rejects them.
+ * Fake runtime modelled on the agent. By default a start succeeds at once.
+ * With manual=true a start stays pending until the test settles it, and, like
+ * the real agent, the container only exists once the start settles: a stop
+ * that arrives earlier finds nothing to delete (HTTP 404) and is a no-op.
  */
 export function fakeRuntime({ manual = false } = {}) {
   const running = new Set<string>();
   const pending: Pending[] = [];
   const runtime: SessionRuntime = {
     start(req) {
-      running.add(req.sessionId);
-      if (!manual) return Promise.resolve({ url: `https://${req.node}.test/s/${req.sessionId}/` });
+      if (!manual) {
+        running.add(req.sessionId);
+        return Promise.resolve({ url: `https://${req.node}.test/s/${req.sessionId}/` });
+      }
       return new Promise((resolve, reject) =>
-        pending.push({ req, resolve: (url) => resolve({ url }), reject }),
+        pending.push({
+          req,
+          resolve: (url) => { running.add(req.sessionId); resolve({ url }); },
+          reject: (e) => { running.add(req.sessionId); reject(e); }, // created, then failed to get ready
+        }),
       );
     },
     async stop(req) {

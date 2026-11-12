@@ -12,16 +12,21 @@ export interface QueueConfig {
   projects: Record<string, { node: string; maxSessions: number; maxAgeS: number }>;
 }
 
-export interface StartRequest {
+export interface SessionRef {
   sessionId: string;
   project: string;
   node: string;
 }
 
-/** Port to the sandbox nodes: create a session and wait until it is reachable. */
+/** Port to the sandbox nodes. */
 export interface SessionRuntime {
-  start(req: StartRequest): Promise<{ url: string }>;
-  stop(req: StartRequest): Promise<void>;
+  /**
+   * Creates the session and resolves once it is reachable. Must give up when
+   * `signal` aborts: the visitor left, or the start deadline passed.
+   */
+  start(req: SessionRef, signal: AbortSignal): Promise<{ url: string }>;
+  /** Removes the session. Idempotent: an unknown session is not an error. */
+  stop(req: SessionRef): Promise<void>;
 }
 
 export type TicketState = "waiting" | "starting" | "active" | "ended";
@@ -50,12 +55,15 @@ export class UnknownProjectError extends Error {}
 
 const HEARTBEAT_LOST_MS = 30_000;
 // Image pulls on a fresh node can be slow; an agent call or a control plane
-// restart must not hold a slot forever.
-const START_TIMEOUT_MS = 180_000;
+// restart must not hold a slot forever. The runtime gets an AbortSignal that
+// fires at this deadline, so both sides share one timeout.
+export const START_TIMEOUT_MS = 180_000;
 // Ended tickets stay readable for a while so the page can show why it ended.
 const FORGET_ENDED_MS = 5 * 60_000;
 const START_FAILED = "Could not start the session.";
+// Advisory lock keys (arbitrary constants private to this module).
 const SCHEDULER_LOCK = 0x7472796f; // "tryo"
+const SCHEMA_LOCK = 0x74727973; // "trys"
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS tickets (
@@ -111,7 +119,11 @@ export async function createQueue(deps: {
   const { db, config, runtime } = deps;
   const now = deps.now ?? Date.now;
   const log = deps.log ?? (() => {});
-  for (const statement of SCHEMA) await db.query(statement);
+  // Several instances may start at once; CREATE ... IF NOT EXISTS is not race-free.
+  await db.tx(async (q) => {
+    await q(`SELECT pg_advisory_xact_lock(${SCHEMA_LOCK})`);
+    for (const statement of SCHEMA) await q(statement);
+  });
 
   function view(row: Row): TicketView {
     return {
@@ -160,28 +172,54 @@ export async function createQueue(deps: {
       }
       return started;
     });
-    for (const t of promoted) void start(t);
+    for (const t of promoted) {
+      // Never let a failure escape: an unhandled rejection would stop the process.
+      start(t).catch((e) => log("start crashed", { ticket: t.id, err: String(e) }));
+    }
+  }
+
+  const ref = (row: Row): SessionRef => ({ sessionId: row.session_id!, project: row.project, node: row.node });
+  const inFlight = new Map<string, AbortController>(); // starts run by this instance
+
+  async function stopSession(session: SessionRef): Promise<void> {
+    // The agent's reaper removes expired sessions anyway; log and move on.
+    await runtime.stop(session).catch((e) => log("stop failed", { session: session.sessionId, err: String(e) }));
   }
 
   async function start(t: Row): Promise<void> {
-    const req = { sessionId: t.session_id!, project: t.project, node: t.node };
-    let url: string;
+    const session = ref(t);
+    const abort = new AbortController();
+    inFlight.set(t.id, abort);
+    const deadline = setTimeout(() => abort.abort(new Error("start timed out")), START_TIMEOUT_MS);
+    deadline.unref(); // never keep the process alive for a pending start
+    log("starting", { ticket: t.id, project: t.project, node: t.node });
     try {
-      ({ url } = await runtime.start(req));
-    } catch (e) {
-      log("start failed", { ticket: t.id, project: t.project, err: String(e) });
-      await end(t.id, START_FAILED);
-      await schedule();
-      return;
+      let url: string;
+      try {
+        ({ url } = await runtime.start(session, abort.signal));
+      } catch (e) {
+        log("start failed", { ticket: t.id, project: t.project, err: String(e) });
+        await end(t.id, START_FAILED);
+        await stopSession(session); // the agent may have created it before failing
+        await schedule();
+        return;
+      }
+      const maxAgeMs = (config.projects[t.project]?.maxAgeS ?? 0) * 1000;
+      const activated = await db.query(
+        `UPDATE tickets SET state = 'active', url = $2, ends_at = $3
+         WHERE id = $1 AND state = 'starting' RETURNING id`,
+        [t.id, url, now() + maxAgeMs],
+      );
+      if (activated.length > 0) {
+        log("active", { ticket: t.id, project: t.project });
+      } else {
+        // Ended while starting (visitor left, heartbeat lost): the session is an orphan.
+        await stopSession(session);
+      }
+    } finally {
+      clearTimeout(deadline);
+      inFlight.delete(t.id);
     }
-    const maxAgeMs = config.projects[t.project].maxAgeS * 1000;
-    const activated = await db.query(
-      `UPDATE tickets SET state = 'active', url = $2, ends_at = $3
-       WHERE id = $1 AND state = 'starting' RETURNING id`,
-      [t.id, url, now() + maxAgeMs],
-    );
-    // Ended while starting (visitor left, heartbeat lost): the new session is an orphan.
-    if (activated.length === 0) await runtime.stop(req).catch(() => {});
   }
 
   /** Marks a ticket ended (once) and stops its session if it had one. */
@@ -192,10 +230,10 @@ export async function createQueue(deps: {
        RETURNING *`,
       [ticket, error ?? null, now()],
     );
-    if (row?.session_id) {
-      const req = { sessionId: row.session_id, project: row.project, node: row.node };
-      await runtime.stop(req).catch(() => {}); // the agent's reaper is the safety net
-    }
+    if (!row) return;
+    log("ended", { ticket: ticket, project: row.project, error: error ?? null });
+    inFlight.get(ticket)?.abort(new Error("ticket ended"));
+    if (row.session_id) await stopSession(ref(row));
   }
 
   const queue: Queue = {

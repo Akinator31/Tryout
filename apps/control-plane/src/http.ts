@@ -8,7 +8,7 @@ import { UnknownProjectError, type Queue, type TicketView } from "./queue.ts";
 const embedHtml = readFileSync(new URL("./embed.html", import.meta.url), "utf8");
 const demoHtml = readFileSync(new URL("./demo.html", import.meta.url), "utf8");
 
-function json(res: ServerResponse, status: number, body: unknown) {
+export function json(res: ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
   res.end(JSON.stringify(body));
 }

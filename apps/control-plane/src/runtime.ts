@@ -1,18 +1,21 @@
 // SessionRuntime adapter for real nodes: agent API + readiness probe
 // through the gateway. Tests use an in-memory adapter instead.
 import type { Config } from "./config.ts";
-import type { SessionRuntime, StartRequest } from "./queue.ts";
+import type { SessionRef, SessionRuntime } from "./queue.ts";
 
 const fill = (tpl: string, session: string) => tpl.replaceAll("{session}", session);
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => (clearTimeout(t), reject(signal.reason)), { once: true });
+  });
 
-export function agentRuntime(cfg: Config, opts: { readyTimeoutMs?: number } = {}): SessionRuntime {
-  const readyTimeoutMs = opts.readyTimeoutMs ?? 170_000; // below the queue's start timeout
-
-  async function call(node: string, method: string, path: string, body?: unknown): Promise<void> {
+export function agentRuntime(cfg: Config): SessionRuntime {
+  async function call(node: string, method: string, path: string, body?: unknown, signal?: AbortSignal) {
     const n = cfg.nodes[node];
     const res = await fetch(n.agent_url + path, {
       method,
+      signal: signal ?? AbortSignal.timeout(30_000),
       headers: { authorization: `Bearer ${n.agent_token}`, "content-type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
     });
@@ -20,7 +23,8 @@ export function agentRuntime(cfg: Config, opts: { readyTimeoutMs?: number } = {}
   }
 
   return {
-    async start({ sessionId, project, node }: StartRequest) {
+    // The queue aborts `signal` when the visitor leaves or the start deadline passes.
+    async start({ sessionId, project, node }: SessionRef, signal: AbortSignal) {
       const p = cfg.projects[project];
       await call(node, "POST", "/v1/sessions", {
         id: sessionId,
@@ -33,22 +37,21 @@ export function agentRuntime(cfg: Config, opts: { readyTimeoutMs?: number } = {}
         strip_prefix: p.strip_prefix ?? false,
         env: p.env,
         limits: p.limits ?? {},
-      });
+      }, signal);
       const n = cfg.nodes[node];
       const probe = fill(n.probe_url ?? n.public_url, sessionId);
-      const deadline = Date.now() + readyTimeoutMs;
-      while (Date.now() < deadline) {
+      for (;;) {
+        signal.throwIfAborted();
         try {
-          const r = await fetch(probe, { redirect: "manual" });
+          const r = await fetch(probe, { redirect: "manual", signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]) });
           if (r.status < 400) return { url: fill(n.public_url, sessionId) };
         } catch {
-          // not reachable yet
+          // not reachable yet (or aborted: checked at the top of the loop)
         }
-        await sleep(1000);
+        await sleep(1000, signal);
       }
-      throw new Error("session did not become ready in time");
     },
-    async stop({ sessionId, node }: StartRequest) {
+    async stop({ sessionId, node }: SessionRef) {
       await call(node, "DELETE", `/v1/sessions/${sessionId}`);
     },
   };

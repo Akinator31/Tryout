@@ -21,12 +21,16 @@ export function pgDb(connectionString: string): Db {
         await client.query("BEGIN");
         const result = await fn(async (text, params) => (await client.query(text, params)).rows);
         await client.query("COMMIT");
+        client.release();
         return result;
       } catch (e) {
-        await client.query("ROLLBACK");
-        throw e;
-      } finally {
-        client.release();
+        try {
+          await client.query("ROLLBACK");
+          client.release();
+        } catch {
+          client.release(true); // broken connection: destroy it instead of reusing it
+        }
+        throw e; // always surface the original error
       }
     },
     close: () => pool.end(),

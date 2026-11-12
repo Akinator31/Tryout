@@ -164,3 +164,24 @@ test("ended tickets are forgotten after five minutes", async () => {
   await s.queue.tick();
   assert.equal(await s.queue.poll(a.ticket), null);
 });
+
+test("a session whose start fails after the visitor left is cleaned up", async () => {
+  await using s = await setup({ manual: true });
+  const a = await s.queue.join("cli");
+  await s.queue.release(a.ticket);
+
+  s.fake.pending[0].reject(new Error("never became ready"));
+  const cleaned = await eventually(async () => s.fake.running.size, (n) => n === 0);
+  assert.equal(cleaned, 0);
+});
+
+test("two control plane instances sharing a database never exceed the caps", async () => {
+  await using s = await setup({ manual: true }); // cli allows 2 sessions
+  const other = await createQueue({ db: s.db, config, runtime: s.fake.runtime, now: s.clock.now });
+  const views = await Promise.all(
+    Array.from({ length: 8 }, (_, i) => (i % 2 ? other : s.queue).join("cli")),
+  );
+  const states = await Promise.all(views.map((v) => s.queue.poll(v.ticket)));
+  assert.equal(states.filter((v) => v?.state === "starting").length, 2);
+  assert.equal(states.filter((v) => v?.state === "waiting").length, 6);
+});

@@ -3,7 +3,7 @@
 import { createServer } from "node:http";
 import { loadConfig, queueConfig } from "./config.ts";
 import { pgDb } from "./db.ts";
-import { createHandler } from "./http.ts";
+import { createHandler, json } from "./http.ts";
 import { createQueue } from "./queue.ts";
 import { agentRuntime } from "./runtime.ts";
 
@@ -27,9 +27,6 @@ const handle = createHandler(cfg, queue);
 createServer((req, res) => {
   handle(req, res).catch((e) => {
     log("handler error", { err: String(e) });
-    if (!res.headersSent) {
-      res.writeHead(500, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: "internal" }));
-    }
+    if (!res.headersSent) json(res, 500, { error: "internal" });
   });
 }).listen(cfg.listen_port, () => log("control plane listening", { port: cfg.listen_port }));
