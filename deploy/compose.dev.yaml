@@ -45,10 +45,11 @@ services:
   control-plane:
     build: ../apps/control-plane
     environment:
-      TRYOUT_CONFIG: /app/config.json
+      TRYOUT_CONFIG: /app/tryout.yaml
       DATABASE_URL: postgres://tryout:tryout@postgres:5432/tryout
+      AGENT_TOKEN: ${AGENT_TOKEN:?set in .env}   # read by ${AGENT_TOKEN} in tryout.yaml
     volumes:
-      - ./config.dev.json:/app/config.json:ro
+      - ./tryout.dev.yaml:/app/tryout.yaml:ro
     ports: ["3000:3000"]
     networks: [control, db]
     depends_on:

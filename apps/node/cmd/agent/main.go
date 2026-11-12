@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"net"
@@ -26,6 +27,7 @@ import (
 	"time"
 
 	"github.com/Akinator31/Tryout/apps/node/internal/dockerapi"
+	"github.com/Akinator31/Tryout/apps/node/internal/spec"
 )
 
 const (
@@ -183,6 +185,22 @@ type sessionReq struct {
 	Limits      limits            `json:"limits"`
 }
 
+// parseSessionReq checks the body against the shared JSON Schema (the same
+// file the control plane validates its configuration with), then applies the
+// node's policy and defaults.
+func (a *agent) parseSessionReq(body []byte) (sessionReq, error) {
+	var r sessionReq
+	if err := spec.ValidateSessionRequest(body); err != nil {
+		return r, err
+	}
+	if err := json.Unmarshal(body, &r); err != nil {
+		return r, err
+	}
+	return r, r.validate(a)
+}
+
+// validate re-checks the fields the hardening depends on (defence in depth,
+// the schema already covers them), then applies the node policy and defaults.
 func (r *sessionReq) validate(a *agent) error {
 	switch {
 	case !sessionIDRe.MatchString(r.ID):
@@ -529,12 +547,13 @@ func (a *agent) routes() *http.ServeMux {
 		writeJSON(w, 200, map[string]any{"ok": true, "profile": a.cfg.profile, "arch": a.arch, "runtimes": keys(a.runtimes)})
 	})
 	mux.HandleFunc("POST /v1/sessions", a.auth(func(w http.ResponseWriter, r *http.Request) {
-		var req sessionReq
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
+		if err != nil {
 			writeJSON(w, 400, map[string]string{"error": err.Error()})
 			return
 		}
-		if err := req.validate(a); err != nil {
+		req, err := a.parseSessionReq(body)
+		if err != nil {
 			writeJSON(w, 400, map[string]string{"error": err.Error()})
 			return
 		}

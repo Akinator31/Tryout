@@ -2,7 +2,7 @@
 // behaviour lives in the Queue module. Covered by scripts/e2e-*.ts.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
-import type { Config } from "./config.ts";
+import { frameAncestors, type Config } from "./config.ts";
 import { UnknownProjectError, type Queue, type TicketView } from "./queue.ts";
 
 const embedHtml = readFileSync(new URL("./embed.html", import.meta.url), "utf8");
@@ -30,10 +30,10 @@ export function createHandler(cfg: Config, queue: Queue) {
 
     // GET /embed/:project — the page portfolios put in their iframe
     if (req.method === "GET" && parts[0] === "embed" && parts.length === 2) {
-      if (!cfg.projects[parts[1]]) return json(res, 404, { error: "unknown project" });
+      if (!Object.hasOwn(cfg.projects, parts[1])) return json(res, 404, { error: "unknown project" });
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
-        "content-security-policy": `frame-ancestors ${cfg.embed_frame_ancestors}`,
+        "content-security-policy": `frame-ancestors ${frameAncestors(cfg)}`,
         "referrer-policy": "no-referrer",
       });
       return void res.end(embedHtml.replaceAll("__PROJECT__", parts[1]));

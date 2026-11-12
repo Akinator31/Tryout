@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=../schema/tryout.schema.json
+# Control plane configuration for the local dev stack (compose.dev.yaml).
+# Reference: docs/configuration.md. ${VAR} reads an environment variable.
+listen: ":3000"
+embed_frame_ancestors:
+  - http://localhost:3000
+
+nodes:
+  local:
+    agent_url: http://agent:7000
+    agent_token: ${AGENT_TOKEN}
+    public_url: http://localhost:8080/s/{session}/
+    probe_url: http://tryout-gateway:8080/s/{session}/
+    max_sessions: 6
+
+projects:
+  cli-hello:
+    node: local
+    image: tryout-example/cli-hello:dev
+    kind: terminal
+    port: 7681
+    max_sessions: 2
+    max_age: 10m
+  webtop:
+    node: local
+    image: lscr.io/linuxserver/webtop:latest
+    kind: desktop
+    port: 3000
+    max_sessions: 1
+    max_age: 15m

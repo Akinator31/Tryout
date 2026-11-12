@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: apps/node/go.mod
-          cache-dependency-path: apps/node/go.mod
+          cache-dependency-path: apps/node/go.sum
       - name: gofmt
         run: test -z "$(gofmt -l . | tee /dev/stderr)"
       - run: go vet ./...
@@ -71,6 +71,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: shellcheck scripts/*.sh examples/*/*.sh
+      - name: Schema copies in sync
+        run: scripts/sync-schema.sh --check
 
   images:
     # Pull requests: build only, with a read-only token.

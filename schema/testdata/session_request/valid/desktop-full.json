@@ -1,0 +1,1 @@
+{"id":"abcdefghijklmnopqrstuvwxyz","project":"webtop","image":"lscr.io/linuxserver/webtop:latest","kind":"desktop","port":3000,"runtime":"runsc","max_age_s":960,"strip_prefix":false,"env":{"SELKIES_FRAMERATE":"30","TZ":"Europe/Paris"},"limits":{"memory_mb":2048,"cpus":1.5,"pids":1024}}

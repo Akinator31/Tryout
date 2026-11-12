@@ -18,3 +18,4 @@ changes, a new record supersedes it.
 | [0011](0011-queue-implementation.md) | Queue implementation: ticket states, global advisory lock, one start deadline | Accepted |
 | [0012](0012-ticket-push-sse.md) | Push ticket changes with SSE and `LISTEN/NOTIFY` | Accepted, implemented |
 | [0013](0013-published-images.md) | Publish multi-architecture images on ghcr.io from CI | Accepted, implemented |
+| [0014](0014-yaml-configuration-json-schema.md) | YAML configuration validated by one JSON Schema | Accepted, implemented |

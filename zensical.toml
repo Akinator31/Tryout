@@ -38,6 +38,7 @@ nav = [
     "decisions/0011-queue-implementation.md",
     "decisions/0012-ticket-push-sse.md",
     "decisions/0013-published-images.md",
+    "decisions/0014-yaml-configuration-json-schema.md",
   ] },
   { "Project" = [
     "roadmap.md",

@@ -24,11 +24,12 @@ for graphical ones. Each project is assigned to a node.
 | `runtime.ts` | `SessionRuntime` adapter for real nodes: agent API + readiness probe through the gateway. Tests use an in-memory adapter. |
 | `db.ts` | Database port (queries, transactions, `LISTEN`); adapters for node-postgres and, in tests, PGlite. |
 | `http.ts` | Embed page, demo page, queue API and its SSE stream. Thin. |
-| `config.ts`, `server.ts` | Configuration loading and wiring. |
+| `config.ts`, `server.ts` | Configuration loading (YAML, validated against the shared JSON Schema) and wiring. |
 
 What it does:
 
-- Loads the configuration (nodes and projects).
+- Loads the YAML configuration (nodes and projects), validates it against the JSON Schema and
+  refuses to start on any error.
 - Manages **tickets**: a visitor joins a project's queue and waits for a free slot.
 - Enforces two caps: sessions per project and sessions per node.
 - Starts a session through the agent, checks that it answers through the gateway, then hands
@@ -55,6 +56,7 @@ What it does:
   5. pushes the route table to the gateway.
 - Runs a **reconcile loop** every 10 s, with Docker labels as the source of truth: it removes
   expired or dead sessions and orphan networks, then republishes the routes.
+- Validates every session request against the shared JSON Schema and refuses unknown fields.
 - Checks that the image architecture matches the node.
 
 ### Gateway — `apps/node/cmd/gateway`
@@ -88,7 +90,8 @@ What it does:
 ```
 apps/control-plane/   control plane (TypeScript, Node ≥ 24, Postgres via node-postgres)
 apps/node/            agent + gateway (Go), one binary each, one image
-deploy/               dev compose file, sample configuration
+deploy/               dev compose file, sample configuration (tryout.dev.yaml)
+schema/               JSON Schema of the configuration and the agent API, shared fixtures
 examples/             sample project images
 scripts/              end-to-end tests, node feasibility script
 docs/                 this documentation (Zensical)

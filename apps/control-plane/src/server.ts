@@ -1,7 +1,7 @@
 // Tryout control plane entry point: wires configuration, Postgres, the
 // node runtime and the HTTP layer. Runs directly on Node >= 24.
 import { createServer } from "node:http";
-import { loadConfig, queueConfig } from "./config.ts";
+import { ConfigError, loadConfig, queueConfig, type Config } from "./config.ts";
 import { pgDb } from "./db.ts";
 import { createHandler, json } from "./http.ts";
 import { createQueue } from "./queue.ts";
@@ -17,7 +17,16 @@ if (!databaseUrl) {
   process.exit(1);
 }
 
-const cfg = loadConfig(process.env.TRYOUT_CONFIG ?? "config.json");
+let cfg: Config;
+try {
+  const loaded = loadConfig(process.env.TRYOUT_CONFIG ?? "tryout.yaml");
+  cfg = loaded.config;
+  for (const w of loaded.warnings) log("configuration warning", { warning: w });
+} catch (e) {
+  if (!(e instanceof ConfigError)) throw e;
+  log("invalid configuration", { problems: e.problems });
+  process.exit(1);
+}
 const db = pgDb(databaseUrl);
 const queue = await createQueue({ db, config: queueConfig(cfg), runtime: agentRuntime(cfg), log });
 
@@ -29,4 +38,6 @@ createServer((req, res) => {
     log("handler error", { err: String(e) });
     if (!res.headersSent) json(res, 500, { error: "internal" });
   });
-}).listen(cfg.listen_port, () => log("control plane listening", { port: cfg.listen_port }));
+}).listen(cfg.listen.port, cfg.listen.host || undefined, () =>
+  log("control plane listening", { host: cfg.listen.host, port: cfg.listen.port }),
+);
