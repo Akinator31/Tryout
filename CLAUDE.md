@@ -158,6 +158,9 @@ CI (`.github/workflows/ci.yml`) runs all of the above, plus multi-arch image bui
   date.
 - **Keep the docs in mind**: re-read the relevant pages (see above) before designing or changing
   something, rather than relying on memory.
+- **Pull requests**: open one when a feature is finished, after running `code-review` and fixing
+  its findings. Check Dependabot PRs regularly and recommend merge or close; ask the maintainer
+  before merging or closing.
 - **Remember across sessions**: save anything worth keeping between sessions in the persistent
   memory: decisions, the maintainer's preferences, environment facts that must not go into this
   public repository. Update this file when the project's state or rules change.
