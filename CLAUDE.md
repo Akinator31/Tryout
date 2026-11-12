@@ -79,7 +79,7 @@ Read these regularly to keep the project's behaviour in mind:
 
 - before any change: `docs/architecture.md` and `SECURITY.md`;
 - before touching a topic: the related `docs/decisions/*.md`;
-- `docs/roadmap.md` for what is provisional.
+- `docs/roadmap.md` for the milestones (M1–M5), what is provisional and what comes next.
 
 Background research (not part of the repository) lives in `../Tryout-research/`: a hyperresearch
 vault with the original stack study (in French) and its sources.
@@ -90,9 +90,9 @@ vault with the original stack study (in French) and its sources.
   - terminal and desktop sessions, queue, heartbeat loss, cleanup, network isolation, profile
     refusal;
   - Selkies under gVisor on a Raspberry Pi 5 (arm64), behind a base path.
-- The POC shortcuts still in place are listed in `docs/roadmap.md`: plain HTML embed page
-  (target: React + Chakra UI), JSON config (target: YAML + JSON Schema), HTTP between control
-  plane and agent (target: mTLS), path routing only.
+- The roadmap is organised in milestones (`docs/roadmap.md`): M1 Deployable (ghcr.io images,
+  YAML + JSON Schema config, mTLS, rate limiting) is next, then M2 Live, M3 Design (theme,
+  Figma, React embed; the UI kit is chosen there), M4 Operate, M5 Hosting options.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module
   `github.com/Akinator31/Tryout/apps/node`, docs at <https://akinator31.github.io/Tryout/>).
 - Queue state is in Postgres (`apps/control-plane/src/queue.ts`, ADRs 0007 and 0011), tested through its
@@ -100,8 +100,8 @@ vault with the original stack study (in French) and its sources.
 - Ticket changes are pushed over SSE (`GET /api/tickets/<id>/events`), with Postgres
   `LISTEN/NOTIFY` across instances; the open stream is the heartbeat (ADR 0012). Polling remains
   for scripts.
-- UI work (React embed page, admin) starts from the maintainer's **Figma** designs. Ask for the
-  Figma file before designing any screen.
+- UI work (React embed page, admin) starts from the maintainer's **Figma** designs, following the
+  M3 design steps in `docs/roadmap.md`. The Figma file's location is in the persistent memory.
 
 ## Workflow skills
 
