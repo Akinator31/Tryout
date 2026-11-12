@@ -61,3 +61,13 @@ func TestInvalidJSON(t *testing.T) {
 		t.Fatal("accepted")
 	}
 }
+
+func TestUnknownFieldReportedBesideOtherErrors(t *testing.T) {
+	err := ValidateSessionRequest([]byte(`{"id":"abcdefghijklmnopqrstuvwxyz","project":"p","image":"x","kind":"terminal","port":0,"max_age_s":60,"privileged":true}`))
+	if err == nil || !strings.Contains(err.Error(), "/privileged: unknown field") || !strings.Contains(err.Error(), "/port:") {
+		t.Fatalf("got %v", err)
+	}
+	if strings.Contains(err.Error(), "/port: unknown field") {
+		t.Fatalf("failing field also reported as unknown: %v", err)
+	}
+}

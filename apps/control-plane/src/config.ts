@@ -82,52 +82,76 @@ export function parseConfig(
     throw new ConfigError(source, doc.errors.map((e) => `line ${lines.linePos(e.pos[0]).line}: ${e.message}`));
   }
 
+  // Three passes (interpolation, schema, semantic checks) all report into one
+  // list, so the operator sees every problem at once. A later pass skips a path
+  // an earlier pass already flagged, to report each mistake once.
   const problems: string[] = [];
-  const raw = interpolate(doc.toJS(), [], env, (path, name) =>
-    problems.push(`${pointer(path)}${at(path)}: environment variable ${name} is not set`),
-  );
-  if (problems.length) throw new ConfigError(source, problems);
+  const flagged: { ptr: string; pass: number }[] = [];
+  let pass = 0;
+  const report = (path: (string | number)[], msg: string) => {
+    const ptr = pointer(path);
+    const overlaps = (f: string) => ptr === f || ptr.startsWith(f + "/") || f.startsWith(ptr + "/");
+    if (flagged.some((f) => f.pass < pass && overlaps(f.ptr))) return;
+    flagged.push({ ptr, pass });
+    problems.push(`${ptr}${at(path)}: ${msg}`);
+  };
+
+  const raw = interpolate(doc.toJS(), [], env, (path, name) => report(path, `environment variable ${name} is not set`));
+
+  pass = 1;
 
   if (!validateFile(raw)) {
     for (const e of relevant(validateFile.errors ?? [])) {
       const path = e.instancePath.split("/").slice(1).map(unescape);
       const key = keyOf(e);
-      problems.push(`${pointer(key === undefined ? path : [...path, key])}${at(key === undefined ? path : [...path, key])}: ${message(e)}`);
+      report(key === undefined ? path : [...path, key], message(e));
     }
-    throw new ConfigError(source, problems);
   }
 
-  const file = raw as Omit<Config, "listen" | "projects"> & {
-    listen?: string;
-    projects: Record<string, Omit<ProjectConfig, "max_age_s">>;
-  };
+  pass = 2;
+  // Semantic checks. The schema may have failed, so every value is checked
+  // for its type before use.
+  const file = (isObject(raw) ? raw : {}) as Record<string, unknown>;
+  const nodes = (isObject(file.nodes) ? file.nodes : {}) as Record<string, NodeConfig>;
+  const fileProjects = (isObject(file.projects) ? file.projects : {}) as Record<string, Omit<ProjectConfig, "max_age_s">>;
   const warnings: string[] = [];
 
-  const listen = parseListen(file.listen ?? ":3000");
-  if (!listen) problems.push(`/listen${at(["listen"])}: port must be between 1 and 65535`);
+  const listen = parseListen(typeof file.listen === "string" ? file.listen : ":3000");
+  if (!listen) report(["listen"], "must be [host]:port with a port between 1 and 65535");
 
   const projects: Record<string, ProjectConfig> = {};
-  for (const [name, p] of Object.entries(file.projects)) {
-    if (!file.nodes[p.node]) problems.push(`/projects/${name}/node${at(["projects", name, "node"])}: unknown node "${p.node}"`);
-    const maxAgeS = parseDuration(p.max_age);
-    if (!maxAgeS) problems.push(`/projects/${name}/max_age${at(["projects", name, "max_age"])}: must be greater than zero`);
+  for (const [name, p] of Object.entries(fileProjects)) {
+    if (!isObject(p)) continue;
+    if (typeof p.node === "string" && !Object.hasOwn(nodes, p.node)) {
+      report(["projects", name, "node"], `unknown node "${p.node}"`);
+    }
+    const maxAgeS = typeof p.max_age === "string" ? parseDuration(p.max_age) : 0;
+    if (typeof p.max_age === "string" && !(maxAgeS > 0 && maxAgeS <= MAX_AGE_LIMIT_S)) {
+      report(["projects", name, "max_age"], "must be greater than zero and at most 24h");
+    }
     projects[name] = { ...p, max_age_s: maxAgeS };
   }
-  for (const [name, n] of Object.entries(file.nodes)) {
-    const booked = Object.values(file.projects)
+  if (problems.length) throw new ConfigError(source, problems);
+
+  for (const [name, n] of Object.entries(nodes)) {
+    const booked = Object.values(projects)
       .filter((p) => p.node === name)
       .reduce((sum, p) => sum + p.max_sessions, 0);
     if (booked > n.max_sessions) {
       warnings.push(`node ${name}: its projects allow ${booked} sessions, the node caps them at ${n.max_sessions}`);
     }
   }
-  if (problems.length) throw new ConfigError(source, problems);
 
   return {
-    config: { listen: listen!, embed_frame_ancestors: file.embed_frame_ancestors, nodes: file.nodes, projects },
+    config: { listen: listen!, embed_frame_ancestors: file.embed_frame_ancestors as string[], nodes, projects },
     warnings,
   };
 }
+
+/** Upper bound for max_age; the agent applies its own, usually lower, cap too. */
+const MAX_AGE_LIMIT_S = 24 * 3600;
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 /** Value of the frame-ancestors CSP directive for the embed page. */
 export function frameAncestors(cfg: Config): string {
@@ -154,10 +178,10 @@ export function parseDuration(s: string): number {
 }
 
 function parseListen(s: string): { host: string; port: number } | undefined {
-  const i = s.lastIndexOf(":");
-  const port = Number(s.slice(i + 1));
-  if (!Number.isInteger(port) || port < 1 || port > 65535) return undefined;
-  return { host: s.slice(0, i).replace(/^\[(.*)\]$/, "$1"), port };
+  const m = /^(?:\[([0-9A-Fa-f:.]+)\]|([A-Za-z0-9.-]*)):(\d{1,5})$/.exec(s);
+  const port = Number(m?.[3]);
+  if (!m || port < 1 || port > 65535) return undefined;
+  return { host: m[1] ?? m[2], port };
 }
 
 // ---------- ${VAR} interpolation ----------
@@ -196,15 +220,16 @@ function interpolate(
 
 /**
  * A field that fails inside allOf is also reported as unevaluated by the
- * enclosing object; keep that report only when it is the object's sole error
- * (then the field really is unknown). Same for the umbrella errors of
- * propertyNames and anyOf, which only repeat their causes.
+ * enclosing object: drop that duplicate, but keep the report of a field that
+ * has no other error (it really is unknown). propertyNames errors only repeat
+ * their causes.
  */
 function relevant(errors: ErrorObject[]): ErrorObject[] {
   return errors.filter((e) => {
-    if (e.keyword === "propertyNames" || e.keyword === "if") return false;
+    if (e.keyword === "propertyNames") return false;
     if (e.keyword !== "unevaluatedProperties") return true;
-    return !errors.some((o) => o !== e && o.keyword !== "unevaluatedProperties" && o.instancePath.startsWith(e.instancePath));
+    const field = `${e.instancePath}/${escape(String(keyOf(e)))}`;
+    return !errors.some((o) => o !== e && (o.instancePath === field || o.instancePath.startsWith(field + "/")));
   });
 }
 
@@ -224,6 +249,7 @@ function message(e: ErrorObject): string {
 }
 
 const unescape = (s: string) => s.replaceAll("~1", "/").replaceAll("~0", "~");
+const escape = (s: string) => s.replaceAll("~", "~0").replaceAll("/", "~1");
 const pointer = (path: (string | number)[]) => "/" + path.join("/");
 
 /** Offset of a value (or of a key, when the path ends with one) in the YAML source. */

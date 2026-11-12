@@ -27,17 +27,19 @@
   site; CI fails if a copy is stale.
 - **Where it is checked**:
   - the control plane validates the whole file at startup (ajv), then runs the checks a schema
-    cannot express: a project's node exists, `max_age` is positive. A node whose projects allow
-    more sessions than its cap gets a warning only, because the node cap wins;
+    cannot express: a project's node exists, `max_age` is between 1 s and 24 h. A node whose
+    projects allow more sessions than its cap gets a warning only, because the node cap wins;
   - the agent validates every `POST /v1/sessions` body against `$defs/session_request`
     (`santhosh-tekuri/jsonschema`), before its own policy checks. A Go test checks that the
     schema's reserved variables match the environment the agent locks.
 - **Strictness**: unknown keys are errors at every level (`additionalProperties` or
-  `unevaluatedProperties: false`). Every problem is reported at once, with its path and its YAML
-  line, and the control plane exits before it listens.
+  `unevaluatedProperties: false`). Every problem of every pass (interpolation, schema, semantic
+  checks) is reported at once, with its path and its YAML line, and the control plane exits
+  before it listens.
 - **Secrets**: `${NAME}` in a string value is replaced by the environment variable `NAME`. The
   substitution happens after YAML parsing, so a value can never change the document's structure.
-  An unset variable is an error. There is no default-value syntax.
+  An unset variable is an error. There is no default-value syntax and no escape for a literal
+  `${`; a substituted value is always a string.
 - **Shape changes**: durations are strings (`max_age: 15m`, the subset of Go's format with `h`,
   `m` and `s`); `listen` is a `[host]:port` address; `embed_frame_ancestors` is a list of origins,
   each validated, and `'self'` is always added.

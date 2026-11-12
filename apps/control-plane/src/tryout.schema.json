@@ -10,7 +10,7 @@
     "listen": {
       "description": "Address the control plane listens on, as [host]:port.",
       "type": "string",
-      "pattern": "^[^\\s]*:[0-9]{1,5}$",
+      "pattern": "^(\\[[0-9A-Fa-f:.]+\\]|[A-Za-z0-9.-]*):[0-9]{1,5}$",
       "default": ":3000"
     },
     "embed_frame_ancestors": {

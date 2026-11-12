@@ -42,8 +42,8 @@ underline errors as you type.
 
 - Unknown keys are errors, at every level: a typo never goes unnoticed.
 - Every problem is reported at once, with its path and its line, and the control plane exits
-  before it opens its port. Checks the schema cannot express (a project's node exists,
-  `max_age` is positive) run once the schema passes:
+  before it opens its port. This includes the checks the schema cannot express: a project's
+  node exists, and `max_age` is between 1 second and 24 hours.
 
   ```
   {"msg":"invalid configuration","problems":["/projects/my-cli/kind (line 18): must be equal to one of the allowed values: terminal, desktop","/projects/my-cli/port (line 19): must be <= 65535"]}
@@ -60,7 +60,9 @@ The agent validates each session request against the same schema
 `${NAME}` inside a value is replaced by the environment variable `NAME`, so the file can be kept
 in version control without its secrets. An unset variable is an error; there is no default-value
 syntax. Only values are substituted, never keys, and the substitution happens after the YAML is
-parsed, so a variable cannot add keys.
+parsed, so a variable cannot add keys. A substituted value is always a string, so `${VAR}` fits
+string keys such as `agent_token` or `image`, not numbers such as `port`. A literal `${` cannot
+be written.
 
 ### Top level
 
@@ -90,7 +92,7 @@ parsed, so a variable cannot add keys.
 | `kind` | `terminal` or `desktop`. Selects the hardening profile (see [Security](security.md)). |
 | `port` | HTTP port of the container (ttyd: 7681; LinuxServer images: 3000). |
 | `max_sessions` | Concurrent sessions for this project. Later visitors wait in the queue. |
-| `max_age` | Maximum session age: `90s`, `15m`, `1h30m`. The agent also enforces its own cap (`SESSION_MAX_AGE_CAP`). |
+| `max_age` | Maximum session age: `90s`, `15m`, `1h30m`, at most `24h`. The agent also enforces its own cap (`SESSION_MAX_AGE_CAP`). |
 | `runtime` | Optional: `runsc`, `runc`… Defaults to the node's runtime. |
 | `strip_prefix` | Optional: strip `/s/<id>` before forwarding, for an application that cannot serve under a base path. |
 | `limits` | Optional: `memory_mb`, `cpus`, `pids`. Defaults: 256 MB / 0.5 CPU / 128 PIDs for terminals, 2 GB / 1.5 CPU / 1024 PIDs for desktops. |

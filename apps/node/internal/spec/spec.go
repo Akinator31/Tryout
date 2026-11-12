@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -25,9 +26,6 @@ var printer = message.NewPrinter(language.English)
 
 //go:embed tryout.schema.json
 var schemaJSON []byte
-
-// Schema returns the raw schema document.
-func Schema() []byte { return bytes.Clone(schemaJSON) }
 
 var sessionRequest = mustCompile("#/$defs/session_request")
 
@@ -68,10 +66,11 @@ func ValidateSessionRequest(body []byte) error {
 
 // describe flattens the error tree into "path: message" lines, leaves only.
 // A field that fails its own schema is also reported by
-// unevaluatedProperties as a "false schema"; those duplicates are dropped
-// unless they are the only errors (then they are unknown fields).
+// unevaluatedProperties as a "false schema"; that duplicate is dropped, and a
+// false schema on a field with no other error is reported as unknown.
 func describe(ve *jsonschema.ValidationError) string {
 	var errs, unknown []string
+	var errPaths []string
 	// name and at are set below a propertyNames error, whose leaves point at
 	// the document root instead of the object holding the name. The library
 	// fills that error's InstanceLocation from a reused buffer, so the field
@@ -94,7 +93,8 @@ func describe(ve *jsonschema.ValidationError) string {
 		}
 		switch e.ErrorKind.(type) {
 		case *kind.FalseSchema:
-			unknown = append(unknown, path+": unknown field")
+			unknown = append(unknown, path)
+			return
 		case *kind.Not:
 			if name != "" {
 				errs = append(errs, fmt.Sprintf("%s: name %q is reserved", path, name))
@@ -108,10 +108,13 @@ func describe(ve *jsonschema.ValidationError) string {
 			}
 			errs = append(errs, path+": "+msg)
 		}
+		errPaths = append(errPaths, path)
 	}
 	walk(ve, "", "")
-	if len(errs) == 0 {
-		errs = unknown
+	for _, u := range unknown {
+		if !slices.ContainsFunc(errPaths, func(p string) bool { return p == u || strings.HasPrefix(p, u+"/") }) {
+			errs = append(errs, u+": unknown field")
+		}
 	}
 	return strings.Join(errs, "; ")
 }

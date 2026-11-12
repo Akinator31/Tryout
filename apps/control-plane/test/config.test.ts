@@ -70,13 +70,16 @@ test("defaults and derived values", () => {
 test("listen accepts a host", () => {
   assert.deepEqual(parseConfig(`listen: "127.0.0.1:8000"\n${base}`, { env }).config.listen, { host: "127.0.0.1", port: 8000 });
   assert.deepEqual(parseConfig(`listen: "[::1]:8000"\n${base}`, { env }).config.listen, { host: "::1", port: 8000 });
-  assert.match(problems(`listen: ":70000"\n${base}`)[0], /^\/listen \(line 1\): port/);
+  assert.match(problems(`listen: ":70000"\n${base}`)[0], /^\/listen \(line 1\): must be \[host\]:port/);
+  assert.match(problems(`listen: "[::1:80"\n${base}`)[0], /^\/listen \(line 1\): must match pattern/);
 });
 
 test("durations", () => {
   assert.equal(parseDuration("1h30m"), 5400);
   assert.equal(parseDuration("90s"), 90);
-  assert.match(problems(base.replace("15m", "0s"))[0], /\/projects\/cli\/max_age \(line \d+\): must be greater than zero/);
+  assert.match(problems(base.replace("15m", "0s"))[0], /\/projects\/cli\/max_age \(line \d+\): must be greater than zero and at most 24h/);
+  assert.equal(problems(base.replace("15m", "25h")).length, 1);
+  parseConfig(base.replace("15m", "24h"), { env });
   assert.match(problems(base.replace("15m", "15 minutes"))[0], /\/projects\/cli\/max_age .*must match pattern/);
 });
 
@@ -116,11 +119,32 @@ test("reserved environment variables are refused", () => {
   ]);
 });
 
-test("all problems are reported at once", () => {
+test("all problems are reported at once, across every pass", () => {
   const p = problems(base.replace("port: 7681", "port: 0").replace("node: n1", "node: nope").replace("https://portfolio", "portfolio"));
-  assert.equal(p.length, 2, p.join("\n"));
+  assert.equal(p.length, 3, p.join("\n"));
   assert.ok(p.some((l) => l.startsWith("/projects/cli/port (line 14)")));
   assert.ok(p.some((l) => l.startsWith("/embed_frame_ancestors/0 (line 2)")));
+  assert.ok(p.some((l) => l === '/projects/cli/node (line 11): unknown node "nope"'));
+});
+
+test("an unset variable does not hide the other problems, nor cause duplicates", () => {
+  const p = problems(base.replace("port: 7681", "port: 0"), {});
+  assert.deepEqual(p, [
+    "/nodes/n1/agent_token (line 6): environment variable AGENT_TOKEN is not set",
+    "/projects/cli/port (line 14): must be >= 1",
+  ]);
+});
+
+test("an unknown field is reported beside a sibling's error", () => {
+  const p = problems(base.replace("port: 7681", "port: 0").replace("    max_age: 15m", "    max_age: 15m\n    bogus: 1"));
+  assert.deepEqual(p, ["/projects/cli/port (line 14): must be >= 1", "/projects/cli/bogus (line 17): unknown field"]);
+});
+
+test("an error in one project does not hide an unknown field in a project with a longer name", () => {
+  const two = base + base.slice(base.indexOf("  cli:")).replace("  cli:", "  cli2:");
+  const p = problems(two.replace("max_age: 15m", "max_age: 15m\n    bogus: 1").replace(/port: 7681(?![\s\S]*port: 7681)/, "port: 0"));
+  assert.ok(p.includes("/projects/cli/bogus (line 17): unknown field"), p.join("\n"));
+  assert.ok(p.some((l) => l.startsWith("/projects/cli2/port")), p.join("\n"));
 });
 
 test("semantic checks run once the schema passes", () => {
