@@ -1,7 +1,7 @@
 # One image, two binaries: tryout-agent (holds the Docker socket, private API)
 # and tryout-gateway (public, no socket). Run them as two separate containers.
 # The build stage runs natively and cross-compiles, so multi-arch builds are fast.
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
 ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY go.mod ./
