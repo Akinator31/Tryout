@@ -96,6 +96,29 @@ vault with the original stack study (in French) and its sources.
   only.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module
   `github.com/Akinator31/Tryout/apps/node`, docs at <https://akinator31.github.io/Tryout/>).
+- In progress: porting the queue to Postgres (branch `feat/postgres-queue`), starting with a
+  module split of the control plane.
+- UI work (React embed page, admin) starts from the maintainer's **Figma** designs. Ask for the
+  Figma file before designing any screen.
+
+## Workflow skills
+
+The `mattpocock-skills:*` skills are available. Use them at these moments:
+
+| Moment | Skill |
+|---|---|
+| Before a large piece of work (queue model, mTLS, config format…) | `grilling`, to stress-test the design with the maintainer |
+| Before restructuring a component or adding a module | `codebase-design` |
+| Implementing behaviour with clear rules (queue, leases, agent policy) | `tdd` |
+| Naming and domain vocabulary | `domain-modeling`; ADRs stay in `docs/decisions/` |
+| Exploring a UI from the Figma designs | `prototype` |
+| Steps only a human can do (rootless daemon, gVisor, KVM VM, tunnels) | `wizard` |
+| A real bug or a regression | `diagnosing-bugs` |
+| Before opening or merging a PR | `code-review`, including the security invariants below |
+| Editing this file | `writing-for-agents` |
+
+The rules below take precedence over any skill convention: commit format, no AI mentions, ADR
+location, English only.
 
 ## Commands
 

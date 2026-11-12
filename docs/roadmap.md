@@ -26,6 +26,6 @@
 - Step-by-step dedicated rootless daemon and firewall (`DOCKER-USER`) setup for `single-host`.
 - KVM VM node (`strict`) for desktop sessions.
 - Published images (`ghcr.io`) for agent, gateway and control plane.
-- Admin UI (React): running sessions, queue, forced stop.
+- Admin UI (React): running sessions, queue, forced stop. Screens follow the project's Figma designs.
 - Metrics (Prometheus) and structured logs.
 - Subdomain routing in the gateway.
