@@ -15,3 +15,4 @@ changes, a new record supersedes it.
 | [0008](0008-stack-and-license.md) | Go for the node, TypeScript/React for the control plane, AGPL-3.0 | Accepted |
 | [0009](0009-minimal-docker-client.md) | Minimal Docker Engine API client instead of the Go SDK | Accepted |
 | [0010](0010-fresh-container-per-session.md) | Prebuilt pinned images, a fresh container per session | Accepted |
+| [0011](0011-queue-implementation.md) | Queue implementation: ticket states, global advisory lock, one start deadline | Accepted |

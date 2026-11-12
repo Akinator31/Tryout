@@ -90,12 +90,13 @@ vault with the original stack study (in French) and its sources.
   - terminal and desktop sessions, queue, heartbeat loss, cleanup, network isolation, profile
     refusal;
   - Selkies under gVisor on a Raspberry Pi 5 (arm64), behind a base path.
-- The POC shortcuts still in place are listed in `docs/roadmap.md`: polling (target: SSE), plain HTML embed page (target: React + Chakra UI), JSON config
+- The POC shortcuts still in place are listed in `docs/roadmap.md`: polling (target: SSE),
+  plain HTML embed page (target: React + Chakra UI), JSON config
   (target: YAML + JSON Schema), HTTP between control plane and agent (target: mTLS), path routing
   only.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module
   `github.com/Akinator31/Tryout/apps/node`, docs at <https://akinator31.github.io/Tryout/>).
-- Queue state is in Postgres (`apps/control-plane/src/queue.ts`, ADR 0007), tested through its
+- Queue state is in Postgres (`apps/control-plane/src/queue.ts`, ADRs 0007 and 0011), tested through its
   interface with PGlite locally and PostgreSQL in CI.
 - UI work (React embed page, admin) starts from the maintainer's **Figma** designs. Ask for the
   Figma file before designing any screen.
@@ -162,6 +163,7 @@ CI (`.github/workflows/ci.yml`) runs all of the above, plus multi-arch image bui
   public repository. Update this file when the project's state or rules change.
 - **Security invariants** (do not weaken without an ADR and a `SECURITY.md` update):
   - only the agent has a Docker socket;
+  - PostgreSQL is reachable by the control plane only;
   - the hardening is hard-coded in the agent, not configurable;
   - sessions have no egress;
   - nodes never call the control plane;

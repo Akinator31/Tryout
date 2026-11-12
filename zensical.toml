@@ -34,6 +34,7 @@ nav = [
     "decisions/0008-stack-and-license.md",
     "decisions/0009-minimal-docker-client.md",
     "decisions/0010-fresh-container-per-session.md",
+    "decisions/0011-queue-implementation.md",
   ] },
   { "Project" = [
     "roadmap.md",

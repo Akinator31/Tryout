@@ -31,7 +31,8 @@ The project is pre-release. Only the `main` branch receives fixes.
 
 1. The node host and the operator's other services (e.g. a Dokploy instance and its databases).
 2. The operator's local network.
-3. The control plane, which decides who gets a session.
+3. The control plane and its PostgreSQL database, which hold the session ids (the credentials in
+   the session URLs).
 4. Other visitors' sessions.
 5. The reputation of the operator's domain (phishing, cookies).
 6. Service availability.
@@ -65,6 +66,7 @@ can turn them off.
 | Selkies features | File transfer, microphone, webcam, printing, gamepads and second screen are disabled and locked. The visitor cannot re-enable them. |
 | Lifetime | Maximum session age. A session ends about 30 s after its heartbeat is lost. The agent keeps a safety net: it removes expired containers and orphan networks even if the control plane is gone. |
 | Call direction | The control plane calls the agent with a token. The node holds no credential towards the rest of the infrastructure. |
+| State store | PostgreSQL is reachable by the control plane only: the dev compose file puts it on an internal network that no node component joins. |
 | Prerequisites | The agent **refuses to start** if the declared profile is not met (see below). |
 
 ## Node profiles
@@ -119,6 +121,8 @@ Internet.
   runc.
 - **Pin project images by digest**, and do not build images on the node.
 - **Keep AppArmor and seccomp enabled** on the host.
+- **Keep PostgreSQL private to the control plane.** Never expose it on a network that nodes or
+  the Internet can reach, and use a strong password. It holds the ids of live sessions.
 
 ## Known limitations
 

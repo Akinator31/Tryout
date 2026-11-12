@@ -11,7 +11,7 @@
 ## Done since
 
 - Queue and session state in Postgres, with tests through the queue interface (PGlite locally,
-  PostgreSQL in CI). See [ADR 0007](decisions/0007-queue-in-postgres.md).
+  PostgreSQL in CI). See ADRs [0007](decisions/0007-queue-in-postgres.md) and [0011](decisions/0011-queue-implementation.md).
 
 ## Proof-of-concept shortcuts to replace
 
