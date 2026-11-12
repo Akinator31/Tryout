@@ -1,0 +1,62 @@
+# Local, single-machine stack (profile dev). NOT a production layout:
+# in production the agent+gateway run on the sandbox node and the control
+# plane elsewhere (e.g. Dokploy). Run from the repo root: docker compose -f deploy/compose.dev.yaml up --build
+name: tryout-dev
+
+services:
+  agent:
+    build: ../apps/node
+    command: ["tryout-agent"]
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      NODE_PROFILE: ${NODE_PROFILE:-dev}
+      DEFAULT_RUNTIME: ${DEFAULT_RUNTIME:-runsc}
+      ALLOW_RUNC: ${ALLOW_RUNC:-false}
+      AGENT_TOKEN: ${AGENT_TOKEN:?set in .env}
+      GATEWAY_TOKEN: ${GATEWAY_TOKEN:?set in .env}
+      GATEWAY_CONTAINER: tryout-gateway
+      GATEWAY_ADMIN_SOCKET: unix:///run/tryout/gateway.sock
+      MAX_SESSIONS: "6"
+    volumes:
+      # dev only. single-host: mount the ROOTLESS daemon socket instead.
+      - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+      - gateway-admin:/run/tryout
+    # Socket access: Docker Desktop exposes it root:root, a native daemon uses the
+    # docker group. dev only; a real node runs the agent as the rootless user.
+    user: "${AGENT_USER:-0}"
+    group_add: ["${DOCKER_GID:-0}"]
+    networks: [control]
+    restart: unless-stopped
+
+  gateway:
+    build: ../apps/node
+    container_name: tryout-gateway   # the agent attaches this container to session networks
+    command: ["tryout-gateway"]
+    environment:
+      GATEWAY_TOKEN: ${GATEWAY_TOKEN:?set in .env}
+      FRAME_ANCESTORS: ${FRAME_ANCESTORS:-http://localhost:3000}
+      ADMIN_SOCKET: unix:///run/tryout/gateway.sock
+    volumes:
+      - gateway-admin:/run/tryout   # admin API: shared with the agent only
+    ports: ["8080:8080"]           # expose however you like: tunnel, Traefik, Caddy...
+    networks: [control]
+    restart: unless-stopped
+
+  control-plane:
+    image: node:24-alpine
+    working_dir: /app
+    command: ["node", "src/server.ts"]
+    environment:
+      TRYOUT_CONFIG: /app/config.json
+    volumes:
+      - ../apps/control-plane/src:/app/src:ro
+      - ./config.dev.json:/app/config.json:ro
+    ports: ["3000:3000"]
+    networks: [control]
+    restart: unless-stopped
+
+networks:
+  control: {}
+
+volumes:
+  gateway-admin: {}

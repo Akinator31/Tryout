@@ -1,0 +1,103 @@
+# Documentation site — https://zensical.org
+# Local preview: pip install zensical && zensical serve
+[project]
+site_name = "Tryout"
+site_url = "https://akinator31.github.io/Tryout/"
+repo_url = "https://github.com/Akinator31/Tryout"
+repo_name = "Akinator31/Tryout"
+site_description = "Let portfolio visitors try projects in disposable, isolated containers."
+docs_dir = "docs"
+site_dir = "site"
+copyright = "Tryout contributors — AGPL-3.0-or-later"
+nav = [
+  { "Home" = "index.md" },
+  { "Local quickstart" = "quickstart.md" },
+  { "Architecture" = "architecture.md" },
+  { "Security" = "security.md" },
+  { "Configuration" = "configuration.md" },
+  { "Project images" = "project-images.md" },
+  { "Public exposure" = "exposure.md" },
+  { "Performance" = "performance.md" },
+  { "Decisions" = [
+    "decisions/index.md",
+    "decisions/0001-split-agent-and-gateway.md",
+    "decisions/0002-path-routing-capability-urls.md",
+    "decisions/0003-node-profiles-and-runtimes.md",
+    "decisions/0004-one-way-trust.md",
+    "decisions/0005-build-a-thin-orchestrator.md",
+    "decisions/0006-selkies-websocket-locked-settings.md",
+    "decisions/0007-queue-in-postgres.md",
+    "decisions/0008-stack-and-license.md",
+    "decisions/0009-minimal-docker-client.md",
+    "decisions/0010-fresh-container-per-session.md",
+  ] },
+  { "Roadmap" = "roadmap.md" },
+  { "Contributing" = "contributing.md" },
+]
+
+[project.theme]
+language = "en"
+features = [
+  "content.code.copy",
+  "content.tabs.link",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to system preference"
+
+[project.markdown_extensions]
+abbr = {}
+admonition = {}
+attr_list = {}
+def_list = {}
+footnotes = {}
+md_in_html = {}
+toc.permalink = true
+pymdownx.arithmatex.generic = true
+pymdownx.betterem = {}
+pymdownx.caret = {}
+pymdownx.details = {}
+pymdownx.emoji.emoji_generator = "zensical.extensions.emoji.to_svg"
+pymdownx.emoji.emoji_index = "zensical.extensions.emoji.twemoji"
+pymdownx.highlight.anchor_linenums = true
+pymdownx.highlight.line_spans = "__span"
+pymdownx.highlight.pygments_lang_class = true
+pymdownx.inlinehilite = {}
+pymdownx.keys = {}
+pymdownx.magiclink = {}
+pymdownx.mark = {}
+pymdownx.smartsymbols = {}
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+pymdownx.tabbed.alternate_style = true
+pymdownx.tabbed.combine_header_slug = true
+pymdownx.tasklist.custom_checkbox = true
+pymdownx.tilde = {}
+
+# SECURITY.md at the repository root is included in docs/security.md
+[project.markdown_extensions.pymdownx.snippets]
+base_path = ["."]
+check_paths = true

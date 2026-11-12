@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Portfolio (demo)</title>
+<style>body{font:15px system-ui;margin:24px;background:#fafafa} .p{margin:24px 0} iframe{width:100%;height:560px;border:1px solid #ccc;border-radius:8px;background:#111}</style>
+</head>
+<body>
+<h1>Simulated portfolio</h1>
+<p>Each block is an iframe pointing at <code>/embed/&lt;project&gt;</code>, as a real portfolio would embed it.</p>
+<div id="list"></div>
+<script>
+for (const p of __PROJECTS__) {
+  const d = document.createElement("div"); d.className = "p";
+  d.innerHTML = `<h2>${p}</h2><button>Try it</button>`;
+  d.querySelector("button").onclick = (e) => {
+    const f = document.createElement("iframe");
+    f.src = `/embed/${p}`;
+    f.allow = "clipboard-read; clipboard-write; autoplay; fullscreen; keyboard-map";
+    e.target.replaceWith(f);
+  };
+  document.getElementById("list").appendChild(d);
+}
+</script>
+</body>
+</html>

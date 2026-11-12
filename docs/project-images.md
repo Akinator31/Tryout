@@ -1,0 +1,39 @@
+# Project images
+
+A project image is a regular Docker image that follows a small contract.
+
+## Common contract
+
+- It listens over **HTTP** on the port declared in the configuration (`port`).
+- It serves its UI **under the path `$TRYOUT_BASE_PATH`** (e.g. `/s/abc…`), or the project
+  declares `strip_prefix: true`.
+- It **needs no network**: sessions have no outbound access.
+- It exists for the **node's architecture** (amd64 or arm64). Otherwise the agent refuses the
+  session with an explicit message. Building multi-architecture images is the image author's
+  responsibility (`docker buildx build --platform linux/amd64,linux/arm64`).
+
+Variables provided by the agent: `TRYOUT_SESSION_ID`, `TRYOUT_BASE_PATH`.
+
+## Command-line project (`kind: terminal`)
+
+- The root filesystem is **read-only**. Only `/tmp` is writable, and `HOME=/tmp`.
+- No capabilities and `no-new-privileges`: use a non-root user.
+- ttyd serves the terminal. A complete example lives in `examples/cli-hello`:
+
+```sh
+exec ttyd -W -m 1 -p 7681 -b "$TRYOUT_BASE_PATH" bash -l
+```
+
+`-W` makes the terminal writable, `-m 1` allows one client, and `-b` sets the base path.
+
+## Graphical project (`kind: desktop`)
+
+Start from a Selkies-based LinuxServer image (`lscr.io/linuxserver/baseimage-selkies` or
+`lscr.io/linuxserver/webtop`) and install your application. The agent provides `SUBFOLDER`, which
+the image's nginx applies, and the Selkies settings (see [Configuration](configuration.md)). The
+port is `3000`.
+
+- **Tested**: `lscr.io/linuxserver/webtop` boots with the reduced capability set, under runc and
+  gVisor, on amd64 and arm64.
+- **Resources**: plan at least 2 GB of memory and `--shm-size 1g`, which the agent applies. For
+  CPU, see [Performance](performance.md).

@@ -1,0 +1,146 @@
+# CLAUDE.md
+
+Context and rules for working on this repository. Read this file in full at the start of every
+session.
+
+## What this project is
+
+**Tryout** lets portfolio visitors try projects in their browser. Each visitor gets a dedicated,
+disposable Docker container:
+
+- **command-line** projects are served through a web terminal (**ttyd**);
+- **graphical** projects are streamed through **Selkies** (WebSocket mode);
+- each project has a **limit on concurrent sessions** and an app-managed **queue**;
+- every session is a **fresh container** on its own `--internal` network, with no egress and a
+  hardened specification; **gVisor** (`runsc`) is the default runtime.
+
+The portfolio embeds `https://<control-plane>/embed/<project>` in an iframe.
+
+**The project is public (GitHub, AGPL-3.0-or-later) and must not depend on the maintainer's own
+infrastructure.** Everything environment-specific is configuration: Docker endpoint, node profile,
+runtime, public URL template, caps. Never hard-code a domain, tunnel provider, reverse proxy,
+host layout or architecture.
+
+## Architecture (summary)
+
+```
+browser ─► control plane (TypeScript)   queue, tickets, /embed/<project>; calls nodes (never the reverse)
+              ▼
+           node: agent (Go)             only component with the Docker socket; hard-coded hardening
+                 gateway (Go)           public reverse proxy /s/<id>/; NO Docker socket
+                   ▼
+                 session container      per-session --internal network; gateway attached to it
+```
+
+Key facts that are easy to forget:
+
+- **Agent ↔ gateway** talk over a **unix socket in a shared volume**, never TCP: the gateway joins
+  every session network, so a TCP admin port would be reachable from sessions.
+- **Session URL = capability**: `/s/<26 base32 chars>/` (130 bits). There are no cookies; the
+  gateway strips `Set-Cookie`, incoming `Cookie` and `Service-Worker-Allowed`, and enforces
+  `frame-ancestors` and `Referrer-Policy: no-referrer`.
+- **Node profiles** (`NODE_PROFILE`):
+  - `dev`: anything goes, local only;
+  - `strict`: dedicated machine or VM, gVisor required;
+  - `single-host`: shared machine, which requires a dedicated rootless daemon, cgroup v2 and gVisor.
+  
+  `ALLOW_RUNC=true` is the documented opt-out. The agent refuses to start when a profile is not
+  met.
+- **Desktop sessions**:
+  - LinuxServer/Selkies images need `CHOWN`, `SETUID`, `SETGID`, `DAC_OVERRIDE`, `FOWNER` and
+    `KILL` for their s6 init. Everything else is dropped.
+  - The agent sets `SUBFOLDER=/s/<id>/` for base-path routing.
+  - It also sets defaults a project may override: 720p, 96 DPI, 15–30 fps, audio off.
+  - It locks, with no override: file transfer, microphone, webcam, printing, gamepads, second
+    screen.
+- **Measured costs**: gVisor uses 2–2.5× the CPU of runc for Selkies desktops on a Raspberry Pi 5,
+  with negligible overhead for terminals. Without the resolution cap, a HiDPI client pushes near-4K
+  at 60 fps and saturates a small node.
+- **Docker client**: a hand-written Engine API client (`apps/node/internal/dockerapi`, API
+  v1.47), with no SDK dependency.
+- **Docker Desktop**: its socket is `root:root` inside the VM, which is why the dev compose runs
+  the agent as root.
+
+## Repository layout
+
+```
+apps/control-plane/   TypeScript, Node ≥ 24 (native type stripping), no runtime deps
+apps/node/            Go: cmd/agent, cmd/gateway, internal/dockerapi; one image, two binaries
+deploy/               compose.dev.yaml, config.dev.json, .env.example
+examples/cli-hello/   sample terminal project (ttyd)
+scripts/              e2e-cli.ts, e2e-queue.ts, feasibility-node.sh
+docs/                 Zensical documentation (English); decisions/ holds the ADRs
+SECURITY.md           threat model and profiles (included in the docs site)
+```
+
+## Documentation to read
+
+Read these regularly to keep the project's behaviour in mind:
+
+- before any change: `docs/architecture.md` and `SECURITY.md`;
+- before touching a topic: the related `docs/decisions/*.md`;
+- `docs/roadmap.md` for what is provisional.
+
+Background research (not part of the repository) lives in `../Tryout-research/`: a hyperresearch
+vault with the original stack study (in French) and its sources.
+
+## Current status
+
+- The proof of concept has been validated end to end:
+  - terminal and desktop sessions, queue, heartbeat loss, cleanup, network isolation, profile
+    refusal;
+  - Selkies under gVisor on a Raspberry Pi 5 (arm64), behind a base path.
+- The POC shortcuts still in place are listed in `docs/roadmap.md`: in-memory queue (target:
+  Postgres), polling (target: SSE), plain HTML embed page (target: React + Chakra UI), JSON config
+  (target: YAML + JSON Schema), HTTP between control plane and agent (target: mTLS), path routing
+  only.
+- Repository: <https://github.com/Akinator31/Tryout> (Go module
+  `github.com/Akinator31/Tryout/apps/node`, docs at <https://akinator31.github.io/Tryout/>).
+
+## Commands
+
+```bash
+# Go (node)
+(cd apps/node && test -z "$(gofmt -l .)" && go vet ./... && go test -race ./...)
+# TypeScript (control plane)
+(cd apps/control-plane && npm ci && npm run typecheck)
+# Shell
+shellcheck scripts/*.sh examples/*/*.sh
+# Docs
+zensical build --clean --strict      # or: zensical serve
+# Full local stack + end-to-end tests
+docker build -t tryout-example/cli-hello:dev examples/cli-hello
+cp deploy/.env.example deploy/.env
+docker compose -f deploy/compose.dev.yaml up -d --build
+node scripts/e2e-cli.ts && node scripts/e2e-queue.ts
+docker compose -f deploy/compose.dev.yaml down -v
+```
+
+CI (`.github/workflows/ci.yml`) runs all of the above, plus multi-arch image builds.
+`.github/workflows/docs.yml` builds the Zensical site and deploys it to GitHub Pages from `main`.
+
+## Rules
+
+- **Language**: everything in the repository is in English: code, comments, docs, commits, PRs,
+  issues. The maintainer writes in French; answer in French in conversation.
+- **Commits**: follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat`, `fix`,
+  `docs`, `ci`, `build`, `refactor`, `test`, `chore`, with an optional scope such as
+  `feat(agent): …`), including documentation changes (`docs: …`).
+  - **Title only.** No body, no description, no `Co-Authored-By` or any other trailer.
+- **No mention of AI** (Claude, assistant, generated by…) in commits, PRs, issues, review comments,
+  release notes or any other GitHub content.
+- **Always update the documentation** when a change affects behaviour, configuration, security or
+  operations, in the same change: the relevant `docs/` page, `SECURITY.md`, and a new ADR in
+  `docs/decisions/` for lasting architecture choices. Keep the "Current status" section above up to
+  date.
+- **Keep the docs in mind**: re-read the relevant pages (see above) before designing or changing
+  something, rather than relying on memory.
+- **Remember across sessions**: save anything worth keeping between sessions in the persistent
+  memory: decisions, the maintainer's preferences, environment facts that must not go into this
+  public repository. Update this file when the project's state or rules change.
+- **Security invariants** (do not weaken without an ADR and a `SECURITY.md` update):
+  - only the agent has a Docker socket;
+  - the hardening is hard-coded in the agent, not configurable;
+  - sessions have no egress;
+  - nodes never call the control plane;
+  - the gateway admin API never listens on TCP.

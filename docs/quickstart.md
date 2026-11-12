@@ -1,0 +1,57 @@
+# Local quickstart
+
+This guide runs the whole stack on one machine with the `dev` profile, which gives **no security
+guarantee**. It is for development and evaluation, not for exposure to the Internet.
+
+## Requirements
+
+- Docker with Compose (Docker Engine or Docker Desktop).
+- Node.js 24 or newer, for the end-to-end tests.
+- Go 1.24 or newer, for the node's unit tests.
+
+## Run
+
+```bash
+docker build -t tryout-example/cli-hello:dev examples/cli-hello
+cp deploy/.env.example deploy/.env
+docker compose -f deploy/compose.dev.yaml up -d --build
+```
+
+Then open <http://localhost:3000/demo>. The page simulates a portfolio: each "Try it" button
+opens an iframe to `/embed/<project>`.
+
+| Service | Address | Role |
+|---|---|---|
+| control plane | `localhost:3000` | queue and embed page |
+| gateway | `localhost:8080` | public proxy for sessions (`/s/<id>/`) |
+| agent | internal network only | creates and destroys sessions |
+
+The `webtop` project downloads about 4 GB the first time.
+
+## Test
+
+```bash
+node scripts/e2e-cli.ts      # queue → gateway → ttyd WebSocket → commands
+node scripts/e2e-queue.ts    # session cap, promotion, heartbeat loss
+(cd apps/node && go test ./...)
+(cd apps/control-plane && npm ci && npm run typecheck)
+```
+
+## Stop
+
+```bash
+docker compose -f deploy/compose.dev.yaml down -v
+```
+
+The agent removes sessions still running the next time it starts. To clean them up right away:
+
+```bash
+docker rm -f $(docker ps -aq --filter label=tryout.session)
+docker network rm $(docker network ls -q --filter label=tryout.session)
+```
+
+## Docker Desktop
+
+Docker Desktop's socket is owned by `root:root` inside its VM, so the dev compose file runs the
+agent as root (`AGENT_USER=0`). With a native daemon, set `AGENT_USER` to your uid and
+`DOCKER_GID` to the socket's group (`stat -c %g /var/run/docker.sock`).

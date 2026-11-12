@@ -1,0 +1,610 @@
+// tryout-agent: the only component that talks to Docker on a sandbox node.
+//
+// It exposes a small private HTTP API (bearer token) used by the control
+// plane, creates one hardened container + one --internal network per
+// session, attaches the gateway to that network, and pushes the route table
+// to the gateway. A reconcile loop removes expired/dead sessions and orphans.
+package main
+
+import (
+	"bytes"
+	"context"
+	"crypto/subtle"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"maps"
+	"net"
+	"net/http"
+	"os"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/Akinator31/Tryout/apps/node/internal/dockerapi"
+)
+
+const (
+	labelSession = "tryout.session"
+	labelProject = "tryout.project"
+	labelExpires = "tryout.expires"
+	labelPort    = "tryout.port"
+	labelStrip   = "tryout.strip-prefix"
+	namePrefix   = "tryout-s-"
+)
+
+var sessionIDRe = regexp.MustCompile(`^[a-z0-9]{26}$`)
+
+type config struct {
+	listen         string
+	token          string
+	dockerHost     string
+	profile        string // dev | strict | single-host
+	defaultRuntime string
+	allowRunc      bool
+	gatewayName    string
+	gatewaySocket  string
+	gatewayToken   string
+	maxSessions    int
+	maxAge         time.Duration
+}
+
+func env(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
+func loadConfig() config {
+	maxS, _ := strconv.Atoi(env("MAX_SESSIONS", "10"))
+	maxAge, _ := time.ParseDuration(env("SESSION_MAX_AGE_CAP", "2h"))
+	return config{
+		listen:         env("AGENT_LISTEN", ":7000"),
+		token:          os.Getenv("AGENT_TOKEN"),
+		dockerHost:     env("DOCKER_HOST", "unix:///var/run/docker.sock"),
+		profile:        env("NODE_PROFILE", "dev"),
+		defaultRuntime: env("DEFAULT_RUNTIME", "runsc"),
+		allowRunc:      env("ALLOW_RUNC", "false") == "true",
+		gatewayName:    env("GATEWAY_CONTAINER", "tryout-gateway"),
+		gatewaySocket:  strings.TrimPrefix(env("GATEWAY_ADMIN_SOCKET", "unix:///run/tryout/gateway.sock"), "unix://"),
+		gatewayToken:   os.Getenv("GATEWAY_TOKEN"),
+		maxSessions:    maxS,
+		maxAge:         maxAge,
+	}
+}
+
+type agent struct {
+	cfg      config
+	docker   *dockerapi.Client
+	arch     string
+	runtimes map[string]bool
+
+	gatewayHTTP *http.Client // over the shared unix socket
+
+	mu       sync.Mutex
+	creating map[string]bool // ids being created: reconciler must not touch them
+}
+
+// ---------- startup checks: the profile is a contract, not a hint ----------
+
+func normArch(a string) string {
+	switch a {
+	case "x86_64":
+		return "amd64"
+	case "aarch64":
+		return "arm64"
+	}
+	return a
+}
+
+func (a *agent) checkProfile(ctx context.Context) error {
+	info, err := a.docker.Info(ctx)
+	if err != nil {
+		return fmt.Errorf("docker unreachable at %s: %w", a.cfg.dockerHost, err)
+	}
+	a.arch = normArch(info.Architecture)
+	a.runtimes = map[string]bool{}
+	for r := range info.Runtimes {
+		a.runtimes[r] = true
+	}
+	rootless := slices.ContainsFunc(info.SecurityOptions, func(s string) bool { return strings.Contains(s, "name=rootless") })
+	hasRunsc := a.runtimes["runsc"]
+
+	slog.Info("docker", "arch", a.arch, "runtimes", keys(a.runtimes), "rootless", rootless, "cgroup", info.CgroupVersion)
+
+	switch a.cfg.profile {
+	case "dev":
+		slog.Warn("PROFILE=dev: NO SECURITY GUARANTEE, do not expose to the internet")
+	case "strict":
+		if !hasRunsc && !a.cfg.allowRunc {
+			return errors.New("profile strict: runtime runsc (gVisor) not installed; install it or set ALLOW_RUNC=true explicitly")
+		}
+	case "single-host":
+		if !rootless {
+			return errors.New("profile single-host: DOCKER_HOST must point to a dedicated ROOTLESS daemon, never the main root socket")
+		}
+		if info.CgroupVersion != "2" {
+			return errors.New("profile single-host: cgroup v2 required (otherwise rootless resource limits are silently ignored)")
+		}
+		if !hasRunsc && !a.cfg.allowRunc {
+			return errors.New("profile single-host: runsc (gVisor) required; ALLOW_RUNC=true is a documented, weaker opt-out")
+		}
+	default:
+		return fmt.Errorf("unknown NODE_PROFILE %q", a.cfg.profile)
+	}
+	if a.cfg.allowRunc && a.cfg.profile != "dev" {
+		slog.Warn("ALLOW_RUNC=true: sessions may share the host kernel without gVisor")
+	}
+	if !a.runtimes[a.cfg.defaultRuntime] {
+		if a.cfg.profile == "dev" {
+			slog.Warn("default runtime missing, falling back to runc", "wanted", a.cfg.defaultRuntime)
+			a.cfg.defaultRuntime = "runc"
+		} else if !a.cfg.allowRunc {
+			return fmt.Errorf("DEFAULT_RUNTIME %q not available", a.cfg.defaultRuntime)
+		} else {
+			a.cfg.defaultRuntime = "runc"
+		}
+	}
+	return nil
+}
+
+func keys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// ---------- session spec ----------
+
+type limits struct {
+	MemoryMB int     `json:"memory_mb"`
+	CPUs     float64 `json:"cpus"`
+	Pids     int64   `json:"pids"`
+}
+
+type sessionReq struct {
+	ID          string            `json:"id"`
+	Project     string            `json:"project"`
+	Image       string            `json:"image"`
+	Kind        string            `json:"kind"` // terminal | desktop
+	Port        int               `json:"port"`
+	Runtime     string            `json:"runtime,omitempty"`
+	MaxAgeS     int               `json:"max_age_s"`
+	StripPrefix bool              `json:"strip_prefix,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	Limits      limits            `json:"limits"`
+}
+
+func (r *sessionReq) validate(a *agent) error {
+	switch {
+	case !sessionIDRe.MatchString(r.ID):
+		return errors.New("invalid id")
+	case r.Image == "":
+		return errors.New("image required")
+	case r.Kind != "terminal" && r.Kind != "desktop":
+		return errors.New("kind must be terminal or desktop")
+	case r.Port <= 0 || r.Port > 65535:
+		return errors.New("invalid port")
+	}
+	if r.Runtime == "" {
+		r.Runtime = a.cfg.defaultRuntime
+	}
+	if !a.runtimes[r.Runtime] {
+		return fmt.Errorf("runtime %q not installed on this node", r.Runtime)
+	}
+	if r.Runtime == "runc" && a.cfg.profile != "dev" && !a.cfg.allowRunc {
+		return errors.New("runtime runc refused by node profile")
+	}
+	for k := range r.Env {
+		if isReservedEnv(k) {
+			return fmt.Errorf("env %s is reserved", k)
+		}
+	}
+	if r.MaxAgeS <= 0 || time.Duration(r.MaxAgeS)*time.Second > a.cfg.maxAge {
+		r.MaxAgeS = int(a.cfg.maxAge.Seconds())
+	}
+	if r.Limits.MemoryMB <= 0 {
+		r.Limits.MemoryMB = map[string]int{"terminal": 256, "desktop": 2048}[r.Kind]
+	}
+	if r.Limits.CPUs <= 0 {
+		r.Limits.CPUs = map[string]float64{"terminal": 0.5, "desktop": 1.5}[r.Kind]
+	}
+	if r.Limits.Pids <= 0 {
+		r.Limits.Pids = map[string]int64{"terminal": 128, "desktop": 1024}[r.Kind]
+	}
+	return nil
+}
+
+// Environment policy.
+//
+// lockedEnv is set by the agent and can never be overridden by a project:
+// it carries the routing contract and the features a public sandbox must
+// not expose (file transfer, microphone, webcam, printing...).
+// desktopDefaults are performance defaults a project may override: Selkies
+// otherwise sizes the stream to the client screen (near-4K at 60 fps on a
+// HiDPI laptop), which saturates a small node with a single visitor.
+func lockedEnv(r sessionReq) map[string]string {
+	base := "/s/" + r.ID
+	env := map[string]string{
+		"TRYOUT_SESSION_ID": r.ID,
+		"TRYOUT_BASE_PATH":  base,
+	}
+	switch r.Kind {
+	case "terminal":
+		env["HOME"] = "/tmp" // the root filesystem is read-only
+	case "desktop":
+		for k, v := range map[string]string{
+			"PUID": "1000", "PGID": "1000",
+			"SUBFOLDER":                  base + "/",
+			"HARDEN_DESKTOP":             "true",
+			"START_DOCKER":               "false",
+			"NO_GAMEPAD":                 "true",
+			"SELKIES_FILE_TRANSFERS":     "none",
+			"SELKIES_MICROPHONE_ENABLED": "false|locked",
+			"SELKIES_WEBCAM_ENABLED":     "false|locked",
+			"SELKIES_PRINTING_ENABLED":   "false|locked",
+			"SELKIES_GAMEPAD_ENABLED":    "false|locked",
+			"SELKIES_SECOND_SCREEN":      "false|locked",
+		} {
+			env[k] = v
+		}
+	}
+	return env
+}
+
+var desktopDefaults = map[string]string{
+	"SELKIES_MANUAL_RESOLUTION": "true|locked",
+	"SELKIES_MANUAL_WIDTH":      "1280",
+	"SELKIES_MANUAL_HEIGHT":     "720",
+	"SELKIES_SCALING_DPI":       "96",
+	"SELKIES_USE_CSS_SCALING":   "true|locked",
+	"SELKIES_FRAMERATE":         "15-30",
+	"SELKIES_AUDIO_ENABLED":     "false|locked",
+}
+
+func isReservedEnv(k string) bool {
+	if strings.HasPrefix(k, "TRYOUT_") {
+		return true
+	}
+	_, inTerminal := lockedEnv(sessionReq{Kind: "terminal"})[k]
+	_, inDesktop := lockedEnv(sessionReq{Kind: "desktop"})[k]
+	return inTerminal || inDesktop
+}
+
+// sessionEnv merges, by increasing priority: kind defaults, project env,
+// locked env. The result is sorted for deterministic container specs.
+func sessionEnv(r sessionReq) []string {
+	merged := map[string]string{}
+	if r.Kind == "desktop" {
+		maps.Copy(merged, desktopDefaults)
+		merged["TITLE"] = r.Project
+	}
+	maps.Copy(merged, r.Env)
+	maps.Copy(merged, lockedEnv(r))
+	out := make([]string, 0, len(merged))
+	for k, v := range merged {
+		out = append(out, k+"="+v)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// containerSpec is where the hardening lives. It is NOT configurable by the
+// control plane on purpose: only image/kind/limits come from outside.
+func (a *agent) containerSpec(r sessionReq, netName string) dockerapi.ContainerCreate {
+	envs := sessionEnv(r)
+	hc := dockerapi.HostConfig{
+		Runtime:     r.Runtime,
+		NetworkMode: netName,
+		CapDrop:     []string{"ALL"},
+		SecurityOpt: []string{"no-new-privileges:true"},
+		Memory:      int64(r.Limits.MemoryMB) << 20,
+		MemorySwap:  int64(r.Limits.MemoryMB) << 20, // no swap beyond memory
+		NanoCpus:    int64(r.Limits.CPUs * 1e9),
+		PidsLimit:   r.Limits.Pids,
+		LogConfig:   &dockerapi.LogConfig{Type: "json-file", Config: map[string]string{"max-size": "1m", "max-file": "1"}},
+	}
+	switch r.Kind {
+	case "terminal":
+		hc.Init = true
+		hc.ReadonlyRootfs = true
+		hc.Tmpfs = map[string]string{"/tmp": "rw,nosuid,nodev,size=64m,mode=1777"}
+	case "desktop":
+		// LinuxServer/Selkies images boot as root under s6, chown files and
+		// then drop to PUID. Minimal capability set for that boot sequence.
+		hc.CapAdd = []string{"CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "FOWNER", "KILL"}
+		hc.ShmSize = 1 << 30
+	}
+	return dockerapi.ContainerCreate{
+		Image:    r.Image,
+		Env:      envs,
+		Hostname: "tryout",
+		Labels: map[string]string{
+			labelSession: r.ID,
+			labelProject: r.Project,
+			labelExpires: strconv.FormatInt(time.Now().Add(time.Duration(r.MaxAgeS)*time.Second).Unix(), 10),
+			labelPort:    strconv.Itoa(r.Port),
+			labelStrip:   strconv.FormatBool(r.StripPrefix),
+		},
+		HostConfig: hc,
+	}
+}
+
+// ---------- lifecycle ----------
+
+func (a *agent) ensureImage(ctx context.Context, ref string) error {
+	img, err := a.docker.ImageInspect(ctx, ref)
+	if dockerapi.IsNotFound(err) {
+		slog.Info("pulling image", "ref", ref)
+		if err := a.docker.ImagePull(ctx, ref); err != nil {
+			return err
+		}
+		img, err = a.docker.ImageInspect(ctx, ref)
+	}
+	if err != nil {
+		return err
+	}
+	if normArch(img.Architecture) != a.arch {
+		return fmt.Errorf("image %s is %s but this node is %s (build a multi-arch image or assign the project to another node)", ref, img.Architecture, a.arch)
+	}
+	return nil
+}
+
+func (a *agent) countSessions(ctx context.Context) (int, error) {
+	cs, err := a.docker.ContainerList(ctx, labelSession)
+	return len(cs), err
+}
+
+func (a *agent) create(ctx context.Context, r sessionReq) error {
+	a.mu.Lock()
+	if a.creating[r.ID] {
+		a.mu.Unlock()
+		return errors.New("already creating")
+	}
+	n, err := a.countSessions(ctx)
+	if err == nil && n+len(a.creating) >= a.cfg.maxSessions {
+		err = errors.New("node full")
+	}
+	if err != nil {
+		a.mu.Unlock()
+		return err
+	}
+	a.creating[r.ID] = true
+	a.mu.Unlock()
+	defer func() { a.mu.Lock(); delete(a.creating, r.ID); a.mu.Unlock() }()
+
+	if err := a.ensureImage(ctx, r.Image); err != nil {
+		return err
+	}
+	name := namePrefix + r.ID
+	if _, err := a.docker.NetworkCreate(ctx, dockerapi.NetworkCreate{
+		Name: name, Driver: "bridge", Internal: true,
+		Labels:  map[string]string{labelSession: r.ID},
+		Options: map[string]string{"com.docker.network.bridge.enable_icc": "true"},
+	}); err != nil {
+		return fmt.Errorf("network: %w", err)
+	}
+	fail := func(err error) error {
+		a.destroy(context.WithoutCancel(ctx), r.ID)
+		return err
+	}
+	if _, err := a.docker.ContainerCreate(ctx, name, a.containerSpec(r, name)); err != nil {
+		return fail(fmt.Errorf("create: %w", err))
+	}
+	if err := a.docker.NetworkConnect(ctx, name, a.cfg.gatewayName); err != nil {
+		return fail(fmt.Errorf("attach gateway: %w", err))
+	}
+	if err := a.docker.ContainerStart(ctx, name); err != nil {
+		return fail(fmt.Errorf("start: %w", err))
+	}
+	slog.Info("session started", "id", r.ID, "project", r.Project, "runtime", r.Runtime, "kind", r.Kind)
+	a.pushRoutes(ctx)
+	return nil
+}
+
+func (a *agent) destroy(ctx context.Context, id string) {
+	name := namePrefix + id
+	if err := a.docker.ContainerRemove(ctx, name); err != nil && !dockerapi.IsNotFound(err) {
+		slog.Warn("remove container", "id", id, "err", err)
+	}
+	if err := a.docker.NetworkDisconnect(ctx, name, a.cfg.gatewayName); err != nil && !dockerapi.IsNotFound(err) {
+		slog.Debug("disconnect gateway", "id", id, "err", err)
+	}
+	if err := a.docker.NetworkRemove(ctx, name); err != nil && !dockerapi.IsNotFound(err) {
+		slog.Warn("remove network", "id", id, "err", err)
+	}
+	slog.Info("session destroyed", "id", id)
+}
+
+type route struct {
+	ID          string `json:"id"`
+	Target      string `json:"target"`
+	StripPrefix bool   `json:"strip_prefix"`
+}
+
+func (a *agent) pushRoutes(ctx context.Context) {
+	cs, err := a.docker.ContainerList(ctx, labelSession)
+	if err != nil {
+		slog.Warn("list for routes", "err", err)
+		return
+	}
+	routes := []route{}
+	for _, c := range cs {
+		if c.State != "running" {
+			continue
+		}
+		id := c.Labels[labelSession]
+		routes = append(routes, route{
+			ID:          id,
+			Target:      fmt.Sprintf("http://%s%s:%s", namePrefix, id, c.Labels[labelPort]),
+			StripPrefix: c.Labels[labelStrip] == "true",
+		})
+	}
+	b, _ := json.Marshal(routes)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPut, "http://gateway/routes", bytes.NewReader(b))
+	req.Header.Set("Authorization", "Bearer "+a.cfg.gatewayToken)
+	resp, err := a.gatewayHTTP.Do(req)
+	if err != nil {
+		slog.Warn("push routes", "err", err)
+		return
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		slog.Warn("push routes", "status", resp.StatusCode)
+	}
+}
+
+// reconcile: Docker labels are the source of truth on the node.
+func (a *agent) reconcile(ctx context.Context) {
+	a.mu.Lock()
+	busy := map[string]bool{}
+	for id := range a.creating {
+		busy[id] = true
+	}
+	a.mu.Unlock()
+
+	cs, err := a.docker.ContainerList(ctx, labelSession)
+	if err != nil {
+		slog.Warn("reconcile list", "err", err)
+		return
+	}
+	now := time.Now().Unix()
+	live := map[string]bool{}
+	for _, c := range cs {
+		id := c.Labels[labelSession]
+		if busy[id] {
+			live[id] = true
+			continue
+		}
+		exp, _ := strconv.ParseInt(c.Labels[labelExpires], 10, 64)
+		if exp < now || (c.State != "running" && c.State != "created") {
+			slog.Info("reaping", "id", id, "state", c.State, "expired", exp < now)
+			a.destroy(ctx, id)
+			continue
+		}
+		live[id] = true
+	}
+	nets, err := a.docker.NetworkList(ctx, labelSession)
+	if err == nil {
+		for _, n := range nets {
+			if id := n.Labels[labelSession]; !live[id] && !busy[id] {
+				slog.Info("removing orphan network", "name", n.Name)
+				a.destroy(ctx, id)
+			}
+		}
+	}
+	a.pushRoutes(ctx)
+}
+
+// ---------- HTTP API ----------
+
+func (a *agent) auth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if subtle.ConstantTimeCompare([]byte(got), []byte(a.cfg.token)) != 1 {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func (a *agent) routes() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{"ok": true, "profile": a.cfg.profile, "arch": a.arch, "runtimes": keys(a.runtimes)})
+	})
+	mux.HandleFunc("POST /v1/sessions", a.auth(func(w http.ResponseWriter, r *http.Request) {
+		var req sessionReq
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
+			writeJSON(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		if err := req.validate(a); err != nil {
+			writeJSON(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute) // first pull can be long
+		defer cancel()
+		if err := a.create(ctx, req); err != nil {
+			slog.Warn("create failed", "id", req.ID, "err", err)
+			writeJSON(w, 409, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 201, map[string]string{"id": req.ID})
+	}))
+	mux.HandleFunc("DELETE /v1/sessions/{id}", a.auth(func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if !sessionIDRe.MatchString(id) {
+			http.Error(w, "bad id", 400)
+			return
+		}
+		a.destroy(r.Context(), id)
+		a.pushRoutes(r.Context())
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	mux.HandleFunc("GET /v1/sessions", a.auth(func(w http.ResponseWriter, r *http.Request) {
+		cs, err := a.docker.ContainerList(r.Context(), labelSession)
+		if err != nil {
+			writeJSON(w, 502, map[string]string{"error": err.Error()})
+			return
+		}
+		out := []map[string]string{}
+		for _, c := range cs {
+			out = append(out, map[string]string{"id": c.Labels[labelSession], "project": c.Labels[labelProject], "state": c.State})
+		}
+		writeJSON(w, 200, out)
+	}))
+	return mux
+}
+
+func main() {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	cfg := loadConfig()
+	if cfg.token == "" || cfg.gatewayToken == "" {
+		slog.Error("AGENT_TOKEN and GATEWAY_TOKEN are required")
+		os.Exit(1)
+	}
+	dc, err := dockerapi.New(cfg.dockerHost)
+	if err != nil {
+		slog.Error("docker client", "err", err)
+		os.Exit(1)
+	}
+	a := &agent{cfg: cfg, docker: dc, creating: map[string]bool{}}
+	a.gatewayHTTP = &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", cfg.gatewaySocket)
+		}}}
+	ctx := context.Background()
+	if err := a.checkProfile(ctx); err != nil {
+		slog.Error("refusing to start", "err", err)
+		os.Exit(1)
+	}
+	go func() {
+		for {
+			a.reconcile(ctx)
+			time.Sleep(10 * time.Second)
+		}
+	}()
+	srv := &http.Server{Addr: cfg.listen, Handler: a.routes(), ReadHeaderTimeout: 10 * time.Second}
+	slog.Info("agent listening", "addr", cfg.listen, "profile", cfg.profile, "default_runtime", a.cfg.defaultRuntime)
+	if err := srv.ListenAndServe(); err != nil {
+		slog.Error("server", "err", err)
+		os.Exit(1)
+	}
+}
