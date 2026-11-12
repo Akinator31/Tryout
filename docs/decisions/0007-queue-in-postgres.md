@@ -1,6 +1,6 @@
 # 0007 — Queue and leases in Postgres
 
-**Status:** accepted (the POC uses an in-memory queue)
+**Status:** accepted, implemented
 
 ## Context
 
@@ -20,7 +20,17 @@
 - Timings: heartbeat ~10 s, lease lost after ~30 s, maximum age per project.
 - Push changes to browsers with `LISTEN/NOTIFY` and SSE.
 
+## Implementation notes
+
+- Promotion runs in one transaction under `pg_advisory_xact_lock`. The node cap spans projects,
+  so a global lock is simpler than per-row locks and cheap at this volume.
+- A ticket only becomes `active` if it is still `starting` when the session is ready.
+  Otherwise the fresh session is stopped: the visitor left during the start.
+- A `starting` ticket expires after 180 s, which covers a control plane restarted mid-start.
+- Times come from an injected clock and are stored as epoch milliseconds, which keeps tests
+  deterministic.
+
 ## Consequences
 
 - One dependency (Postgres) and no Redis.
-- The POC's in-memory scheduler already implements the same semantics, to be ported.
+- State survives control plane restarts; several instances can share one database.

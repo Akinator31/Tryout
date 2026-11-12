@@ -11,7 +11,7 @@ changes, a new record supersedes it.
 | [0004](0004-one-way-trust.md) | The control plane calls nodes, never the reverse | Accepted |
 | [0005](0005-build-a-thin-orchestrator.md) | Build a thin orchestrator instead of adopting Kasm, Neko or similar | Accepted |
 | [0006](0006-selkies-websocket-locked-settings.md) | Selkies in WebSocket mode with locked server-side settings | Accepted |
-| [0007](0007-queue-in-postgres.md) | Queue and leases in Postgres | Accepted (in-memory in the POC) |
+| [0007](0007-queue-in-postgres.md) | Queue and leases in Postgres | Accepted, implemented |
 | [0008](0008-stack-and-license.md) | Go for the node, TypeScript/React for the control plane, AGPL-3.0 | Accepted |
 | [0009](0009-minimal-docker-client.md) | Minimal Docker Engine API client instead of the Go SDK | Accepted |
 | [0010](0010-fresh-container-per-session.md) | Prebuilt pinned images, a fresh container per session | Accepted |

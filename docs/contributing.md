@@ -15,10 +15,13 @@ The same checks run in CI:
 
 ```bash
 (cd apps/node && test -z "$(gofmt -l .)" && go vet ./... && go test -race ./...)
-(cd apps/control-plane && npm ci && npm run typecheck)
+(cd apps/control-plane && npm ci && npm run typecheck && npm test)
 shellcheck scripts/*.sh examples/*/*.sh
 zensical build --strict
 ```
+
+`npm test` runs the queue tests against PGlite, an in-process Postgres. Set
+`TEST_DATABASE_URL` to run them against a real PostgreSQL, as CI does.
 
 End-to-end tests: see [Local quickstart](quickstart.md).
 

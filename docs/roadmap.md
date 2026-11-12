@@ -8,12 +8,16 @@
 - Queue with per-project and per-node caps, heartbeat loss, maximum age.
 - Refusal to start when the node profile is not met.
 
+## Done since
+
+- Queue and session state in Postgres, with tests through the queue interface (PGlite locally,
+  PostgreSQL in CI). See [ADR 0007](decisions/0007-queue-in-postgres.md).
+
 ## Proof-of-concept shortcuts to replace
 
 | Current | Target |
 |---|---|
-| In-memory queue | Postgres (`SELECT … FOR UPDATE SKIP LOCKED`, leases, `LISTEN/NOTIFY`) |
-| Polling every 2 s | SSE + heartbeat |
+| Polling every 2 s | SSE + heartbeat, with Postgres `LISTEN/NOTIFY` to push changes |
 | Plain HTML embed page | React |
 | JSON configuration | YAML validated by a JSON Schema shared by TypeScript and Go |
 | Control plane → agent over HTTP + token | HTTPS / mTLS |

@@ -2,7 +2,12 @@
 
 ## Control plane
 
-A JSON file referenced by `TRYOUT_CONFIG` (see `deploy/config.dev.json`).
+| Variable | Role |
+|---|---|
+| `DATABASE_URL` | Required. PostgreSQL connection string; the schema is created at startup. |
+| `TRYOUT_CONFIG` | Path of the JSON configuration file (default `config.json`). |
+
+The configuration file (see `deploy/config.dev.json`):
 
 ```json
 {

@@ -123,7 +123,6 @@ Internet.
 ## Known limitations
 
 - **Pre-release**:
-  - the queue is in memory;
   - the control plane → agent link is HTTP with a token (no TLS or mTLS yet): expose the agent
     API on a private network only;
   - there is no rate limiting on ticket creation yet.
