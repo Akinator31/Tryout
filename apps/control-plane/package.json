@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node src/server.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "node --test test/"
+    "test": "node --test 'test/**/*.test.ts'"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.16",
