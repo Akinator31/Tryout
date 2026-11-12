@@ -10,6 +10,18 @@ plain port forward.
 | gateway of each node (`:8080`) | yes | serves sessions |
 | agent (`:7000`) | **no** | private network only, reachable by the control plane |
 
+## Event stream
+
+The embed page receives queue updates over server-sent events
+(`/api/tickets/<ticket>/events`), a long-lived HTTP response.
+
+- **Serve the control plane over HTTP/2** at your proxy. Browsers allow only six HTTP/1.1
+  connections per origin, so a page with several embeds of the same control plane would stall.
+- **Do not buffer** these responses. The control plane sends `X-Accel-Buffering: no`, which
+  nginx honours. Other proxies may need their own setting.
+- The server sends a message every 10 s, which keeps the stream alive under the idle timeouts
+  of common proxies and tunnels (often about 100 s).
+
 ## Path routing (default)
 
 A session is served under `https://<node-host>/s/<id>/`. You need **one hostname and one

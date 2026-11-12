@@ -18,6 +18,10 @@ export async function freshDb(): Promise<Db> {
   return {
     query: q,
     tx: (fn) => lite.transaction((tx) => fn(async (text, params) => (await tx.query(text, params)).rows as never)),
+    async listen(channel, onNotify, onConnect) {
+      await lite.listen(channel, onNotify);
+      onConnect();
+    },
     close: () => lite.close(),
   };
 }

@@ -19,7 +19,7 @@
 const project = "__PROJECT__";
 const statusEl = document.getElementById("status");
 const bar = document.getElementById("bar");
-let ticket = null, frame = null, timer = null;
+let ticket = null, frame = null, events = null, retry = null, countdown = null, endsAt = 0;
 
 function show(html) { statusEl.innerHTML = html; statusEl.hidden = false; }
 
@@ -28,18 +28,32 @@ async function join() {
   const r = await fetch(`/api/projects/${project}/tickets`, { method: "POST" });
   if (!r.ok) return show("Project unavailable.");
   ticket = (await r.json()).ticket;
-  poll();
+  listen();
 }
 
-async function poll() {
-  clearTimeout(timer);
-  let v;
-  try {
-    const r = await fetch(`/api/tickets/${ticket}`);
-    if (r.status === 404) return ended("Session expired.");
-    v = await r.json();
-  } catch { timer = setTimeout(poll, 3000); return; }
+// Server-sent events: the server pushes every change and a fresh view every
+// 10 s. The open stream is also the heartbeat (ADR 0012).
+function listen() {
+  clearTimeout(retry);
+  events = new EventSource(`/api/tickets/${ticket}/events`);
+  events.addEventListener("ticket", (e) => render(JSON.parse(e.data)));
+  events.onerror = async () => {
+    if (events.readyState !== EventSource.CLOSED) return; // the browser reconnects by itself
+    // Refused (unknown ticket) or closed after the end: check, then retry.
+    const current = ticket;
+    try {
+      const r = await fetch(`/api/tickets/${current}`);
+      if (current !== ticket) return;
+      if (r.status === 404) return ended("Session expired.");
+      const v = await r.json();
+      render(v);
+      if (v.state === "ended") return;
+    } catch {}
+    if (current === ticket) retry = setTimeout(listen, 3000);
+  };
+}
 
+function render(v) {
   if (v.state === "waiting") show(`Queue position: <b>${v.position}</b><br><small>Your session will start automatically.</small>`);
   if (v.state === "starting") show("Starting the environment…");
   if (v.state === "active") {
@@ -50,16 +64,23 @@ async function poll() {
       document.body.appendChild(frame);
       statusEl.hidden = true;
     }
+    endsAt = Date.now() + v.ends_in_s * 1000; // re-synced by every message
+    if (!countdown) countdown = setInterval(tickDown, 1000);
+    tickDown();
     bar.hidden = false;
-    const m = Math.floor(v.ends_in_s / 60), s = String(v.ends_in_s % 60).padStart(2, "0");
-    bar.textContent = `ends in ${m}:${s}`;
   }
-  if (v.state === "ended") return ended(v.error || "Session ended.");
-  timer = setTimeout(poll, 2000); // also the heartbeat
+  if (v.state === "ended") ended(v.error || "Session ended.");
+}
+
+function tickDown() {
+  const left = Math.max(0, Math.round((endsAt - Date.now()) / 1000));
+  bar.textContent = `ends in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
 }
 
 function ended(msg) {
-  clearTimeout(timer);
+  if (events) { events.close(); events = null; }
+  clearTimeout(retry);
+  clearInterval(countdown); countdown = null;
   if (frame) { frame.remove(); frame = null; }
   bar.hidden = true;
   ticket = null;

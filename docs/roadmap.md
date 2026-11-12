@@ -12,18 +12,19 @@
 
 - Queue and session state in Postgres, with tests through the queue interface (PGlite locally,
   PostgreSQL in CI). See ADRs [0007](decisions/0007-queue-in-postgres.md) and [0011](decisions/0011-queue-implementation.md).
+- Ticket changes pushed over SSE, with Postgres `LISTEN/NOTIFY` across instances. The open
+  stream is the heartbeat. See ADR [0012](decisions/0012-ticket-push-sse.md).
 
 ## Proof-of-concept shortcuts to replace
 
 | Current | Target |
 |---|---|
-| Polling every 2 s | SSE + heartbeat, with Postgres `LISTEN/NOTIFY` to push changes |
 | Plain HTML embed page | React |
 | JSON configuration | YAML validated by a JSON Schema shared by TypeScript and Go |
 | Control plane → agent over HTTP + token | HTTPS / mTLS |
 | Docker over `unix://` or `tcp://` | + SSH / TLS |
 | ttyd baked into the sample image | ttyd mounted read-only by the agent |
-| No rate limiting | Per-IP limits on ticket creation |
+| No rate limiting | Per-IP limits on ticket creation and open streams |
 
 ## Next
 

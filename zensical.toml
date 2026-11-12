@@ -35,6 +35,7 @@ nav = [
     "decisions/0009-minimal-docker-client.md",
     "decisions/0010-fresh-container-per-session.md",
     "decisions/0011-queue-implementation.md",
+    "decisions/0012-ticket-push-sse.md",
   ] },
   { "Project" = [
     "roadmap.md",

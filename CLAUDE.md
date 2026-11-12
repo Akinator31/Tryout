@@ -68,7 +68,7 @@ apps/control-plane/   TypeScript, Node ≥ 24 (native type stripping); queue.ts 
 apps/node/            Go: cmd/agent, cmd/gateway, internal/dockerapi; one image, two binaries
 deploy/               compose.dev.yaml, config.dev.json, .env.example
 examples/cli-hello/   sample terminal project (ttyd)
-scripts/              e2e-cli.ts, e2e-queue.ts, feasibility-node.sh
+scripts/              e2e-cli.ts, e2e-queue.ts, e2e-sse.ts, feasibility-node.sh
 docs/                 Zensical documentation (English); decisions/ holds the ADRs
 SECURITY.md           threat model and profiles (included in the docs site)
 ```
@@ -90,14 +90,16 @@ vault with the original stack study (in French) and its sources.
   - terminal and desktop sessions, queue, heartbeat loss, cleanup, network isolation, profile
     refusal;
   - Selkies under gVisor on a Raspberry Pi 5 (arm64), behind a base path.
-- The POC shortcuts still in place are listed in `docs/roadmap.md`: polling (target: SSE),
-  plain HTML embed page (target: React + Chakra UI), JSON config
-  (target: YAML + JSON Schema), HTTP between control plane and agent (target: mTLS), path routing
-  only.
+- The POC shortcuts still in place are listed in `docs/roadmap.md`: plain HTML embed page
+  (target: React + Chakra UI), JSON config (target: YAML + JSON Schema), HTTP between control
+  plane and agent (target: mTLS), path routing only.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module
   `github.com/Akinator31/Tryout/apps/node`, docs at <https://akinator31.github.io/Tryout/>).
 - Queue state is in Postgres (`apps/control-plane/src/queue.ts`, ADRs 0007 and 0011), tested through its
   interface with PGlite locally and PostgreSQL in CI.
+- Ticket changes are pushed over SSE (`GET /api/tickets/<id>/events`), with Postgres
+  `LISTEN/NOTIFY` across instances; the open stream is the heartbeat (ADR 0012). Polling remains
+  for scripts.
 - UI work (React embed page, admin) starts from the maintainer's **Figma** designs. Ask for the
   Figma file before designing any screen.
 
@@ -135,7 +137,7 @@ zensical build --clean --strict      # or: zensical serve
 docker build -t tryout-example/cli-hello:dev examples/cli-hello
 cp deploy/.env.example deploy/.env
 docker compose -f deploy/compose.dev.yaml up -d --build
-node scripts/e2e-cli.ts && node scripts/e2e-queue.ts
+node scripts/e2e-cli.ts && node scripts/e2e-queue.ts && node scripts/e2e-sse.ts
 docker compose -f deploy/compose.dev.yaml down -v
 ```
 

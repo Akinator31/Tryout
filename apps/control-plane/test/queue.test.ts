@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createQueue, UnknownProjectError, type QueueConfig } from "../src/queue.ts";
+import { createQueue, UnknownProjectError, type QueueConfig, type TicketView } from "../src/queue.ts";
 import { eventually, fakeClock, fakeRuntime, freshDb } from "./support.ts";
 
 const config: QueueConfig = {
@@ -184,4 +184,92 @@ test("two control plane instances sharing a database never exceed the caps", asy
   const states = await Promise.all(views.map((v) => s.queue.poll(v.ticket)));
   assert.equal(states.filter((v) => v?.state === "starting").length, 2);
   assert.equal(states.filter((v) => v?.state === "waiting").length, 6);
+});
+
+// Watching: the push channel behind SSE (ADR 0012).
+
+function recorder() {
+  const views: (TicketView | null)[] = [];
+  const last = () => views.at(-1);
+  return { views, last, listener: (v: TicketView | null) => void views.push(v) };
+}
+
+test("a watcher gets the current view at once, then every change without polling", async () => {
+  await using s = await setup();
+  const a = await s.queue.join("cli");
+  await s.queue.join("cli");
+  const c = await s.queue.join("cli");
+  await s.active(a.ticket);
+  const rec = recorder();
+  await s.queue.watch(c.ticket, rec.listener);
+  assert.deepEqual(rec.views, [{ ticket: c.ticket, state: "waiting", position: 1 }]);
+
+  await s.queue.release(a.ticket);
+  const v = await eventually(async () => rec.last(), (v) => v?.state === "active");
+  assert.match(v?.url ?? "", /^https:\/\/n1\.test\/s\//);
+});
+
+test("watchers see their position move up when someone ahead leaves", async () => {
+  await using s = await setup();
+  const [a, , , d] = [await s.queue.join("cli"), await s.queue.join("cli"), await s.queue.join("cli"), await s.queue.join("cli")];
+  await s.active(a.ticket);
+  const rec = recorder();
+  await s.queue.watch(d.ticket, rec.listener);
+  assert.equal(rec.last()?.position, 2);
+
+  await s.queue.release(a.ticket);
+  const v = await eventually(async () => rec.last(), (v) => v?.position === 1);
+  assert.equal(v?.position, 1);
+});
+
+test("a watched ticket keeps its place without polling, until the watcher leaves", async () => {
+  await using s = await setup();
+  await s.queue.join("cli");
+  await s.queue.join("cli");
+  const watched = await s.queue.join("cli");
+  const silent = await s.queue.join("cli");
+  const unwatch = await s.queue.watch(watched.ticket, () => {});
+
+  s.clock.advance(35_000);
+  await s.queue.tick();
+  assert.equal((await s.queue.poll(silent.ticket))?.state, "ended");
+  // The two silent tickets ahead were lost too, so the watched one moved up.
+  assert.equal((await s.active(watched.ticket))?.state, "active");
+
+  unwatch();
+  s.clock.advance(35_000);
+  await s.queue.tick();
+  assert.equal((await s.queue.poll(watched.ticket))?.state, "ended");
+});
+
+test("watchers get a fresh view every 10 s even when nothing changes", async () => {
+  await using s = await setup();
+  const a = await s.queue.join("cli");
+  await s.active(a.ticket);
+  const rec = recorder();
+  await s.queue.watch(a.ticket, rec.listener);
+  const before = rec.views.length;
+
+  s.clock.advance(10_000);
+  await s.queue.tick();
+  const v = await eventually(async () => rec.views.length, (n) => n > before);
+  assert.ok(v > before);
+  assert.equal(rec.last()?.endsInS, 590);
+});
+
+test("a ticket released on another instance reaches its watcher, which then stops", async () => {
+  await using s = await setup();
+  const other = await createQueue({ db: s.db, config, runtime: s.fake.runtime, now: s.clock.now });
+  const a = await s.queue.join("cli");
+  await s.active(a.ticket);
+  const rec = recorder();
+  await s.queue.watch(a.ticket, rec.listener);
+
+  await other.release(a.ticket);
+  await eventually(async () => rec.last(), (v) => v?.state === "ended");
+  const count = rec.views.length;
+  s.clock.advance(10_000);
+  await s.queue.tick();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(rec.views.length, count, "no view after the ended one");
 });
