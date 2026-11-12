@@ -1,6 +1,7 @@
 # secrets
 .env
 deploy/.env
+pki/
 
 # dependencies / build output
 node_modules/
