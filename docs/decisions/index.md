@@ -17,3 +17,4 @@ changes, a new record supersedes it.
 | [0010](0010-fresh-container-per-session.md) | Prebuilt pinned images, a fresh container per session | Accepted |
 | [0011](0011-queue-implementation.md) | Queue implementation: ticket states, global advisory lock, one start deadline | Accepted |
 | [0012](0012-ticket-push-sse.md) | Push ticket changes with SSE and `LISTEN/NOTIFY` | Accepted, implemented |
+| [0013](0013-published-images.md) | Publish multi-architecture images on ghcr.io from CI | Accepted, implemented |
