@@ -13,6 +13,6 @@ updates:
     schedule: { interval: weekly }
     commit-message: { prefix: build }
   - package-ecosystem: docker
-    directories: [/apps/node, /examples/cli-hello]
+    directories: [/apps/node, /apps/control-plane, /examples/cli-hello]
     schedule: { interval: weekly }
     commit-message: { prefix: build }
