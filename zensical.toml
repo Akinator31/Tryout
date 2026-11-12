@@ -10,14 +10,18 @@ docs_dir = "docs"
 site_dir = "site"
 copyright = "Tryout contributors — AGPL-3.0-or-later"
 nav = [
-  { "Home" = "index.md" },
-  { "Local quickstart" = "quickstart.md" },
-  { "Architecture" = "architecture.md" },
+  { "Home" = [
+    "index.md",
+    "quickstart.md",
+    "architecture.md",
+  ] },
+  { "Guides" = [
+    "configuration.md",
+    "project-images.md",
+    "exposure.md",
+    "performance.md",
+  ] },
   { "Security" = "security.md" },
-  { "Configuration" = "configuration.md" },
-  { "Project images" = "project-images.md" },
-  { "Public exposure" = "exposure.md" },
-  { "Performance" = "performance.md" },
   { "Decisions" = [
     "decisions/index.md",
     "decisions/0001-split-agent-and-gateway.md",
@@ -31,8 +35,10 @@ nav = [
     "decisions/0009-minimal-docker-client.md",
     "decisions/0010-fresh-container-per-session.md",
   ] },
-  { "Roadmap" = "roadmap.md" },
-  { "Contributing" = "contributing.md" },
+  { "Project" = [
+    "roadmap.md",
+    "contributing.md",
+  ] },
 ]
 
 [project.theme]
@@ -42,6 +48,8 @@ features = [
   "content.tabs.link",
   "navigation.footer",
   "navigation.indexes",
+  "navigation.tabs",
+  "navigation.tabs.sticky",
   "navigation.instant",
   "navigation.path",
   "navigation.sections",
