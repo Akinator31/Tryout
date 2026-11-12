@@ -1,6 +1,7 @@
-// SessionRuntime adapter for real nodes: agent API + readiness probe
-// through the gateway. Tests use an in-memory adapter instead.
-import type { Config } from "./config.ts";
+// SessionRuntime adapter for real nodes: agent API over mutual TLS (ADR 0015)
+// + readiness probe through the gateway. Tests use an in-memory adapter instead.
+import { Agent, fetch as agentFetch } from "undici";
+import type { AgentTls, Config, NodeConfig } from "./config.ts";
 import type { SessionRef, SessionRuntime } from "./queue.ts";
 
 const fill = (tpl: string, session: string) => tpl.replaceAll("{session}", session);
@@ -10,13 +11,38 @@ const sleep = (ms: number, signal: AbortSignal) =>
     signal.addEventListener("abort", () => (clearTimeout(t), reject(signal.reason)), { once: true });
   });
 
+/**
+ * HTTP client for one agent: TLS 1.3, the agent's certificate must chain to
+ * agent_tls.ca and name the URL host (or server_name), and the control plane
+ * presents its client certificate. The fetch comes from undici too, so the
+ * dispatcher always matches it.
+ */
+export function agentClient(tls: AgentTls, node: Pick<NodeConfig, "agent_url" | "server_name">) {
+  const dispatcher = new Agent({
+    connect: {
+      ca: tls.ca,
+      cert: tls.cert,
+      key: tls.key,
+      minVersion: "TLSv1.3",
+      rejectUnauthorized: true,
+      ...(node.server_name ? { servername: node.server_name } : {}),
+    },
+  });
+  return {
+    fetch: (path: string, init: Omit<Parameters<typeof agentFetch>[1], "dispatcher"> = {}) =>
+      agentFetch(node.agent_url + path, { ...init, dispatcher }),
+    close: () => dispatcher.close(),
+  };
+}
+
 export function agentRuntime(cfg: Config): SessionRuntime {
+  const clients = Object.fromEntries(Object.entries(cfg.nodes).map(([name, n]) => [name, agentClient(cfg.agent_tls, n)]));
+
   async function call(node: string, method: string, path: string, body?: unknown, signal?: AbortSignal) {
-    const n = cfg.nodes[node];
-    const res = await fetch(n.agent_url + path, {
+    const res = await clients[node].fetch(path, {
       method,
       signal: signal ?? AbortSignal.timeout(30_000),
-      headers: { authorization: `Bearer ${n.agent_token}`, "content-type": "application/json" },
+      headers: { "content-type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
     });
     if (!res.ok && res.status !== 404) throw new Error(`agent ${res.status}: ${await res.text()}`);

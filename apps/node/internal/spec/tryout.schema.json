@@ -5,7 +5,7 @@
   "description": "Configuration file of the Tryout control plane. $defs/session_request is the agent API contract for POST /v1/sessions; it shares $defs/workload with the project definition.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["embed_frame_ancestors", "nodes", "projects"],
+  "required": ["embed_frame_ancestors", "agent_tls", "nodes", "projects"],
   "properties": {
     "listen": {
       "description": "Address the control plane listens on, as [host]:port.",
@@ -18,6 +18,17 @@
       "type": "array",
       "items": { "$ref": "#/$defs/origin" },
       "uniqueItems": true
+    },
+    "agent_tls": {
+      "description": "Mutual TLS towards every agent: the control plane's client certificate and the CA that signs the agents' certificates. Paths are relative to this file's directory.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ca", "cert", "key"],
+      "properties": {
+        "ca": { "description": "PEM file of the CA that signs the agents' server certificates.", "$ref": "#/$defs/path" },
+        "cert": { "description": "PEM file of the control plane's client certificate (extended key usage clientAuth).", "$ref": "#/$defs/path" },
+        "key": { "description": "PEM file of the client certificate's private key.", "$ref": "#/$defs/path" }
+      }
     },
     "nodes": {
       "description": "Nodes (agent + gateway) by name.",
@@ -50,6 +61,10 @@
       "minLength": 2,
       "pattern": "^([0-9]+h)?([0-9]+m)?([0-9]+s)?$"
     },
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
     "session_url": {
       "type": "string",
       "pattern": "^https?://[^\\s]*\\{session\\}"
@@ -57,17 +72,17 @@
     "node": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["agent_url", "agent_token", "public_url", "max_sessions"],
+      "required": ["agent_url", "public_url", "max_sessions"],
       "properties": {
         "agent_url": {
-          "description": "URL of the agent's private API.",
+          "description": "URL of the agent's private API, over mutual TLS: https://host[:port], without a path. The agent's certificate must name the host, unless server_name is set.",
           "type": "string",
-          "pattern": "^https?://[^\\s/]+$"
+          "pattern": "^https://[^\\s/]+$"
         },
-        "agent_token": {
-          "description": "Token shared with the agent (AGENT_TOKEN). Use ${VAR} to read it from the environment.",
+        "server_name": {
+          "description": "DNS name expected in the agent's certificate, when it differs from the host of agent_url (a tunnel, a local port forward). Also sent as SNI.",
           "type": "string",
-          "minLength": 16
+          "pattern": "^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
         },
         "public_url": {
           "description": "URL template loaded by the browser; {session} is replaced by the session id.",

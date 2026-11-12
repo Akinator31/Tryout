@@ -5,10 +5,16 @@ listen: ":3000"
 embed_frame_ancestors:
   - http://localhost:3000
 
+# Mutual TLS towards the agents. Relative to this file: the dev compose file
+# mounts the control plane's certificates (made by tryout-certs) at pki/.
+agent_tls:
+  ca: pki/ca.crt
+  cert: pki/tls.crt
+  key: pki/tls.key
+
 nodes:
   local:
-    agent_url: http://agent:7000
-    agent_token: ${AGENT_TOKEN}
+    agent_url: https://agent:7000   # the agent's certificate names "agent"
     public_url: http://localhost:8080/s/{session}/
     probe_url: http://tryout-gateway:8080/s/{session}/
     max_sessions: 6

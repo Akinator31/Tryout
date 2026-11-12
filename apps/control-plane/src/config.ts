@@ -2,7 +2,10 @@
 // Schema (src/tryout.schema.json, a copy of schema/tryout.schema.json that the
 // agent also embeds), then by semantic checks the schema cannot express.
 // See docs/configuration.md and ADR 0014.
+import { X509Certificate, createPrivateKey, type KeyObject } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { isIP } from "node:net";
+import { dirname, resolve } from "node:path";
 import { Ajv2020, type ErrorObject } from "ajv/dist/2020.js";
 import { isMap, isScalar, LineCounter, parseDocument, type Document } from "yaml";
 import type { QueueConfig } from "./queue.ts";
@@ -10,8 +13,10 @@ import type { QueueConfig } from "./queue.ts";
 export type Kind = "terminal" | "desktop";
 
 export interface NodeConfig {
+  /** https://host[:port] of the agent's API (mutual TLS). */
   agent_url: string;
-  agent_token: string;
+  /** Name expected in the agent's certificate when it differs from the URL host. */
+  server_name?: string;
   /** URL template loaded by the browser; {session} is replaced by the session id. */
   public_url: string;
   /** URL template reachable from the control plane; defaults to public_url. */
@@ -39,9 +44,17 @@ export interface ProjectConfig extends Workload {
   max_age_s: number;
 }
 
+/** PEM contents of the files named by agent_tls, read at startup. */
+export interface AgentTls {
+  ca: string;
+  cert: string;
+  key: string;
+}
+
 export interface Config {
   listen: { host: string; port: number };
   embed_frame_ancestors: string[];
+  agent_tls: AgentTls;
   nodes: Record<string, NodeConfig>;
   projects: Record<string, ProjectConfig>;
 }
@@ -63,13 +76,18 @@ const validateFile = ajv.getSchema("tryout")!;
 /** The agent's POST /v1/sessions contract; the agent validates with the same schema. */
 export const validateSessionRequest = ajv.getSchema("tryout#/$defs/session_request")!;
 
-export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env) {
-  return parseConfig(readFileSync(path, "utf8"), { source: path, env });
+export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env, now = new Date()) {
+  return parseConfig(readFileSync(path, "utf8"), { source: path, env, baseDir: dirname(path), now });
 }
 
 export function parseConfig(
   text: string,
-  { source = "config", env = process.env }: { source?: string; env?: NodeJS.ProcessEnv } = {},
+  {
+    source = "config",
+    env = process.env,
+    baseDir = process.cwd(),
+    now = new Date(),
+  }: { source?: string; env?: NodeJS.ProcessEnv; baseDir?: string; now?: Date } = {},
 ): { config: Config; warnings: string[] } {
   const lines = new LineCounter();
   const doc = parseDocument(text, { lineCounter: lines, prettyErrors: false });
@@ -115,9 +133,16 @@ export function parseConfig(
   const nodes = (isObject(file.nodes) ? file.nodes : {}) as Record<string, NodeConfig>;
   const fileProjects = (isObject(file.projects) ? file.projects : {}) as Record<string, Omit<ProjectConfig, "max_age_s">>;
   const warnings: string[] = [];
-
   const listen = parseListen(typeof file.listen === "string" ? file.listen : ":3000");
   if (!listen) report(["listen"], "must be [host]:port with a port between 1 and 65535");
+
+  for (const [name, n] of Object.entries(nodes)) {
+    if (isObject(n) && typeof n.server_name === "string" && isIP(n.server_name)) {
+      report(["nodes", name, "server_name"], "must be a DNS name: to reach a node by IP address, put the address in the agent's certificate and leave server_name out");
+    }
+  }
+
+  const agentTls = loadAgentTls(file.agent_tls, baseDir, now, report, warnings);
 
   const projects: Record<string, ProjectConfig> = {};
   for (const [name, p] of Object.entries(fileProjects)) {
@@ -143,9 +168,79 @@ export function parseConfig(
   }
 
   return {
-    config: { listen: listen!, embed_frame_ancestors: file.embed_frame_ancestors as string[], nodes, projects },
+    config: {
+      listen: listen!,
+      embed_frame_ancestors: file.embed_frame_ancestors as string[],
+      agent_tls: agentTls!,
+      nodes,
+      projects,
+    },
     warnings,
   };
+}
+
+// ---------- agent_tls ----------
+
+const CLIENT_AUTH = "1.3.6.1.5.5.7.3.2";
+const EXPIRY_WARNING_DAYS = 30;
+const DAY_MS = 24 * 3600 * 1000;
+
+/**
+ * Reads the client certificate, its key and the CA, and checks what can be
+ * checked before the first call to an agent: files readable, PEM valid, key
+ * matching the certificate, clientAuth usage, dates (ADR 0015).
+ */
+function loadAgentTls(
+  v: unknown,
+  baseDir: string,
+  now: Date,
+  report: (path: (string | number)[], msg: string) => void,
+  warnings: string[],
+): AgentTls | undefined {
+  if (!isObject(v)) return undefined;
+  const pem: Partial<AgentTls> = {};
+  for (const k of ["ca", "cert", "key"] as const) {
+    if (typeof v[k] !== "string" || v[k] === "") continue;
+    const file = resolve(baseDir, v[k]);
+    try {
+      pem[k] = readFileSync(file, "utf8");
+    } catch (e) {
+      report(["agent_tls", k], `cannot read ${file}: ${(e as NodeJS.ErrnoException).code ?? String(e)}`);
+    }
+  }
+  const parse = <T>(k: keyof AgentTls, what: string, fn: (s: string) => T): T | undefined => {
+    if (pem[k] === undefined) return undefined;
+    try {
+      return fn(pem[k]);
+    } catch {
+      report(["agent_tls", k], `not a PEM ${what}`);
+      return undefined;
+    }
+  };
+  const ca = parse("ca", "certificate", (s) => new X509Certificate(s));
+  const cert = parse("cert", "certificate", (s) => new X509Certificate(s));
+  const key = parse<KeyObject>("key", "private key", (s) => createPrivateKey(s));
+
+  const dates = (k: keyof AgentTls, c: X509Certificate) => {
+    const left = c.validToDate.getTime() - now.getTime();
+    if (left <= 0) report(["agent_tls", k], `the certificate expired on ${c.validTo}`);
+    else if (c.validFromDate > now) report(["agent_tls", k], `the certificate is not valid before ${c.validFrom}`);
+    else if (left <= EXPIRY_WARNING_DAYS * DAY_MS) {
+      warnings.push(`agent_tls.${k}: the certificate expires on ${c.validTo} (in ${Math.floor(left / DAY_MS)} days)`);
+    }
+  };
+  if (ca) {
+    if (!ca.ca) report(["agent_tls", "ca"], "not a CA certificate");
+    dates("ca", ca);
+  }
+  if (cert) {
+    if (!cert.keyUsage?.includes(CLIENT_AUTH)) {
+      report(["agent_tls", "cert"], "the certificate does not allow client authentication (extended key usage clientAuth)");
+    }
+    dates("cert", cert);
+    if (key && !cert.checkPrivateKey(key)) report(["agent_tls", "key"], "the key does not match agent_tls.cert");
+  }
+  return pem.ca && pem.cert && pem.key ? (pem as AgentTls) : undefined;
 }
 
 /** Upper bound for max_age; the agent applies its own, usually lower, cap too. */
