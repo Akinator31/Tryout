@@ -50,7 +50,7 @@ services:
     volumes:
       - ./config.dev.json:/app/config.json:ro
     ports: ["3000:3000"]
-    networks: [control]
+    networks: [control, db]
     depends_on:
       postgres: { condition: service_healthy }
     restart: unless-stopped
@@ -67,11 +67,13 @@ services:
       retries: 30
     volumes:
       - postgres:/var/lib/postgresql/data
-    networks: [control]
+    networks: [db]   # only the control plane: nodes must never reach the state store
     restart: unless-stopped
 
 networks:
   control: {}
+  db:
+    internal: true
 
 volumes:
   gateway-admin: {}
