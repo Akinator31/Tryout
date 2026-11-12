@@ -66,7 +66,7 @@ can turn them off.
 | Selkies features | File transfer, microphone, webcam, printing, gamepads and second screen are disabled and locked. The visitor cannot re-enable them. |
 | Lifetime | Maximum session age. A session ends about 30 s after its heartbeat is lost (the event stream closes or polling stops). A peer that vanishes without closing its connection is only detected when the TCP connection or the proxy times out (about 11 minutes with Linux TCP keepalive defaults on a direct connection). The maximum age bounds an active session; a waiting ticket keeps its place until then. The agent keeps a safety net: it removes expired containers and orphan networks even if the control plane is gone. |
 | Session requests | The agent validates every session request against the JSON Schema shared with the control plane: unknown fields are refused, and so are environment variables the agent sets itself. |
-| Call direction | The control plane calls the agent with a token. The node holds no credential towards the rest of the infrastructure. |
+| Call direction | The control plane calls the agent, never the reverse, over mutual TLS 1.3 with a private CA. The agent accepts only a client certificate with the `clientAuth` usage; the control plane accepts only an agent certificate with the `serverAuth` usage that names the node it called. A node's certificate cannot impersonate the control plane or another node. The node holds no credential towards the rest of the infrastructure. |
 | State store | PostgreSQL is reachable by the control plane only: the dev compose file puts it on an internal network that no node component joins. |
 | Prerequisites | The agent **refuses to start** if the declared profile is not met (see below). |
 
@@ -124,15 +124,19 @@ Internet.
   the published images (see the Published images page, `docs/published-images.md`), pinned
   by digest, and check their provenance.
 - **Keep AppArmor and seccomp enabled** on the host.
+- **Keep the Tryout CA key on your own machine.** Never copy `ca/ca.key` to a node or to the
+  control plane, and use a CA dedicated to Tryout: an agent accepts any client certificate with
+  the `clientAuth` usage from the CA it trusts. There is no revocation list: after a leak of the
+  control plane's key or of the CA, issue a new CA (see the Certificates page,
+  `docs/certificates.md`).
+- **Keep the agent API off the Internet** even with mutual TLS: a private network, a VPN or a
+  tunnel that carries TLS end to end.
 - **Keep PostgreSQL private to the control plane.** Never expose it on a network that nodes or
   the Internet can reach, and use a strong password. It holds the ids of live sessions.
 
 ## Known limitations
 
-- **Pre-release**:
-  - the control plane → agent link is HTTP with a token (no TLS or mTLS yet): expose the agent
-    API on a private network only;
-  - there is no rate limiting on ticket creation or open event streams yet.
+- **Pre-release**: there is no rate limiting on ticket creation or open event streams yet.
 - **A session URL can be shared** by the visitor who received it. This is by design: it only
   grants access to that session, for its lifetime.
 - **Resource-exhaustion denial of service** remains possible within the configured limits.

@@ -19,3 +19,4 @@ changes, a new record supersedes it.
 | [0012](0012-ticket-push-sse.md) | Push ticket changes with SSE and `LISTEN/NOTIFY` | Accepted, implemented |
 | [0013](0013-published-images.md) | Publish multi-architecture images on ghcr.io from CI | Accepted, implemented |
 | [0014](0014-yaml-configuration-json-schema.md) | YAML configuration validated by one JSON Schema | Accepted, implemented |
+| [0015](0015-mutual-tls-control-plane-agent.md) | Mutual TLS between the control plane and the agent | Accepted, implemented |

@@ -29,7 +29,6 @@ the control plane and its nodes on different networks.
 
 | Item | Replaces | Notes |
 |---|---|---|
-| HTTPS with mutual TLS between the control plane and the agent | HTTP + token | ADR; the agent still never calls the control plane |
 | Per-IP limits on ticket creation and on open event streams | No rate limiting | Also bounds waiting tickets kept alive by half-open streams (ADR 0012) |
 | Unit test for the node-postgres `LISTEN` reconnect | Manual check | Follow-up of ADR 0012 |
 
@@ -123,3 +122,6 @@ and session metrics.
 - **M1:** YAML configuration validated by one JSON Schema, shared by the control plane and the
   agent, with every error reported at startup. See [Configuration](configuration.md) and ADR
   [0014](decisions/0014-yaml-configuration-json-schema.md).
+- **M1:** mutual TLS 1.3 between the control plane and the agents, with a private CA made by
+  `tryout-certs`; the end-to-end tests run over it. See [Certificates](certificates.md) and ADR
+  [0015](decisions/0015-mutual-tls-control-plane-agent.md).

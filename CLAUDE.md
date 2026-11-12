@@ -34,6 +34,9 @@ browser ─► control plane (TypeScript)   queue, tickets, /embed/<project>; ca
 
 Key facts that are easy to forget:
 
+- **Control plane → agent** is mutual TLS 1.3 only (ADR 0015): private CA from `tryout-certs`,
+  `serverAuth` leaves for agents, a `clientAuth` leaf for the control plane, no token, no
+  plain-HTTP mode. The dev compose file creates the PKI in a volume (`pki-ca`, `pki-node`).
 - **Agent ↔ gateway** talk over a **unix socket in a shared volume**, never TCP: the gateway joins
   every session network, so a TCP admin port would be reachable from sessions.
 - **Session URL = capability**: `/s/<26 base32 chars>/` (130 bits). There are no cookies; the
@@ -68,11 +71,11 @@ Key facts that are easy to forget:
 
 ```
 apps/control-plane/   TypeScript, Node ≥ 24 (native type stripping); queue.ts is the core module
-apps/node/            Go: cmd/agent, cmd/gateway, internal/dockerapi; one image, two binaries
+apps/node/            Go: cmd/agent, cmd/gateway, cmd/certs, internal/{dockerapi,pki,spec}; one image
 deploy/               compose.dev.yaml, tryout.dev.yaml (control plane config), .env.example
 schema/               tryout.schema.json (source of truth) + testdata/ fixtures shared by TS and Go
 examples/cli-hello/   sample terminal project (ttyd)
-scripts/              e2e-cli.ts, e2e-queue.ts, e2e-sse.ts, feasibility-node.sh
+scripts/              e2e-*.ts (cli, queue, sse, mtls), feasibility-node.sh
 docs/                 Zensical documentation (English); decisions/ holds the ADRs
 SECURITY.md           threat model and profiles (included in the docs site)
 ```
@@ -95,8 +98,8 @@ vault with the original stack study (in French) and its sources.
     refusal;
   - Selkies under gVisor on a Raspberry Pi 5 (arm64), behind a base path.
 - The roadmap is organised in milestones (`docs/roadmap.md`): M1 Deployable is in progress
-  (ghcr.io images done, ADR 0013; YAML config + JSON Schema done, ADR 0014; next: mTLS, rate
-  limiting), then
+  (ghcr.io images done, ADR 0013; YAML config + JSON Schema done, ADR 0014; mTLS done, ADR 0015; next:
+  rate limiting), then
   M2 Live, M3 Design (theme, Figma, React embed; the UI kit is chosen there), M4 Operate, M5
   Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
@@ -145,7 +148,7 @@ zensical build --clean --strict      # or: zensical serve
 docker build -t tryout-example/cli-hello:dev examples/cli-hello
 cp deploy/.env.example deploy/.env
 docker compose -f deploy/compose.dev.yaml up -d --build
-node scripts/e2e-cli.ts && node scripts/e2e-queue.ts && node scripts/e2e-sse.ts
+node scripts/e2e-cli.ts && node scripts/e2e-queue.ts && node scripts/e2e-sse.ts && node scripts/e2e-mtls.ts
 docker compose -f deploy/compose.dev.yaml down -v
 ```
 

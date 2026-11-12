@@ -1,6 +1,7 @@
 # 0004 — The control plane calls nodes, never the reverse
 
-**Status:** accepted
+**Status:** accepted. The transport (HTTP + token) is superseded by
+[ADR 0015](0015-mutual-tls-control-plane-agent.md): mutual TLS.
 
 ## Context
 

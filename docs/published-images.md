@@ -5,7 +5,7 @@ CI publishes Tryout's images to the GitHub Container Registry (`ghcr.io`), for `
 
 | Image | Contents |
 |---|---|
-| `ghcr.io/<owner>/tryout-node` | `tryout-agent` and `tryout-gateway`; run them as two containers (see `deploy/compose.dev.yaml`) |
+| `ghcr.io/<owner>/tryout-node` | `tryout-agent` and `tryout-gateway`, run as two containers (see `deploy/compose.dev.yaml`), and `tryout-certs`, which creates the mutual TLS certificates ([Certificates](certificates.md)) |
 | `ghcr.io/<owner>/tryout-control-plane` | the control plane (Node.js) |
 | `ghcr.io/<owner>/tryout-example-cli-hello` | the sample terminal project from `examples/cli-hello`, for demos and tests |
 

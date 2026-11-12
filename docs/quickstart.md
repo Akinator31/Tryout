@@ -5,7 +5,8 @@ guarantee**. It is for development and evaluation, not for exposure to the Inter
 
 ## Requirements
 
-- Docker with Compose (Docker Engine or Docker Desktop).
+- Docker Engine 26 or newer with Compose 2.23 or newer, or a recent Docker Desktop: the dev
+  compose file mounts volume sub-directories (`subpath`).
 - Node.js 24 or newer, for the end-to-end tests.
 - Go 1.24 or newer, for the node's unit tests.
 
@@ -24,10 +25,14 @@ opens an iframe to `/embed/<project>`.
 |---|---|---|
 | control plane | `localhost:3000` | queue and embed page |
 | gateway | `localhost:8080` | public proxy for sessions (`/s/<id>/`) |
-| agent | internal network only | creates and destroys sessions |
+| agent | `127.0.0.1:7000` (mutual TLS) | creates and destroys sessions |
 | postgres | internal network only | control plane state (queue, sessions) |
 
 The `webtop` project downloads about 4 GB the first time.
+
+Two one-shot services, `pki-ca` and `pki-node`, create the mutual TLS certificates between the
+control plane and the agent in the `pki` volume on the first start, and reuse them afterwards
+(see [Certificates](certificates.md)). `down -v` removes them.
 
 ## Test
 
@@ -35,6 +40,7 @@ The `webtop` project downloads about 4 GB the first time.
 node scripts/e2e-cli.ts      # queue → gateway → ttyd WebSocket → commands
 node scripts/e2e-queue.ts    # session cap, promotion, heartbeat loss
 node scripts/e2e-sse.ts      # pushed promotion, stream as heartbeat, stream end
+node scripts/e2e-mtls.ts     # the agent refuses every client but the control plane
 (cd apps/node && go test ./...)
 (cd apps/control-plane && npm ci && npm run typecheck && npm test)
 ```
