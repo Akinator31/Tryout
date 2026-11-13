@@ -21,11 +21,13 @@ for graphical ones. Each project is assigned to a node.
 | Module | Role |
 |---|---|
 | `queue.ts` | **The core.** Interface: `join`, `poll`, `watch`, `release`, `tick`. Behind it: per-project and per-node caps, per-IP ticket limits, FIFO promotion, session start, heartbeat loss, maximum age, start timeout, change notifications (`LISTEN/NOTIFY`). State lives in Postgres. |
+| `queue-*.ts` | The queue's internals: table and migrations (`queue-schema`), per-IP ticket limits (`queue-limits`), stream watchers (`queue-watchers`), delays (`queue-timing`). |
 | `runtime.ts` | `SessionRuntime` adapter for real nodes: agent API over mutual TLS + readiness probe through the gateway. Tests use an in-memory adapter. |
-| `db.ts` | Database port (queries, transactions, `LISTEN`); adapters for node-postgres and, in tests, PGlite. |
+| `db.ts`, `db-listen.ts` | Database port (queries, transactions, `LISTEN`); adapters for node-postgres and, in tests, PGlite; the reconnecting `LISTEN` session. |
 | `client.ts` | The visitor's IP address, read through trusted proxies only, and the cap on open event streams per IP. |
 | `http.ts` | Embed page, demo page, queue API and its SSE stream. Thin. |
-| `config.ts`, `server.ts` | Configuration loading (YAML, validated against the shared JSON Schema) and wiring. |
+| `config.ts`, `config-*.ts` | Configuration loading: YAML validated against the shared JSON Schema, then semantic checks; values (`config-values`), error reporting (`config-report`), agent TLS files (`config-tls`). |
+| `server.ts` | Wiring. |
 
 What it does:
 
