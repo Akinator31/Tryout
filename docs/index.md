@@ -26,5 +26,6 @@ The portfolio only embeds an iframe:
 - [Security](security.md): threat model and node profiles. **Read before going online.**
 - [Configuration](configuration.md): declare your nodes and projects.
 - [Project images](project-images.md): what an image must comply with.
+- [Packaging a project](packaging.md): a terminal and a desktop example, step by step.
 - [Published images](published-images.md): Tryout's own images on `ghcr.io`.
 - [Public exposure](exposure.md): make the platform reachable from the Internet.

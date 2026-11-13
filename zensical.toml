@@ -19,6 +19,7 @@ nav = [
     "deployment.md",
     "configuration.md",
     "project-images.md",
+    "packaging.md",
     "published-images.md",
     "certificates.md",
     "exposure.md",
