@@ -54,7 +54,6 @@ closing (see [Done](#done)). Its other findings are M2 items.
 | A minimal visual pass on the current embed page | Only so the first visitors do not see raw HTML; the real design is M3 |
 | Public repository: private vulnerability reporting enabled, security policy checked | |
 | Versioned releases: semantic version tags, changelog, images tagged per release | First release `v0.1.0` |
-| Private project images | The agent pulls without registry credentials, so a private image must be pulled on the node beforehand. Document it, or give the agent registry credentials |
 | `scripts/e2e-mtls.ts` against a remote node | It reads certificates from the dev compose stack only |
 | Optional: GitHub Milestones and one issue per roadmap item | This page stays the source of truth |
 
@@ -145,3 +144,7 @@ and session metrics.
   `DEFAULT_RUNTIME` and per session, unless `ALLOW_RUNC=true`. See ADR
   [0003](decisions/0003-node-profiles-and-runtimes.md).
 - **M1** closed: exit criteria checked on fresh machines, see [above](#m1-deployable).
+- **M2:** the agent pulls private project images with registry credentials from a
+  `config.json`-style file (`REGISTRY_AUTH_FILE`), sent only to the image's registry. See
+  [Project images](project-images.md#private-images) and ADR
+  [0017](decisions/0017-registry-credentials.md).

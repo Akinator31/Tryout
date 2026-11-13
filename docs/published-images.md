@@ -60,4 +60,6 @@ gh attestation verify oci://ghcr.io/akinator31/tryout-node:edge --repo Akinator3
 A package published to `ghcr.io` for the first time can be private, whatever the repository's
 visibility. After the first publication, and after making a repository public, open each
 package's settings on GitHub (**Packages → Package settings → Change visibility**) and check that
-it is public, or nodes will need a registry login to pull.
+it is public. A private package needs a registry login on the node to pull the node and control
+plane images, and `REGISTRY_AUTH_FILE` on the agent for a project image such as
+`tryout-example-cli-hello` (see [Project images](project-images.md#private-images)).

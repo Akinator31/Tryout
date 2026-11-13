@@ -159,6 +159,7 @@ the embed page poll instead, which keeps its place in line.
 | `GATEWAY_TOKEN` | — | Required. Token for the gateway's admin API. |
 | `GATEWAY_CONTAINER` | `tryout-gateway` | Name of the gateway container to attach to session networks. |
 | `GATEWAY_ADMIN_SOCKET` | `unix:///run/tryout/gateway.sock` | Gateway admin socket. |
+| `REGISTRY_AUTH_FILE` | — | Optional. Path of a Docker `config.json` with static `auths` entries, used to pull private project images. See [Project images](project-images.md#private-images). |
 | `MAX_SESSIONS` | `10` | Node-side safety cap. |
 | `SESSION_MAX_AGE_CAP` | `2h` | Maximum age enforced whatever is requested. |
 
