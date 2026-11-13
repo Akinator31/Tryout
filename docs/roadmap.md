@@ -27,9 +27,8 @@ Done. Validated end to end:
 **Goal:** an operator can run Tryout from published images and a documented configuration, with
 the control plane and its nodes on different networks.
 
-| Item | Replaces | Notes |
-|---|---|---|
-| Unit test for the node-postgres `LISTEN` reconnect | Manual check | Follow-up of ADR 0012 |
+Every item has shipped (see [Done](#done)). M1 closes once the exit criteria below are checked on
+a fresh machine.
 
 **Exit criteria:** a fresh machine runs the stack from `ghcr.io` images and a YAML file; the
 control plane reaches a remote node over mTLS; CI covers all of it.
@@ -127,3 +126,6 @@ and session metrics.
 - **M1:** per-IP limits on live tickets, ticket creation and open event streams, with the
   client address read through trusted proxies only. See [Configuration](configuration.md#per-ip-limits)
   and ADR [0016](decisions/0016-per-ip-limits.md).
+- **M1:** the node-postgres `LISTEN` reconnect is tested against PostgreSQL in CI: server-side
+  termination, unreachable or silent database, a link cut during `LISTEN`, and `close()` during
+  an attempt.

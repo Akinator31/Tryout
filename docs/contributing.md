@@ -21,7 +21,8 @@ zensical build --strict
 ```
 
 `npm test` runs the queue tests against PGlite, an in-process Postgres. Set
-`TEST_DATABASE_URL` to run them against a real PostgreSQL, as CI does.
+`TEST_DATABASE_URL` to run them against a real PostgreSQL, as CI does; the `LISTEN` reconnect
+tests (`test/db.test.ts`) need it and are skipped otherwise.
 
 End-to-end tests: see [Local quickstart](quickstart.md).
 
