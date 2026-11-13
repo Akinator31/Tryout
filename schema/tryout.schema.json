@@ -196,7 +196,7 @@
           "maximum": 65535
         },
         "runtime": {
-          "description": "Container runtime (runsc, runc...). Defaults to the node's runtime.",
+          "description": "Container runtime (runsc, runc...). Defaults to the node's runtime. Outside the dev profile, the agent accepts only runsc unless ALLOW_RUNC=true.",
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
         },

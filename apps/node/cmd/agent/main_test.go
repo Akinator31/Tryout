@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -14,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Akinator31/Tryout/apps/node/internal/dockerapi"
 	"github.com/Akinator31/Tryout/apps/node/internal/pki"
 	"github.com/Akinator31/Tryout/apps/node/internal/spec"
 )
@@ -58,6 +62,31 @@ func TestValidateDefaultsAndRuntimePolicy(t *testing.T) {
 	r.Runtime = "runc"
 	if err := r.validate(testAgent("strict", true)); err != nil {
 		t.Errorf("runc must be allowed with ALLOW_RUNC: %v", err)
+	}
+
+	// Outside dev, only gVisor passes without ALLOW_RUNC, whatever name the
+	// daemon gives its other runtimes (Docker lists runc as io.containerd.runc.v2 too).
+	for _, profile := range []string{"strict", "single-host"} {
+		for _, rt := range []string{"runc", "io.containerd.runc.v2", "kata"} {
+			a := testAgent(profile, false)
+			a.runtimes[rt] = true
+			r := validReq("terminal")
+			r.Runtime = rt
+			if err := r.validate(a); err == nil {
+				t.Errorf("profile %s must refuse runtime %s without ALLOW_RUNC", profile, rt)
+			}
+			a.cfg.allowRunc = true
+			if err := r.validate(a); err != nil {
+				t.Errorf("profile %s must allow runtime %s with ALLOW_RUNC: %v", profile, rt, err)
+			}
+		}
+	}
+	r = validReq("terminal")
+	r.Runtime = "io.containerd.runc.v2"
+	dev := testAgent("dev", false)
+	dev.runtimes["io.containerd.runc.v2"] = true
+	if err := r.validate(dev); err != nil {
+		t.Errorf("profile dev allows any installed runtime: %v", err)
 	}
 
 	for _, bad := range []func(*sessionReq){
@@ -232,5 +261,66 @@ func TestAPIOverMutualTLS(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status %d", resp.StatusCode)
+	}
+}
+
+// fakeDocker answers GET /info like a daemon with the given runtimes.
+func fakeDocker(t *testing.T, runtimes ...string) *dockerapi.Client {
+	t.Helper()
+	rts := map[string]any{}
+	for _, r := range runtimes {
+		rts[r] = map[string]any{"path": r}
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/info") {
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(map[string]any{"Architecture": "x86_64", "Runtimes": rts, "CgroupVersion": "2"}); err != nil {
+			t.Error(err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	c, err := dockerapi.New("tcp://" + srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func TestCheckProfileDefaultRuntime(t *testing.T) {
+	all := []string{"io.containerd.runc.v2", "runc", "runsc"}
+	noGVisor := []string{"io.containerd.runc.v2", "runc"}
+	onlyShim := []string{"io.containerd.runc.v2"}
+	cases := []struct {
+		profile, def string
+		allowRunc    bool
+		installed    []string
+		wantErr      string // "" = starts
+	}{
+		{"strict", "runsc", false, all, ""},
+		{"strict", "runc", false, all, `DEFAULT_RUNTIME "runc" is refused`},
+		{"strict", "io.containerd.runc.v2", false, all, `DEFAULT_RUNTIME "io.containerd.runc.v2" is refused`},
+		{"strict", "runc", true, all, ""},
+		{"strict", "runsc", false, noGVisor, "runsc (gVisor) not installed"},
+		{"strict", "runsc", true, noGVisor, ""}, // falls back to runc
+		{"strict", "runsc", true, onlyShim, "not available"},
+		{"dev", "runc", false, all, ""},
+		{"dev", "runsc", false, noGVisor, ""}, // falls back to runc
+		{"dev", "runsc", false, onlyShim, "not available"},
+	}
+	for _, c := range cases {
+		a := &agent{
+			cfg:    config{profile: c.profile, defaultRuntime: c.def, allowRunc: c.allowRunc},
+			docker: fakeDocker(t, c.installed...),
+		}
+		err := a.checkProfile(context.Background())
+		name := fmt.Sprintf("profile %s, DEFAULT_RUNTIME %s, ALLOW_RUNC %v, runtimes %v", c.profile, c.def, c.allowRunc, c.installed)
+		switch {
+		case c.wantErr == "" && err != nil:
+			t.Errorf("%s: want start, got %v", name, err)
+		case c.wantErr != "" && (err == nil || !strings.Contains(err.Error(), c.wantErr)):
+			t.Errorf("%s: want error containing %q, got %v", name, c.wantErr, err)
+		}
 	}
 }

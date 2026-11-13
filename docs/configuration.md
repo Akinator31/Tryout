@@ -139,7 +139,7 @@ the embed page poll instead, which keeps its place in line.
 | `port` | HTTP port of the container (ttyd: 7681; LinuxServer images: 3000). |
 | `max_sessions` | Concurrent sessions for this project. Later visitors wait in the queue. |
 | `max_age` | Maximum session age: `90s`, `15m`, `1h30m`, at most `24h`. The agent also enforces its own cap (`SESSION_MAX_AGE_CAP`). |
-| `runtime` | Optional: `runsc`, `runc`… Defaults to the node's runtime. |
+| `runtime` | Optional: `runsc`, `runc`… Defaults to the node's runtime. Outside the `dev` profile, the agent refuses any runtime but `runsc` unless it runs with `ALLOW_RUNC=true`. |
 | `strip_prefix` | Optional: strip `/s/<id>` before forwarding, for an application that cannot serve under a base path. |
 | `limits` | Optional: `memory_mb`, `cpus`, `pids`. Defaults: 256 MB / 0.5 CPU / 128 PIDs for terminals, 2 GB / 1.5 CPU / 1024 PIDs for desktops. |
 | `env` | Optional: project environment variables, as strings (quote numbers: `WIDTH: "1920"`). Reserved variables are rejected: `TRYOUT_*`, `SUBFOLDER`, `PUID`, `PGID`, `HOME`, and the Selkies security settings. |
@@ -150,8 +150,8 @@ the embed page poll instead, which keeps its place in line.
 |---|---|---|
 | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Daemon for sessions (`unix://` or `tcp://`). In `single-host`, the socket of the dedicated **rootless** daemon. |
 | `NODE_PROFILE` | `dev` | `dev`, `strict` or `single-host` (see [Security](security.md)). |
-| `DEFAULT_RUNTIME` | `runsc` | Runtime used when the project does not set one. |
-| `ALLOW_RUNC` | `false` | Allows `runc` in `strict` and `single-host`. A documented, weaker opt-out. |
+| `DEFAULT_RUNTIME` | `runsc` | Runtime used when the project does not set one. In `strict` and `single-host`, the agent refuses to start with anything but `runsc` unless `ALLOW_RUNC=true`. |
+| `ALLOW_RUNC` | `false` | Allows runtimes other than `runsc` (`runc`, `io.containerd.runc.v2`…) in `strict` and `single-host`. A documented, weaker opt-out. |
 | `AGENT_LISTEN` | `:7000` | Private API address, served over mutual TLS only, `/healthz` included. |
 | `AGENT_TLS_CERT` | — | Required. PEM server certificate of the agent (`serverAuth`). |
 | `AGENT_TLS_KEY` | — | Required. Its private key. |

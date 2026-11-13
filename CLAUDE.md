@@ -47,8 +47,10 @@ Key facts that are easy to forget:
   - `strict`: dedicated machine or VM, gVisor required;
   - `single-host`: shared machine, which requires a dedicated rootless daemon, cgroup v2 and gVisor.
   
-  `ALLOW_RUNC=true` is the documented opt-out. The agent refuses to start when a profile is not
-  met.
+  The agent refuses to start when a profile is not met. Outside `dev`, the runtime rule is an
+  allowlist: only the runtime named `runsc`, as `DEFAULT_RUNTIME` and per session, because Docker
+  also lists runc as `io.containerd.runc.v2`. `ALLOW_RUNC=true` is the documented opt-out and
+  unlocks every runtime.
 - **Desktop sessions**:
   - LinuxServer/Selkies images need `CHOWN`, `SETUID`, `SETGID`, `DAC_OVERRIDE`, `FOWNER` and
     `KILL` for their s6 init. Everything else is dropped.

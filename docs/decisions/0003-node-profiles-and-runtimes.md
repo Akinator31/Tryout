@@ -25,6 +25,10 @@ a laptop. The project is public and must not encode one operator's infrastructur
   - `strict`: gVisor installed;
   - `single-host`: a dedicated rootless daemon, cgroup v2 and gVisor.
 - `ALLOW_RUNC=true` is an explicit, documented opt-out.
+- Outside `dev`, the runtime rule is an allowlist: without `ALLOW_RUNC=true`, the agent accepts
+  only the runtime named `runsc`, both as `DEFAULT_RUNTIME` (checked at startup) and in each
+  session request. The daemon can list runc under other names (`io.containerd.runc.v2`), and the
+  agent cannot judge the isolation of an unknown runtime.
 - The runtime can be set per project, with the node default as fallback.
 
 ## Consequences
