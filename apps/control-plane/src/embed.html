@@ -24,11 +24,25 @@ let ticket = null, frame = null, events = null, retry = null, countdown = null, 
 function show(html) { statusEl.innerHTML = html; statusEl.hidden = false; }
 
 async function join() {
+  clearTimeout(retry);
   show("Connecting…");
   const r = await fetch(`/api/projects/${project}/tickets`, { method: "POST" });
+  if (r.status === 429) return limited(Number(r.headers.get("retry-after")) || 30);
   if (!r.ok) return show("Project unavailable.");
   ticket = (await r.json()).ticket;
   listen();
+}
+
+// Per-IP limit reached (ADR 0016): wait, then try again on our own.
+function limited(seconds) {
+  let left = seconds;
+  const tick = () => {
+    if (left <= 0) return join();
+    show(`Too many sessions from your network.<br><small>Trying again in ${left} s.</small>`);
+    left--;
+    retry = setTimeout(tick, 1000);
+  };
+  tick();
 }
 
 // Server-sent events: the server pushes every change and a fresh view every
@@ -39,7 +53,8 @@ function listen() {
   events.addEventListener("ticket", (e) => render(JSON.parse(e.data)));
   events.onerror = async () => {
     if (events.readyState !== EventSource.CLOSED) return; // the browser reconnects by itself
-    // Refused (unknown ticket) or closed after the end: check, then retry.
+    // Refused (unknown ticket, too many streams from this IP) or closed after
+    // the end: check by polling, which also keeps the ticket alive, then retry.
     const current = ticket;
     try {
       const r = await fetch(`/api/tickets/${current}`);

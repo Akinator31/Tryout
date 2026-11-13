@@ -2,14 +2,15 @@
 // behaviour lives in the Queue module. Covered by scripts/e2e-*.ts.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
+import { clientKeyResolver, StreamLimiter } from "./client.ts";
 import { frameAncestors, type Config } from "./config.ts";
-import { UnknownProjectError, type Queue, type TicketView } from "./queue.ts";
+import { RateLimitedError, UnknownProjectError, type Queue, type TicketView } from "./queue.ts";
 
 const embedHtml = readFileSync(new URL("./embed.html", import.meta.url), "utf8");
 const demoHtml = readFileSync(new URL("./demo.html", import.meta.url), "utf8");
 
-export function json(res: ServerResponse, status: number, body: unknown) {
-  res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
+export function json(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) {
+  res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", ...headers });
   res.end(JSON.stringify(body));
 }
 
@@ -24,6 +25,12 @@ const wire = (v: TicketView) => ({
 });
 
 export function createHandler(cfg: Config, queue: Queue) {
+  // Per-IP limits (ADR 0016): tickets are limited by the queue, across
+  // instances; open streams by this instance, which holds the connections.
+  const clientKey = clientKeyResolver(cfg.client_ip);
+  const streams = new StreamLimiter(cfg.limits.streams_per_ip);
+  const client = (req: IncomingMessage) => clientKey(req.socket.remoteAddress, req.headers);
+
   return async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://x");
     const parts = url.pathname.split("/").filter(Boolean);
@@ -46,9 +53,12 @@ export function createHandler(cfg: Config, queue: Queue) {
     // POST /api/projects/:project/tickets — join the queue
     if (req.method === "POST" && parts[0] === "api" && parts[1] === "projects" && parts[3] === "tickets") {
       try {
-        return json(res, 201, wire(await queue.join(parts[2])));
+        return json(res, 201, wire(await queue.join(parts[2], client(req))));
       } catch (e) {
         if (e instanceof UnknownProjectError) return json(res, 404, { error: "unknown project" });
+        if (e instanceof RateLimitedError) {
+          return json(res, 429, { error: "too many tickets", limit: e.limit }, { "retry-after": String(e.retryAfterS) });
+        }
         throw e;
       }
     }
@@ -56,6 +66,9 @@ export function createHandler(cfg: Config, queue: Queue) {
     // GET /api/tickets/:id/events — SSE stream of the ticket's view (ADR 0012).
     // While the stream is open, the ticket's heartbeat is kept alive.
     if (req.method === "GET" && parts[0] === "api" && parts[1] === "tickets" && parts[3] === "events" && parts.length === 4) {
+      const release = streams.acquire(client(req));
+      if (!release) return json(res, 429, { error: "too many streams", limit: "streams" });
+      res.on("close", release);
       return streamTicket(queue, parts[2], req, res);
     }
 
