@@ -206,7 +206,11 @@ Change `TRYOUT_VERSION` in each `.env`, then on each machine:
 docker compose pull && docker compose up -d
 ```
 
-Upgrade the nodes and the control plane to the same version. Recreating the gateway interrupts
-the sessions running on that node until the agent reattaches it, which is on the
-[Roadmap](roadmap.md#m2-live): upgrade a node when it is idle. The control plane keeps its
-queue in PostgreSQL across restarts.
+Upgrade the nodes and the control plane to the same version. The control plane keeps its queue
+in PostgreSQL across restarts.
+
+Running sessions survive a node upgrade, with a short interruption. A recreated gateway is no
+longer attached to the session networks: the agent attaches it again and pushes its routes on
+its next reconcile pass, within 10 s. Connections open through the old gateway (a terminal's
+WebSocket, a desktop stream) are cut, so the visitor's page has to reconnect; the container and
+its state are kept.

@@ -275,3 +275,16 @@ func (c *Client) ContainerList(ctx context.Context, label string) ([]ContainerSu
 	var out []ContainerSummary
 	return out, c.do(ctx, http.MethodGet, "/containers/json?all=true&filters="+url.QueryEscape(string(f)), nil, &out)
 }
+
+// ContainerInspect holds the fields of GET /containers/{id}/json the agent uses.
+type ContainerInspect struct {
+	ID              string `json:"Id"`
+	NetworkSettings struct {
+		Networks map[string]struct{} // keyed by network name
+	}
+}
+
+func (c *Client) ContainerInspect(ctx context.Context, id string) (*ContainerInspect, error) {
+	var out ContainerInspect
+	return &out, c.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(id)+"/json", nil, &out)
+}

@@ -3,7 +3,8 @@
 // It exposes a small private HTTP API used by the control plane, over mutual
 // TLS only (ADR 0015), creates one hardened container + one --internal network per
 // session, attaches the gateway to that network, and pushes the route table
-// to the gateway. A reconcile loop removes expired/dead sessions and orphans.
+// to the gateway. A reconcile loop removes expired/dead sessions and orphans,
+// and attaches a recreated gateway again to every running session network.
 package main
 
 import (
@@ -514,7 +515,7 @@ func (a *agent) reconcile(ctx context.Context) {
 		return
 	}
 	now := time.Now().Unix()
-	live := map[string]bool{}
+	live, running := map[string]bool{}, map[string]bool{}
 	for _, c := range cs {
 		id := c.Labels[labelSession]
 		if busy[id] {
@@ -528,6 +529,7 @@ func (a *agent) reconcile(ctx context.Context) {
 			continue
 		}
 		live[id] = true
+		running[id] = c.State == "running"
 	}
 	nets, err := a.docker.NetworkList(ctx, labelSession)
 	if err == nil {
@@ -538,7 +540,36 @@ func (a *agent) reconcile(ctx context.Context) {
 			}
 		}
 	}
+	a.reattachGateway(ctx, running, busy)
 	a.pushRoutes(ctx)
+}
+
+// reattachGateway attaches the gateway to the network of every running session
+// it is missing from. A recreated gateway container (an upgrade, a manual
+// `docker compose up`) keeps its name but loses the networks the agent
+// connected it to, which would leave running sessions unreachable. Sessions
+// being created are skipped: create attaches the gateway itself.
+func (a *agent) reattachGateway(ctx context.Context, running, busy map[string]bool) {
+	gw, err := a.docker.ContainerInspect(ctx, a.cfg.gatewayName)
+	if err != nil {
+		slog.Warn("inspect gateway", "name", a.cfg.gatewayName, "err", err)
+		return
+	}
+	for _, id := range slices.Sorted(maps.Keys(running)) {
+		name := namePrefix + id
+		if _, ok := gw.NetworkSettings.Networks[name]; ok || !running[id] || busy[id] {
+			continue
+		}
+		if !sessionIDRe.MatchString(id) { // a label, not an id the agent made
+			slog.Warn("reattach gateway: invalid session label", "id", id)
+			continue
+		}
+		if err := a.docker.NetworkConnect(ctx, name, a.cfg.gatewayName); err != nil {
+			slog.Warn("reattach gateway", "id", id, "err", err)
+			continue
+		}
+		slog.Info("gateway reattached", "id", id)
+	}
 }
 
 // ---------- HTTP API ----------

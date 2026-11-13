@@ -43,6 +43,9 @@ node scripts/e2e-queue.ts    # session cap, promotion, heartbeat loss
 node scripts/e2e-sse.ts      # pushed promotion, stream as heartbeat, stream end
 node scripts/e2e-mtls.ts     # the agent refuses every client but the control plane
 node scripts/e2e-limits.ts   # per-IP limits on tickets and event streams
+node scripts/e2e-reattach.ts http://localhost:3000 cli-hello -- \
+  docker compose -f deploy/compose.dev.yaml up -d --force-recreate --no-deps gateway
+                             # a session survives the gateway being recreated
 scripts/e2e-deploy.sh        # the production layout with gVisor; Docker Desktop: see the script
 (cd apps/node && go test ./...)
 (cd apps/control-plane && npm ci && npm run typecheck && npm test)
