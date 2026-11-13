@@ -211,6 +211,8 @@ jobs:
         run: node scripts/e2e-sse.ts
       - name: Mutual TLS on the agent API
         run: node scripts/e2e-mtls.ts
+      - name: Per-IP limits
+        run: node scripts/e2e-limits.ts
       - name: Logs
         if: always()
         run: docker compose -f deploy/compose.dev.yaml logs --no-color
