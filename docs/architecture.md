@@ -98,7 +98,7 @@ What it does:
 ```
 apps/control-plane/   control plane (TypeScript, Node ≥ 24, Postgres via node-postgres)
 apps/node/            agent + gateway (Go), one binary each, one image
-deploy/               dev compose file, sample configuration (tryout.dev.yaml)
+deploy/               dev compose file and its configuration; node/ and control-plane/: production examples
 schema/               JSON Schema of the configuration and the agent API, shared fixtures
 examples/             sample project images
 scripts/              end-to-end tests, node feasibility script

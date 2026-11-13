@@ -1,0 +1,66 @@
+# Tryout node: the agent and the gateway, from the published images.
+# Guide: docs/deployment.md. Run it next to its .env, on the machine that runs sessions,
+# against the Docker daemon that runs them:
+#   cp .env.example .env && docker compose up -d
+# Written for the strict profile (a machine or VM dedicated to sessions); single-host,
+# with a rootless daemon, has its own guide on the roadmap.
+name: tryout-node
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+  logging:
+    driver: local
+    options: { max-size: 10m, max-file: "3" }
+
+services:
+  agent:
+    <<: *hardening
+    image: ${TRYOUT_NODE_IMAGE:-ghcr.io/akinator31/tryout-node}:${TRYOUT_VERSION:?set TRYOUT_VERSION in .env}
+    command: ["tryout-agent"]
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      NODE_PROFILE: ${NODE_PROFILE:-strict}
+      DEFAULT_RUNTIME: ${DEFAULT_RUNTIME:-runsc}
+      ALLOW_RUNC: ${ALLOW_RUNC:-false}
+      AGENT_TLS_CERT: /etc/tryout/pki/tls.crt
+      AGENT_TLS_KEY: /etc/tryout/pki/tls.key
+      AGENT_TLS_CLIENT_CA: /etc/tryout/pki/ca.crt
+      GATEWAY_TOKEN: ${GATEWAY_TOKEN:?set GATEWAY_TOKEN in .env}
+      GATEWAY_CONTAINER: tryout-gateway
+      GATEWAY_ADMIN_SOCKET: unix:///run/tryout/gateway.sock
+      REGISTRY_AUTH_FILE: ${REGISTRY_AUTH_FILE:-}
+      MAX_SESSIONS: ${MAX_SESSIONS:-10}
+      SESSION_MAX_AGE_CAP: ${SESSION_MAX_AGE_CAP:-2h}
+    volumes:
+      # The daemon that runs sessions; the gateway must run on the same daemon.
+      - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+      - gateway-admin:/run/tryout
+      # This node's certificates (pki/nodes/<name>/ from tryout-certs), readable by uid 65532.
+      - ./pki:/etc/tryout/pki:ro
+      # Optional: registry credentials for private project images (registry/auth.json).
+      - ./registry:/etc/tryout/registry:ro
+    # The image runs as nonroot (65532); this group grants access to the socket.
+    group_add: ["${DOCKER_GID:?set DOCKER_GID in .env}"]
+    # The private API, over mutual TLS. Publish it on a private address, a VPN
+    # interface or the loopback of a tunnel: never on the Internet.
+    ports: ["${AGENT_PUBLISH:?set AGENT_PUBLISH in .env}:7000"]
+
+  gateway:
+    <<: *hardening
+    image: ${TRYOUT_NODE_IMAGE:-ghcr.io/akinator31/tryout-node}:${TRYOUT_VERSION:?set TRYOUT_VERSION in .env}
+    container_name: tryout-gateway   # the agent attaches this container to session networks
+    command: ["tryout-gateway"]
+    environment:
+      GATEWAY_TOKEN: ${GATEWAY_TOKEN:?set GATEWAY_TOKEN in .env}
+      FRAME_ANCESTORS: ${FRAME_ANCESTORS:?set FRAME_ANCESTORS in .env}
+      ADMIN_SOCKET: unix:///run/tryout/gateway.sock
+    volumes:
+      - gateway-admin:/run/tryout   # admin API: shared with the agent only, never TCP
+    # Sessions, served under /s/<id>/. Put your reverse proxy or tunnel in front.
+    ports: ["${GATEWAY_PUBLISH:?set GATEWAY_PUBLISH in .env}:8080"]
+
+volumes:
+  gateway-admin: {}

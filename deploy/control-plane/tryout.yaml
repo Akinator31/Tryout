@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=https://akinator31.github.io/Tryout/schema/v1/tryout.schema.json
+# Control plane configuration: an example to adapt. Reference: docs/configuration.md.
+# Guide: docs/deployment.md. ${NAME} reads an environment variable of the container.
+listen: ":3000"
+
+# The portfolios allowed to embed /embed/<project> in an iframe.
+embed_frame_ancestors:
+  - https://portfolio.example.org
+
+# Your reverse proxy or tunnel, as the control plane sees it. Only these peers may
+# set X-Forwarded-For (or the header below). The block below covers a proxy on the
+# host that connects to the published port; narrow it to your proxy's address, since
+# every container on this machine could otherwise forge the header. See docs/exposure.md.
+client_ip:
+  trusted_proxies: [172.16.0.0/12]
+  # header: CF-Connecting-IP
+
+# Mutual TLS towards the agents, relative to this file (compose.yaml mounts ./pki).
+agent_tls:
+  ca: pki/ca.crt
+  cert: pki/tls.crt
+  key: pki/tls.key
+
+nodes:
+  cli:
+    # The agent's private API; its certificate must name this host (or server_name).
+    agent_url: https://10.0.50.10:7000
+    # What the browser loads: the node's gateway behind your proxy, on a domain
+    # dedicated to sessions.
+    public_url: https://sbx.example.dev/s/{session}/
+    # Optional: the same gateway as the control plane reaches it, to check that a
+    # session answers before handing out its URL. Defaults to public_url.
+    # probe_url: http://10.0.50.10:8080/s/{session}/
+    max_sessions: 10
+
+projects:
+  cli-hello:
+    node: cli
+    # Pin by digest in production: ghcr.io/<owner>/<image>:<tag>@sha256:...
+    image: ghcr.io/akinator31/tryout-example-cli-hello:edge
+    kind: terminal
+    port: 7681
+    max_sessions: 2
+    max_age: 10m
