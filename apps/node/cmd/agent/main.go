@@ -29,6 +29,7 @@ import (
 
 	"github.com/Akinator31/Tryout/apps/node/internal/dockerapi"
 	"github.com/Akinator31/Tryout/apps/node/internal/pki"
+	"github.com/Akinator31/Tryout/apps/node/internal/registryauth"
 	"github.com/Akinator31/Tryout/apps/node/internal/spec"
 )
 
@@ -44,19 +45,20 @@ const (
 var sessionIDRe = regexp.MustCompile(`^[a-z0-9]{26}$`)
 
 type config struct {
-	listen         string
-	tlsCert        string
-	tlsKey         string
-	tlsClientCA    string
-	dockerHost     string
-	profile        string // dev | strict | single-host
-	defaultRuntime string
-	allowRunc      bool
-	gatewayName    string
-	gatewaySocket  string
-	gatewayToken   string
-	maxSessions    int
-	maxAge         time.Duration
+	listen           string
+	tlsCert          string
+	tlsKey           string
+	tlsClientCA      string
+	dockerHost       string
+	profile          string // dev | strict | single-host
+	defaultRuntime   string
+	allowRunc        bool
+	gatewayName      string
+	gatewaySocket    string
+	gatewayToken     string
+	registryAuthFile string // path of a config.json with registry credentials, optional
+	maxSessions      int
+	maxAge           time.Duration
 }
 
 func env(k, def string) string {
@@ -70,19 +72,20 @@ func loadConfig() config {
 	maxS, _ := strconv.Atoi(env("MAX_SESSIONS", "10"))
 	maxAge, _ := time.ParseDuration(env("SESSION_MAX_AGE_CAP", "2h"))
 	return config{
-		listen:         env("AGENT_LISTEN", ":7000"),
-		tlsCert:        os.Getenv("AGENT_TLS_CERT"),
-		tlsKey:         os.Getenv("AGENT_TLS_KEY"),
-		tlsClientCA:    os.Getenv("AGENT_TLS_CLIENT_CA"),
-		dockerHost:     env("DOCKER_HOST", "unix:///var/run/docker.sock"),
-		profile:        env("NODE_PROFILE", "dev"),
-		defaultRuntime: env("DEFAULT_RUNTIME", "runsc"),
-		allowRunc:      env("ALLOW_RUNC", "false") == "true",
-		gatewayName:    env("GATEWAY_CONTAINER", "tryout-gateway"),
-		gatewaySocket:  strings.TrimPrefix(env("GATEWAY_ADMIN_SOCKET", "unix:///run/tryout/gateway.sock"), "unix://"),
-		gatewayToken:   os.Getenv("GATEWAY_TOKEN"),
-		maxSessions:    maxS,
-		maxAge:         maxAge,
+		listen:           env("AGENT_LISTEN", ":7000"),
+		tlsCert:          os.Getenv("AGENT_TLS_CERT"),
+		tlsKey:           os.Getenv("AGENT_TLS_KEY"),
+		tlsClientCA:      os.Getenv("AGENT_TLS_CLIENT_CA"),
+		dockerHost:       env("DOCKER_HOST", "unix:///var/run/docker.sock"),
+		profile:          env("NODE_PROFILE", "dev"),
+		defaultRuntime:   env("DEFAULT_RUNTIME", "runsc"),
+		allowRunc:        env("ALLOW_RUNC", "false") == "true",
+		gatewayName:      env("GATEWAY_CONTAINER", "tryout-gateway"),
+		gatewaySocket:    strings.TrimPrefix(env("GATEWAY_ADMIN_SOCKET", "unix:///run/tryout/gateway.sock"), "unix://"),
+		gatewayToken:     os.Getenv("GATEWAY_TOKEN"),
+		registryAuthFile: os.Getenv("REGISTRY_AUTH_FILE"),
+		maxSessions:      maxS,
+		maxAge:           maxAge,
 	}
 }
 
@@ -91,6 +94,7 @@ type agent struct {
 	docker   *dockerapi.Client
 	arch     string
 	runtimes map[string]bool
+	registry *registryauth.Store // nil: anonymous pulls
 
 	gatewayHTTP *http.Client // over the shared unix socket
 
@@ -377,7 +381,7 @@ func (a *agent) ensureImage(ctx context.Context, ref string) error {
 	img, err := a.docker.ImageInspect(ctx, ref)
 	if dockerapi.IsNotFound(err) {
 		slog.Info("pulling image", "ref", ref)
-		if err := a.docker.ImagePull(ctx, ref); err != nil {
+		if err := a.docker.ImagePull(ctx, ref, a.registry.HeaderFor(ref)); err != nil {
 			return err
 		}
 		img, err = a.docker.ImageInspect(ctx, ref)
@@ -650,6 +654,13 @@ func main() {
 		os.Exit(1)
 	}
 	a := &agent{cfg: cfg, docker: dc, creating: map[string]bool{}}
+	if cfg.registryAuthFile != "" {
+		if a.registry, err = registryauth.Load(cfg.registryAuthFile); err != nil {
+			slog.Error("refusing to start: REGISTRY_AUTH_FILE", "err", err)
+			os.Exit(1)
+		}
+		slog.Info("registry credentials loaded", "registries", a.registry.Registries())
+	}
 	a.gatewayHTTP = &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			var d net.Dialer

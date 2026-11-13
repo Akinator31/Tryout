@@ -21,3 +21,4 @@ changes, a new record supersedes it.
 | [0014](0014-yaml-configuration-json-schema.md) | YAML configuration validated by one JSON Schema | Accepted, implemented |
 | [0015](0015-mutual-tls-control-plane-agent.md) | Mutual TLS between the control plane and the agent | Accepted, implemented |
 | [0016](0016-per-ip-limits.md) | Per-IP limits on tickets and event streams | Accepted, implemented |
+| [0017](0017-registry-credentials.md) | Registry credentials for private project images | Accepted, implemented |

@@ -14,6 +14,38 @@ A project image is a regular Docker image that follows a small contract.
 
 Variables provided by the agent: `TRYOUT_SESSION_ID`, `TRYOUT_BASE_PATH`.
 
+## Private images
+
+The agent pulls a missing image itself, through the Docker Engine API. A `docker login` on the
+node does not help: the Docker CLI keeps that login for its own commands. To pull private images,
+give the agent a credentials file with `REGISTRY_AUTH_FILE`, mounted read-only:
+
+```json
+{
+  "auths": {
+    "ghcr.io": { "auth": "<base64 of user:token>" }
+  }
+}
+```
+
+- The format is the Docker CLI's `config.json`. Each entry holds `auth` (base64 of
+  `user:password`), or `username` and `password`, or `identitytoken`. The key is the registry
+  host alone; Docker Hub is `docker.io` or `https://index.docker.io/v1/`. Keys scoped to a path
+  (`ghcr.io/owner`) are refused rather than widened to the whole registry.
+- Credential helpers (`credsStore`, `credHelpers`) are refused. A `config.json` written by
+  `docker login` on a desktop usually uses one; write the file by hand instead
+  (`printf 'user:token' | base64 -w0`; without `-w0`, GNU `base64` wraps long values onto
+  several lines, which breaks the JSON string).
+- The agent sends an image's credentials only to that image's registry. Other images are pulled
+  anonymously.
+- The file is read at startup: restart the agent after changing it. A broken file stops the
+  agent with an explicit error.
+- **Use a read-only token** limited to the project images, on an account that owns nothing
+  else of value. For `ghcr.io`, a token with the `read:packages` scope only. A session that
+  escapes its sandbox could read it (see [ADR 0017](decisions/0017-registry-credentials.md)).
+- An image is pulled only when it is missing on the node: pin images by digest to roll out a new
+  version.
+
 ## Command-line project (`kind: terminal`)
 
 - The root filesystem is **read-only**. Only `/tmp` is writable, and `HOME=/tmp`.

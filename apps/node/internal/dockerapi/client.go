@@ -126,12 +126,16 @@ func (c *Client) ImageInspect(ctx context.Context, ref string) (*ImageInspect, e
 	return &i, c.do(ctx, http.MethodGet, "/images/"+url.PathEscape(ref)+"/json", nil, &i)
 }
 
-// ImagePull pulls ref and waits for the stream to finish.
-func (c *Client) ImagePull(ctx context.Context, ref string) error {
+// ImagePull pulls ref and waits for the stream to finish. registryAuth is the
+// X-Registry-Auth value (base64url JSON AuthConfig), or "" for an anonymous pull.
+func (c *Client) ImagePull(ctx context.Context, ref, registryAuth string) error {
 	q := url.Values{"fromImage": {ref}}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/images/create?"+q.Encode(), nil)
 	if err != nil {
 		return err
+	}
+	if registryAuth != "" {
+		req.Header.Set("X-Registry-Auth", registryAuth)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {

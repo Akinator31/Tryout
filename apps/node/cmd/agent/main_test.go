@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,11 +15,13 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/Akinator31/Tryout/apps/node/internal/dockerapi"
 	"github.com/Akinator31/Tryout/apps/node/internal/pki"
+	"github.com/Akinator31/Tryout/apps/node/internal/registryauth"
 	"github.com/Akinator31/Tryout/apps/node/internal/spec"
 )
 
@@ -322,5 +325,61 @@ func TestCheckProfileDefaultRuntime(t *testing.T) {
 		case c.wantErr != "" && (err == nil || !strings.Contains(err.Error(), c.wantErr)):
 			t.Errorf("%s: want error containing %q, got %v", name, c.wantErr, err)
 		}
+	}
+}
+
+// TestEnsureImageSendsRegistryAuth checks that a missing image is pulled with
+// the credentials of its registry, and only of its registry.
+func TestEnsureImageSendsRegistryAuth(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.json")
+	cred := base64.StdEncoding.EncodeToString([]byte("bot:token"))
+	if err := os.WriteFile(cfgPath, []byte(`{"auths":{"ghcr.io":{"auth":"`+cred+`"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := registryauth.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for ref, wantUser := range map[string]string{"ghcr.io/owner/app:edge": "bot", "quay.io/other/app:1": ""} {
+		t.Run(ref, func(t *testing.T) {
+			var mu sync.Mutex
+			pulled, gotAuth := false, ""
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				defer mu.Unlock()
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/images/create"):
+					pulled, gotAuth = true, r.Header.Get("X-Registry-Auth")
+					_, _ = w.Write([]byte(`{"status":"done"}`))
+				case strings.HasSuffix(r.URL.Path, "/json") && pulled:
+					_, _ = w.Write([]byte(`{"Id":"sha256:x","Architecture":"amd64","Os":"linux"}`))
+				default:
+					http.Error(w, `{"message":"no such image"}`, http.StatusNotFound)
+				}
+			}))
+			t.Cleanup(srv.Close)
+			dc, err := dockerapi.New("tcp://" + srv.Listener.Addr().String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			a := &agent{docker: dc, arch: "amd64", registry: store}
+			if err := a.ensureImage(context.Background(), ref); err != nil {
+				t.Fatalf("%s: %v", ref, err)
+			}
+			if wantUser == "" {
+				if gotAuth != "" {
+					t.Errorf("%s: credentials sent to the wrong registry", ref)
+				}
+				return
+			}
+			raw, err := base64.URLEncoding.DecodeString(gotAuth)
+			if err != nil {
+				t.Fatalf("%s: X-Registry-Auth %q: %v", ref, gotAuth, err)
+			}
+			var ac map[string]string
+			if err := json.Unmarshal(raw, &ac); err != nil || ac["username"] != wantUser || ac["password"] != "token" {
+				t.Errorf("%s: X-Registry-Auth = %s (%v)", ref, raw, err)
+			}
+		})
 	}
 }
