@@ -8,7 +8,7 @@ plain port forward.
 |---|---|---|
 | control plane (`:3000`) | yes | serves the embed page and the queue API |
 | gateway of each node (`:8080`) | yes | serves sessions |
-| agent (`:7000`) | **no** | private network only, reachable by the control plane |
+| agent (`:7000`) | **no** | private network, VPN or tunnel to the control plane, carrying TLS end to end: the agent requires a client certificate ([Certificates](certificates.md)) |
 
 ## Event stream
 

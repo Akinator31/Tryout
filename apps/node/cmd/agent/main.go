@@ -1,7 +1,7 @@
 // tryout-agent: the only component that talks to Docker on a sandbox node.
 //
-// It exposes a small private HTTP API (bearer token) used by the control
-// plane, creates one hardened container + one --internal network per
+// It exposes a small private HTTP API used by the control plane, over mutual
+// TLS only (ADR 0015), creates one hardened container + one --internal network per
 // session, attaches the gateway to that network, and pushes the route table
 // to the gateway. A reconcile loop removes expired/dead sessions and orphans.
 package main
@@ -9,7 +9,8 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/subtle"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +28,7 @@ import (
 	"time"
 
 	"github.com/Akinator31/Tryout/apps/node/internal/dockerapi"
+	"github.com/Akinator31/Tryout/apps/node/internal/pki"
 	"github.com/Akinator31/Tryout/apps/node/internal/spec"
 )
 
@@ -43,7 +45,9 @@ var sessionIDRe = regexp.MustCompile(`^[a-z0-9]{26}$`)
 
 type config struct {
 	listen         string
-	token          string
+	tlsCert        string
+	tlsKey         string
+	tlsClientCA    string
 	dockerHost     string
 	profile        string // dev | strict | single-host
 	defaultRuntime string
@@ -67,7 +71,9 @@ func loadConfig() config {
 	maxAge, _ := time.ParseDuration(env("SESSION_MAX_AGE_CAP", "2h"))
 	return config{
 		listen:         env("AGENT_LISTEN", ":7000"),
-		token:          os.Getenv("AGENT_TOKEN"),
+		tlsCert:        os.Getenv("AGENT_TLS_CERT"),
+		tlsKey:         os.Getenv("AGENT_TLS_KEY"),
+		tlsClientCA:    os.Getenv("AGENT_TLS_CLIENT_CA"),
 		dockerHost:     env("DOCKER_HOST", "unix:///var/run/docker.sock"),
 		profile:        env("NODE_PROFILE", "dev"),
 		defaultRuntime: env("DEFAULT_RUNTIME", "runsc"),
@@ -524,14 +530,39 @@ func (a *agent) reconcile(ctx context.Context) {
 
 // ---------- HTTP API ----------
 
-func (a *agent) auth(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if subtle.ConstantTimeCompare([]byte(got), []byte(a.cfg.token)) != 1 {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
+// serverTLS loads the listener's mutual TLS configuration and refuses an
+// expired certificate. There is no plain-HTTP mode: the TLS handshake is the
+// API's only authentication.
+func serverTLS(cfg config, now time.Time) (*tls.Config, []*x509.Certificate, error) {
+	var missing []string
+	for k, v := range map[string]string{"AGENT_TLS_CERT": cfg.tlsCert, "AGENT_TLS_KEY": cfg.tlsKey, "AGENT_TLS_CLIENT_CA": cfg.tlsClientCA} {
+		if v == "" {
+			missing = append(missing, k)
 		}
-		next(w, r)
+	}
+	if len(missing) > 0 {
+		slices.Sort(missing)
+		return nil, nil, fmt.Errorf("%s required (mutual TLS, see docs/certificates.md)", strings.Join(missing, ", "))
+	}
+	tlsCfg, certs, err := pki.ServerConfig(cfg.tlsCert, cfg.tlsKey, cfg.tlsClientCA)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, c := range certs {
+		if w := pki.Expiry(c, now, 0); w != "" {
+			return nil, nil, errors.New(w)
+		}
+	}
+	return tlsCfg, certs, nil
+}
+
+// warnExpiry logs certificates that are expired or close to expiry. Rotation
+// is a restart with new files (ADR 0015).
+func warnExpiry(certs []*x509.Certificate, now time.Time) {
+	for _, c := range certs {
+		if w := pki.Expiry(c, now, pki.ExpiryWarning); w != "" {
+			slog.Warn(w)
+		}
 	}
 }
 
@@ -546,7 +577,7 @@ func (a *agent) routes() *http.ServeMux {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"ok": true, "profile": a.cfg.profile, "arch": a.arch, "runtimes": keys(a.runtimes)})
 	})
-	mux.HandleFunc("POST /v1/sessions", a.auth(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /v1/sessions", func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
 		if err != nil {
 			writeJSON(w, 400, map[string]string{"error": err.Error()})
@@ -565,8 +596,8 @@ func (a *agent) routes() *http.ServeMux {
 			return
 		}
 		writeJSON(w, 201, map[string]string{"id": req.ID})
-	}))
-	mux.HandleFunc("DELETE /v1/sessions/{id}", a.auth(func(w http.ResponseWriter, r *http.Request) {
+	})
+	mux.HandleFunc("DELETE /v1/sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if !sessionIDRe.MatchString(id) {
 			http.Error(w, "bad id", 400)
@@ -575,8 +606,8 @@ func (a *agent) routes() *http.ServeMux {
 		a.destroy(r.Context(), id)
 		a.pushRoutes(r.Context())
 		w.WriteHeader(http.StatusNoContent)
-	}))
-	mux.HandleFunc("GET /v1/sessions", a.auth(func(w http.ResponseWriter, r *http.Request) {
+	})
+	mux.HandleFunc("GET /v1/sessions", func(w http.ResponseWriter, r *http.Request) {
 		cs, err := a.docker.ContainerList(r.Context(), labelSession)
 		if err != nil {
 			writeJSON(w, 502, map[string]string{"error": err.Error()})
@@ -587,17 +618,23 @@ func (a *agent) routes() *http.ServeMux {
 			out = append(out, map[string]string{"id": c.Labels[labelSession], "project": c.Labels[labelProject], "state": c.State})
 		}
 		writeJSON(w, 200, out)
-	}))
+	})
 	return mux
 }
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	cfg := loadConfig()
-	if cfg.token == "" || cfg.gatewayToken == "" {
-		slog.Error("AGENT_TOKEN and GATEWAY_TOKEN are required")
+	if cfg.gatewayToken == "" {
+		slog.Error("GATEWAY_TOKEN required")
 		os.Exit(1)
 	}
+	tlsCfg, certs, err := serverTLS(cfg, time.Now())
+	if err != nil {
+		slog.Error("refusing to start", "err", err)
+		os.Exit(1)
+	}
+	warnExpiry(certs, time.Now())
 	dc, err := dockerapi.New(cfg.dockerHost)
 	if err != nil {
 		slog.Error("docker client", "err", err)
@@ -620,9 +657,14 @@ func main() {
 			time.Sleep(10 * time.Second)
 		}
 	}()
-	srv := &http.Server{Addr: cfg.listen, Handler: a.routes(), ReadHeaderTimeout: 10 * time.Second}
-	slog.Info("agent listening", "addr", cfg.listen, "profile", cfg.profile, "default_runtime", a.cfg.defaultRuntime)
-	if err := srv.ListenAndServe(); err != nil {
+	go func() {
+		for range time.Tick(24 * time.Hour) {
+			warnExpiry(certs, time.Now())
+		}
+	}()
+	srv := &http.Server{Addr: cfg.listen, Handler: a.routes(), TLSConfig: tlsCfg, ReadHeaderTimeout: 10 * time.Second}
+	slog.Info("agent listening (mutual TLS)", "addr", cfg.listen, "profile", cfg.profile, "default_runtime", a.cfg.defaultRuntime)
+	if err := srv.ListenAndServeTLS("", ""); err != nil {
 		slog.Error("server", "err", err)
 		os.Exit(1)
 	}

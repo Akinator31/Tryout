@@ -14,11 +14,14 @@ The configuration file (see `deploy/tryout.dev.yaml`):
 listen: ":3000"
 embed_frame_ancestors:
   - https://portfolio.example.org
+agent_tls:
+  ca: pki/ca.crt
+  cert: pki/tls.crt
+  key: pki/tls.key
 
 nodes:
   cli:
-    agent_url: http://10.0.50.10:7000
-    agent_token: ${AGENT_TOKEN_CLI}
+    agent_url: https://10.0.50.10:7000
     public_url: https://sbx-cli.example.dev/s/{session}/
     probe_url: http://10.0.50.10:8080/s/{session}/
     max_sessions: 10
@@ -61,7 +64,7 @@ The agent validates each session request against the same schema
 in version control without its secrets. An unset variable is an error; there is no default-value
 syntax. Only values are substituted, never keys, and the substitution happens after the YAML is
 parsed, so a variable cannot add keys. A substituted value is always a string, so `${VAR}` fits
-string keys such as `agent_token` or `image`, not numbers such as `port`. A literal `${` cannot
+string keys such as `image` or `server_name`, not numbers such as `port`. A literal `${` cannot
 be written.
 
 ### Top level
@@ -69,6 +72,7 @@ be written.
 | Key | Role |
 |---|---|
 | `listen` | Optional: `[host]:port` to listen on. Default `:3000` (every interface). |
+| `agent_tls` | Mutual TLS towards the agents: `ca` (the CA that signs the agents' certificates), `cert` and `key` (the control plane's client certificate, with the `clientAuth` usage). Paths of PEM files, relative to the configuration file. See [Certificates](certificates.md). |
 | `embed_frame_ancestors` | Origins allowed to embed `/embed/<project>` in an iframe: `https://example.org`, `https://*.example.org`, `http://localhost:3000`. `'self'` is always allowed. |
 | `nodes` | Nodes by name (lower-case letters, digits, `-`). |
 | `projects` | Projects by name (same rule); the name appears in `/embed/<project>`. |
@@ -77,8 +81,8 @@ be written.
 
 | Key | Role |
 |---|---|
-| `agent_url` | URL of the agent's private API, without a path. |
-| `agent_token` | Token shared with the agent (`AGENT_TOKEN`), at least 16 characters. Use `${VAR}`. |
+| `agent_url` | URL of the agent's private API: `https://host[:port]`, without a path. The agent's certificate must name the host. |
+| `server_name` | Optional: DNS name expected in the agent's certificate when it differs from the host of `agent_url` (a tunnel, a port forward). |
 | `public_url` | URL template loaded by the **browser**; must contain `{session}`, replaced by the session id. |
 | `probe_url` | Optional: URL template reachable **from the control plane**, to check that a session answers. Defaults to `public_url`. |
 | `max_sessions` | Cap on concurrent sessions on the node, all projects combined. |
@@ -106,8 +110,10 @@ be written.
 | `NODE_PROFILE` | `dev` | `dev`, `strict` or `single-host` (see [Security](security.md)). |
 | `DEFAULT_RUNTIME` | `runsc` | Runtime used when the project does not set one. |
 | `ALLOW_RUNC` | `false` | Allows `runc` in `strict` and `single-host`. A documented, weaker opt-out. |
-| `AGENT_LISTEN` | `:7000` | Private API address. |
-| `AGENT_TOKEN` | — | Required. Token expected from the control plane. |
+| `AGENT_LISTEN` | `:7000` | Private API address, served over mutual TLS only, `/healthz` included. |
+| `AGENT_TLS_CERT` | — | Required. PEM server certificate of the agent (`serverAuth`). |
+| `AGENT_TLS_KEY` | — | Required. Its private key. |
+| `AGENT_TLS_CLIENT_CA` | — | Required. PEM CA that signs the control plane's client certificate. |
 | `GATEWAY_TOKEN` | — | Required. Token for the gateway's admin API. |
 | `GATEWAY_CONTAINER` | `tryout-gateway` | Name of the gateway container to attach to session networks. |
 | `GATEWAY_ADMIN_SOCKET` | `unix:///run/tryout/gateway.sock` | Gateway admin socket. |

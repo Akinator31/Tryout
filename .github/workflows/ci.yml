@@ -209,6 +209,8 @@ jobs:
         run: node scripts/e2e-queue.ts
       - name: SSE stream, push and heartbeat
         run: node scripts/e2e-sse.ts
+      - name: Mutual TLS on the agent API
+        run: node scripts/e2e-mtls.ts
       - name: Logs
         if: always()
         run: docker compose -f deploy/compose.dev.yaml logs --no-color

@@ -4,6 +4,26 @@
 name: tryout-dev
 
 services:
+  # One-shot: the private PKI of the control plane -> agent mutual TLS
+  # (docs/certificates.md). Created once in the pki volume, kept across restarts.
+  # Each service below mounts only its own sub-directory of that volume.
+  pki-ca:
+    build: ../apps/node
+    command: ["tryout-certs", "init", "--dir", "/pki", "--if-missing", "--owner", "1000:1000"]  # the control plane runs as node (1000)
+    user: "0"
+    volumes: [pki:/pki]
+    network_mode: none
+
+  pki-node:
+    build: ../apps/node
+    command: ["tryout-certs", "node", "local", "--san", "agent", "--san", "localhost", "--san", "127.0.0.1",
+              "--dir", "/pki", "--if-missing", "--owner", "${AGENT_USER:-0}:0"]
+    user: "0"
+    volumes: [pki:/pki]
+    network_mode: none
+    depends_on:
+      pki-ca: { condition: service_completed_successfully }
+
   agent:
     build: ../apps/node
     command: ["tryout-agent"]
@@ -12,7 +32,9 @@ services:
       NODE_PROFILE: ${NODE_PROFILE:-dev}
       DEFAULT_RUNTIME: ${DEFAULT_RUNTIME:-runsc}
       ALLOW_RUNC: ${ALLOW_RUNC:-false}
-      AGENT_TOKEN: ${AGENT_TOKEN:?set in .env}
+      AGENT_TLS_CERT: /pki/tls.crt
+      AGENT_TLS_KEY: /pki/tls.key
+      AGENT_TLS_CLIENT_CA: /pki/ca.crt
       GATEWAY_TOKEN: ${GATEWAY_TOKEN:?set in .env}
       GATEWAY_CONTAINER: tryout-gateway
       GATEWAY_ADMIN_SOCKET: unix:///run/tryout/gateway.sock
@@ -21,6 +43,12 @@ services:
       # dev only. single-host: mount the ROOTLESS daemon socket instead.
       - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
       - gateway-admin:/run/tryout
+      - { type: volume, source: pki, target: /pki, read_only: true, volume: { subpath: nodes/local } }
+    # Published on the loopback only, for scripts/e2e-mtls.ts. A real node exposes
+    # the API on a private network or a tunnel towards the control plane.
+    ports: ["127.0.0.1:7000:7000"]
+    depends_on:
+      pki-node: { condition: service_completed_successfully }
     # Socket access: Docker Desktop exposes it root:root, a native daemon uses the
     # docker group. dev only; a real node runs the agent as the rootless user.
     user: "${AGENT_USER:-0}"
@@ -47,13 +75,14 @@ services:
     environment:
       TRYOUT_CONFIG: /app/tryout.yaml
       DATABASE_URL: postgres://tryout:tryout@postgres:5432/tryout
-      AGENT_TOKEN: ${AGENT_TOKEN:?set in .env}   # read by ${AGENT_TOKEN} in tryout.yaml
     volumes:
       - ./tryout.dev.yaml:/app/tryout.yaml:ro
+      - { type: volume, source: pki, target: /app/pki, read_only: true, volume: { subpath: control-plane } }
     ports: ["3000:3000"]
     networks: [control, db]
     depends_on:
       postgres: { condition: service_healthy }
+      pki-ca: { condition: service_completed_successfully }
     restart: unless-stopped
 
   postgres:
@@ -78,4 +107,5 @@ networks:
 
 volumes:
   gateway-admin: {}
+  pki: {}
   postgres: {}

@@ -1,17 +1,27 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
+import { copyFileSync, mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ConfigError, frameAncestors, loadConfig, parseConfig, parseDuration, validateSessionRequest } from "../src/config.ts";
+import { makePki, TEST_DAYS } from "./pki.ts";
 
 const root = new URL("../../../", import.meta.url);
-const env = { AGENT_TOKEN: "a-long-enough-agent-token" };
+const env = { NODE_NAME: "n1.example" };
+
+// agent_tls paths in `base` are relative to pki.dir.
+const pki = makePki();
+pki.leaf("cp", { usage: "clientAuth" });
+pki.leaf("srv", { usage: "serverAuth", san: ["DNS:n1.example"] });
+const opts = { env, baseDir: pki.dir };
 
 const base = `
 embed_frame_ancestors: [https://portfolio.example.org]
 nodes:
   n1:
-    agent_url: http://10.0.0.1:7000
-    agent_token: \${AGENT_TOKEN}
+    agent_url: https://10.0.0.1:7000
+    server_name: \${NODE_NAME}
     public_url: https://sbx.example.org/s/{session}/
     max_sessions: 4
 projects:
@@ -22,11 +32,15 @@ projects:
     port: 7681
     max_sessions: 2
     max_age: 15m
+agent_tls:
+  ca: ca.crt
+  cert: cp.crt
+  key: cp.key
 `;
 
-function problems(text: string, e: NodeJS.ProcessEnv = env): string[] {
+function problems(text: string, e: NodeJS.ProcessEnv = env, now = new Date()): string[] {
   try {
-    parseConfig(text, { env: e });
+    parseConfig(text, { env: e, baseDir: pki.dir, now });
   } catch (err) {
     assert.ok(err instanceof ConfigError, String(err));
     return err.problems;
@@ -42,9 +56,16 @@ test("the schema copy shipped with the control plane is in sync", () => {
 });
 
 test("the dev configuration is valid", () => {
-  const { config, warnings } = loadConfig(new URL("deploy/tryout.dev.yaml", root).pathname, env);
+  // Same layout as in the dev compose file: pki/ next to the configuration.
+  const dir = mkdtempSync(join(tmpdir(), "tryout-dev-"));
+  mkdirSync(join(dir, "pki"));
+  copyFileSync(new URL("deploy/tryout.dev.yaml", root), join(dir, "tryout.yaml"));
+  copyFileSync(pki.caFile, join(dir, "pki/ca.crt"));
+  copyFileSync(join(pki.dir, "cp.crt"), join(dir, "pki/tls.crt"));
+  copyFileSync(join(pki.dir, "cp.key"), join(dir, "pki/tls.key"));
+  const { config, warnings } = loadConfig(join(dir, "tryout.yaml"), {});
   assert.equal(config.projects["cli-hello"].max_age_s, 600);
-  assert.equal(config.nodes.local.agent_token, env.AGENT_TOKEN);
+  assert.equal(config.agent_tls.ca, pki.ca);
   assert.deepEqual(warnings, []);
 });
 
@@ -61,15 +82,15 @@ test("shared session request fixtures: ajv agrees with the agent", () => {
 });
 
 test("defaults and derived values", () => {
-  const { config } = parseConfig(base, { env });
+  const { config } = parseConfig(base, opts);
   assert.deepEqual(config.listen, { host: "", port: 3000 });
   assert.equal(config.projects.cli.max_age_s, 900);
   assert.equal(frameAncestors(config), "'self' https://portfolio.example.org");
 });
 
 test("listen accepts a host", () => {
-  assert.deepEqual(parseConfig(`listen: "127.0.0.1:8000"\n${base}`, { env }).config.listen, { host: "127.0.0.1", port: 8000 });
-  assert.deepEqual(parseConfig(`listen: "[::1]:8000"\n${base}`, { env }).config.listen, { host: "::1", port: 8000 });
+  assert.deepEqual(parseConfig(`listen: "127.0.0.1:8000"\n${base}`, opts).config.listen, { host: "127.0.0.1", port: 8000 });
+  assert.deepEqual(parseConfig(`listen: "[::1]:8000"\n${base}`, opts).config.listen, { host: "::1", port: 8000 });
   assert.match(problems(`listen: ":70000"\n${base}`)[0], /^\/listen \(line 1\): must be \[host\]:port/);
   assert.match(problems(`listen: "[::1:80"\n${base}`)[0], /^\/listen \(line 1\): must match pattern/);
 });
@@ -79,17 +100,18 @@ test("durations", () => {
   assert.equal(parseDuration("90s"), 90);
   assert.match(problems(base.replace("15m", "0s"))[0], /\/projects\/cli\/max_age \(line \d+\): must be greater than zero and at most 24h/);
   assert.equal(problems(base.replace("15m", "25h")).length, 1);
-  parseConfig(base.replace("15m", "24h"), { env });
+  parseConfig(base.replace("15m", "24h"), opts);
   assert.match(problems(base.replace("15m", "15 minutes"))[0], /\/projects\/cli\/max_age .*must match pattern/);
 });
 
 test("an unset environment variable is an error, with its location", () => {
   const p = problems(base, {});
-  assert.deepEqual(p, ["/nodes/n1/agent_token (line 6): environment variable AGENT_TOKEN is not set"]);
+  assert.deepEqual(p, ["/nodes/n1/server_name (line 6): environment variable NODE_NAME is not set"]);
 });
 
 test("interpolation applies to values only and cannot inject structure", () => {
   const { config } = parseConfig(base.replace("ghcr.io/me/cli:1", "ghcr.io/me/cli:${TAG}"), {
+    ...opts,
     env: { ...env, TAG: "2" },
   });
   assert.equal(config.projects.cli.image, "ghcr.io/me/cli:2");
@@ -130,7 +152,7 @@ test("all problems are reported at once, across every pass", () => {
 test("an unset variable does not hide the other problems, nor cause duplicates", () => {
   const p = problems(base.replace("port: 7681", "port: 0"), {});
   assert.deepEqual(p, [
-    "/nodes/n1/agent_token (line 6): environment variable AGENT_TOKEN is not set",
+    "/nodes/n1/server_name (line 6): environment variable NODE_NAME is not set",
     "/projects/cli/port (line 14): must be >= 1",
   ]);
 });
@@ -141,7 +163,8 @@ test("an unknown field is reported beside a sibling's error", () => {
 });
 
 test("an error in one project does not hide an unknown field in a project with a longer name", () => {
-  const two = base + base.slice(base.indexOf("  cli:")).replace("  cli:", "  cli2:");
+  const cli = base.slice(base.indexOf("  cli:"), base.indexOf("agent_tls:"));
+  const two = base.replace("agent_tls:", cli.replace("  cli:", "  cli2:") + "agent_tls:");
   const p = problems(two.replace("max_age: 15m", "max_age: 15m\n    bogus: 1").replace(/port: 7681(?![\s\S]*port: 7681)/, "port: 0"));
   assert.ok(p.includes("/projects/cli/bogus (line 17): unknown field"), p.join("\n"));
   assert.ok(p.some((l) => l.startsWith("/projects/cli2/port")), p.join("\n"));
@@ -156,7 +179,7 @@ test("URL templates must contain {session}", () => {
 });
 
 test("overbooking a node is a warning, not an error", () => {
-  const { warnings } = parseConfig(base.replace("max_sessions: 2", "max_sessions: 9"), { env });
+  const { warnings } = parseConfig(base.replace("max_sessions: 2", "max_sessions: 9"), opts);
   assert.deepEqual(warnings, ["node n1: its projects allow 9 sessions, the node caps them at 4"]);
 });
 
@@ -168,5 +191,58 @@ test("frame ancestors must be origins", () => {
   for (const bad of ["'unsafe-inline'", "https://x.org/path", "*", "https://x.org; script-src *"]) {
     assert.ok(problems(base.replace("https://portfolio.example.org", JSON.stringify(bad))).length > 0, bad);
   }
-  parseConfig(base.replace("https://portfolio.example.org", "https://*.example.org"), { env });
+  parseConfig(base.replace("https://portfolio.example.org", "https://*.example.org"), opts);
+});
+
+// ---------- agent_tls (ADR 0015) ----------
+
+test("agent_tls is required and agent_url must be https", () => {
+  assert.deepEqual(problems(base.slice(0, base.indexOf("agent_tls:"))), ["/: must have required property 'agent_tls'"]);
+  assert.match(problems(base.replace("https://10.0.0.1:7000", "http://10.0.0.1:7000"))[0], /^\/nodes\/n1\/agent_url \(line 5\): must match pattern/);
+  assert.match(problems(base.replace("max_sessions: 4", "max_sessions: 4\n    agent_token: x"))[0], /^\/nodes\/n1\/agent_token \(line \d+\): unknown field$/);
+});
+
+test("agent_tls paths are relative to the configuration file and loaded as PEM", () => {
+  const { config } = parseConfig(base, opts);
+  assert.equal(config.agent_tls.ca, pki.ca);
+  assert.match(config.agent_tls.cert, /BEGIN CERTIFICATE/);
+  assert.match(config.agent_tls.key, /PRIVATE KEY/);
+  const abs = base
+    .replace("ca: ca.crt", `ca: ${JSON.stringify(pki.caFile)}`)
+    .replace("cert: cp.crt", `cert: ${JSON.stringify(join(pki.dir, "cp.crt"))}`)
+    .replace("key: cp.key", `key: ${JSON.stringify(join(pki.dir, "cp.key"))}`);
+  assert.equal(parseConfig(abs, { env, baseDir: "/nonexistent" }).config.agent_tls.ca, pki.ca);
+});
+
+test("unreadable or invalid agent_tls files are reported with their path", () => {
+  const p = problems(base.replace("cert: cp.crt", "cert: nope.crt").replace("ca: ca.crt", "ca: cp.key"));
+  assert.equal(p.length, 2, p.join("\n"));
+  assert.ok(p.includes(`/agent_tls/cert (line 19): cannot read ${join(pki.dir, "nope.crt")}: ENOENT`), p.join("\n"));
+  assert.ok(p.includes("/agent_tls/ca (line 18): not a PEM certificate"), p.join("\n"));
+});
+
+test("agent_tls: the certificate must be a client certificate matching its key, and the CA a CA", () => {
+  assert.deepEqual(problems(base.replace("cert: cp.crt", "cert: srv.crt")), [
+    "/agent_tls/cert (line 19): the certificate does not allow client authentication (extended key usage clientAuth)",
+    "/agent_tls/key (line 20): the key does not match agent_tls.cert",
+  ]);
+  assert.deepEqual(problems(base.replace("ca: ca.crt", "ca: cp.crt")), ["/agent_tls/ca (line 18): not a CA certificate"]);
+});
+
+test("agent_tls: expiry is an error, its approach a warning", () => {
+  const day = 24 * 3600 * 1000;
+  const soon = new Date(Date.now() + (TEST_DAYS - 10) * day);
+  const { warnings } = parseConfig(base, { ...opts, now: soon });
+  assert.equal(warnings.length, 2, warnings.join("\n")); // CA and client certificate
+  assert.match(warnings[0], /^agent_tls\.ca: the certificate expires on .* \(in 9 days\)$/);
+  const p = problems(base, env, new Date(Date.now() + (TEST_DAYS + 1) * day));
+  assert.equal(p.length, 2, p.join("\n"));
+  assert.match(p[0], /^\/agent_tls\/ca \(line 18\): the certificate expired on /);
+});
+
+test("server_name must be a DNS name", () => {
+  assert.deepEqual(problems(base, { NODE_NAME: "10.0.0.1" }), [
+    "/nodes/n1/server_name (line 6): must be a DNS name: to reach a node by IP address, put the address in the agent's certificate and leave server_name out",
+  ]);
+  assert.match(problems(base, { NODE_NAME: "bad_name" })[0], /^\/nodes\/n1\/server_name \(line 6\): must match pattern/);
 });

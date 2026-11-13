@@ -2,7 +2,7 @@
 
 ```
 browser ─► control plane (TypeScript)     queue, tickets, /embed/<project> page
-              │ HTTP + token (the control plane calls the node, never the reverse)
+              │ mutual TLS (the control plane calls the node, never the reverse)
               ▼
            node: agent (Go)               sole holder of the Docker socket
                  gateway (Go)             public proxy /s/<id>/, NO Docker socket
@@ -21,7 +21,7 @@ for graphical ones. Each project is assigned to a node.
 | Module | Role |
 |---|---|
 | `queue.ts` | **The core.** Interface: `join`, `poll`, `watch`, `release`, `tick`. Behind it: per-project and per-node caps, FIFO promotion, session start, heartbeat loss, maximum age, start timeout, change notifications (`LISTEN/NOTIFY`). State lives in Postgres. |
-| `runtime.ts` | `SessionRuntime` adapter for real nodes: agent API + readiness probe through the gateway. Tests use an in-memory adapter. |
+| `runtime.ts` | `SessionRuntime` adapter for real nodes: agent API over mutual TLS + readiness probe through the gateway. Tests use an in-memory adapter. |
 | `db.ts` | Database port (queries, transactions, `LISTEN`); adapters for node-postgres and, in tests, PGlite. |
 | `http.ts` | Embed page, demo page, queue API and its SSE stream. Thin. |
 | `config.ts`, `server.ts` | Configuration loading (YAML, validated against the shared JSON Schema) and wiring. |
@@ -45,6 +45,9 @@ What it does:
 
 ### Agent — `apps/node/cmd/agent`
 
+- Serves its private API over **mutual TLS 1.3** only: the control plane presents a client
+  certificate from the deployment's private CA, made with `tryout-certs`
+  ([ADR 0015](decisions/0015-mutual-tls-control-plane-agent.md), [Certificates](certificates.md)).
 - The only component that talks to Docker, through a configurable endpoint (`DOCKER_HOST`).
 - Checks at startup that the node **profile** is met (gVisor, rootless, cgroup v2), and refuses
   to start otherwise.

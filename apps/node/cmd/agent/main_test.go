@@ -1,10 +1,20 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"io"
+	"log"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/Akinator31/Tryout/apps/node/internal/pki"
 	"github.com/Akinator31/Tryout/apps/node/internal/spec"
 )
 
@@ -163,5 +173,64 @@ func TestSchemaReservedEnvMatchesLockedEnv(t *testing.T) {
 		if !got[k] {
 			t.Errorf("agent locks %s but the schema does not reserve it", k)
 		}
+	}
+}
+
+func TestServerTLSIsRequired(t *testing.T) {
+	_, _, err := serverTLS(config{tlsCert: "/x/tls.crt"}, time.Now())
+	if err == nil || !strings.Contains(err.Error(), "AGENT_TLS_CLIENT_CA, AGENT_TLS_KEY required") {
+		t.Errorf("missing variables: %v", err)
+	}
+	if _, _, err := serverTLS(config{tlsCert: "/nope/tls.crt", tlsKey: "/nope/tls.key", tlsClientCA: "/nope/ca.crt"}, time.Now()); err == nil {
+		t.Error("unreadable files accepted")
+	}
+}
+
+// The API is served over mutual TLS only: no client certificate, no request.
+func TestAPIOverMutualTLS(t *testing.T) {
+	dir := t.TempDir()
+	ca, _ := pki.NewCA("ca", time.Now(), pki.CAValidity)
+	srv, _ := ca.Issue(pki.ServerAuth, "agent", []string{"127.0.0.1"}, time.Now(), pki.LeafValidity)
+	cli, _ := ca.Issue(pki.ClientAuth, "cp", nil, time.Now(), pki.LeafValidity)
+	write := func(name string, b []byte) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	files := config{
+		tlsCert: write("tls.crt", srv.CertPEM), tlsKey: write("tls.key", srv.KeyPEM), tlsClientCA: write("ca.crt", ca.CertPEM),
+	}
+	if _, _, err := serverTLS(files, time.Now().Add(pki.LeafValidity+time.Hour)); err == nil || !strings.Contains(err.Error(), "expired") {
+		t.Errorf("expired certificate: %v", err)
+	}
+	cfg, _, err := serverTLS(files, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := testAgent("dev", false)
+	ts := httptest.NewUnstartedServer(a.routes())
+	ts.TLS = cfg
+	ts.Config.ErrorLog = log.New(io.Discard, "", 0)
+	ts.StartTLS()
+	defer ts.Close()
+
+	roots := x509.NewCertPool()
+	roots.AddCert(ca.Cert)
+	get := func(certs []tls.Certificate) (*http.Response, error) {
+		c := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, Certificates: certs}}}
+		return c.Get(ts.URL + "/healthz")
+	}
+	if _, err := get(nil); err == nil {
+		t.Error("request without a client certificate reached the API")
+	}
+	resp, err := get([]tls.Certificate{{Certificate: [][]byte{cli.Cert.Raw}, PrivateKey: cli.Key}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status %d", resp.StatusCode)
 	}
 }
