@@ -48,6 +48,7 @@ docker compose -f deploy/compose.dev.yaml up -d --build
 | | |
 |---|---|
 | [Local quickstart](docs/quickstart.md) | run and test the stack |
+| [Production deployment](docs/deployment.md) | run nodes and the control plane from the published images |
 | [Security](SECURITY.md) | threat model, node profiles, reporting vulnerabilities |
 | [Configuration](docs/configuration.md) | nodes, projects, environment variables |
 | [Project images](docs/project-images.md) | the contract an image must follow |

@@ -68,7 +68,7 @@ can turn them off.
 | Session requests | The agent validates every session request against the JSON Schema shared with the control plane: unknown fields are refused, and so are environment variables the agent sets itself. |
 | Call direction | The control plane calls the agent, never the reverse, over mutual TLS 1.3 with a private CA. The agent accepts only a client certificate with the `clientAuth` usage; the control plane accepts only an agent certificate with the `serverAuth` usage that names the node it called. A node's certificate cannot impersonate the control plane or another node. The node holds no credential towards the rest of the infrastructure, except an optional read-only registry token for private project images. |
 | Per-IP limits | An IP address (an IPv6 /64) may hold 4 live tickets, create 10 tickets a minute and keep 8 event streams open, by default. Beyond that the control plane answers `429`. A single client cannot monopolise a queue. The address comes from the connection, or from forwarding headers only when the connection comes from a configured trusted proxy. It is stored with the ticket and deleted 5 minutes after the ticket ends; it is never logged. |
-| State store | PostgreSQL is reachable by the control plane only: the dev compose file puts it on an internal network that no node component joins. |
+| State store | PostgreSQL is reachable by the control plane only: the dev compose file and the production example (`deploy/control-plane`) put it on an internal network that no node component joins. |
 | Prerequisites | The agent **refuses to start** if the declared profile is not met (see below). |
 
 ## Node profiles
@@ -112,6 +112,12 @@ Internet.
 | VM (KVM, Kata) | Dedicated kernel. | A few hundred MB of RAM; low CPU cost for video encoding. |
 
 ## Deployment recommendations
+
+The production example files (`deploy/node`, `deploy/control-plane`, see the Production
+deployment page, `docs/deployment.md`) follow these recommendations where a compose file can:
+read-only containers with no capabilities and `no-new-privileges` for the agent, the gateway
+and the control plane, `strict` and gVisor by default, and an agent port that must be
+published on an address you choose.
 
 - **Serve sessions from a dedicated domain**, not the one of your site or other services. A
   visitor can serve any page from their session: on a shared domain, they could phish in your

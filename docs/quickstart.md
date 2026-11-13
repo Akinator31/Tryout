@@ -1,7 +1,8 @@
 # Local quickstart
 
 This guide runs the whole stack on one machine with the `dev` profile, which gives **no security
-guarantee**. It is for development and evaluation, not for exposure to the Internet.
+guarantee**. It is for development and evaluation, not for exposure to the Internet. To deploy
+Tryout for real visitors, follow [Production deployment](deployment.md).
 
 ## Requirements
 
@@ -42,6 +43,7 @@ node scripts/e2e-queue.ts    # session cap, promotion, heartbeat loss
 node scripts/e2e-sse.ts      # pushed promotion, stream as heartbeat, stream end
 node scripts/e2e-mtls.ts     # the agent refuses every client but the control plane
 node scripts/e2e-limits.ts   # per-IP limits on tickets and event streams
+scripts/e2e-deploy.sh        # the production layout with gVisor; Docker Desktop: see the script
 (cd apps/node && go test ./...)
 (cd apps/control-plane && npm ci && npm run typecheck && npm test)
 ```

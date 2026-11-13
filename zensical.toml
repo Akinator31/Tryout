@@ -16,6 +16,7 @@ nav = [
     "architecture.md",
   ] },
   { "Guides" = [
+    "deployment.md",
     "configuration.md",
     "project-images.md",
     "published-images.md",

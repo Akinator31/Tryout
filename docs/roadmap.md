@@ -7,7 +7,7 @@ moves to [Done](#done) when it ships. There are no dates.
 |---|---|---|
 | [M0 — Proof of concept](#m0-proof-of-concept) | Show that the stack works end to end | Done |
 | [M1 — Deployable](#m1-deployable) | Run Tryout on real infrastructure without building anything on the node | Done |
-| [M2 — Live](#m2-live) | A first public deployment, a public repository and versioned releases | Planned |
+| [M2 — Live](#m2-live) | A first public deployment, a public repository and versioned releases | In progress |
 | [M3 — Design](#m3-design) | A dark, clear and robust visitor experience, designed before it is built | Planned |
 | [M4 — Operate](#m4-operate) | See and control what runs: admin UI, metrics, logs | Planned |
 | [M5 — Hosting options](#m5-hosting-options) | More ways to run nodes safely | Planned |
@@ -49,7 +49,6 @@ closing (see [Done](#done)). Its other findings are M2 items.
 
 | Item | Notes |
 |---|---|
-| Production deployment guide and example compose file using the published images | Generic: no provider, domain or host layout baked in |
 | Guide for packaging a project for Tryout | Extends [Project images](project-images.md) with a step-by-step walkthrough |
 | A minimal visual pass on the current embed page | Only so the first visitors do not see raw HTML; the real design is M3 |
 | Public repository: private vulnerability reporting enabled, security policy checked | |
@@ -148,3 +147,7 @@ and session metrics.
   `config.json`-style file (`REGISTRY_AUTH_FILE`), sent only to the image's registry. See
   [Project images](project-images.md#private-images) and ADR
   [0017](decisions/0017-registry-credentials.md).
+- **M2:** production deployment guide and example compose files from the published images,
+  one directory per kind of machine (`deploy/node`, `deploy/control-plane`). CI deploys them as
+  written, in profile `strict` with gVisor, and runs the end-to-end tests against them. See
+  [Production deployment](deployment.md).

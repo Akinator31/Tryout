@@ -74,10 +74,11 @@ Key facts that are easy to forget:
 ```
 apps/control-plane/   TypeScript, Node ≥ 24 (native type stripping); queue.ts is the core module
 apps/node/            Go: cmd/agent, cmd/gateway, cmd/certs, internal/{dockerapi,pki,spec}; one image
-deploy/               compose.dev.yaml, tryout.dev.yaml (control plane config), .env.example
+deploy/               compose.dev.yaml, tryout.dev.yaml, .env.example (dev); node/, control-plane/ (production
+                      examples from published images, docs/deployment.md)
 schema/               tryout.schema.json (source of truth) + testdata/ fixtures shared by TS and Go
 examples/cli-hello/   sample terminal project (ttyd)
-scripts/              e2e-*.ts (cli, queue, sse, mtls, limits), feasibility-node.sh
+scripts/              e2e-*.ts (cli, queue, sse, mtls, limits), e2e-deploy.sh, feasibility-node.sh
 docs/                 Zensical documentation (English); decisions/ holds the ADRs
 SECURITY.md           threat model and profiles (included in the docs site)
 ```
@@ -102,7 +103,8 @@ vault with the original stack study (in French) and its sources.
 - The roadmap is organised in milestones (`docs/roadmap.md`): M1 Deployable is done
   (ghcr.io images, ADR 0013; YAML config + JSON Schema, ADR 0014; mTLS, ADR 0015; per-IP limits,
   ADR 0016; exit criteria checked on fresh VMs). M2 Live in progress (registry credentials for
-  private project images, ADR 0017). Then M3 Design (theme, Figma, React embed; the UI kit is chosen there), M4 Operate, M5
+  private project images, ADR 0017; production deployment guide and example compose files,
+  `docs/deployment.md`, tested in CI by `scripts/e2e-deploy.sh` with gVisor). Then M3 Design (theme, Figma, React embed; the UI kit is chosen there), M4 Operate, M5
   Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
@@ -153,6 +155,9 @@ docker compose -f deploy/compose.dev.yaml up -d --build
 node scripts/e2e-cli.ts && node scripts/e2e-queue.ts && node scripts/e2e-sse.ts && node scripts/e2e-mtls.ts \
   && node scripts/e2e-limits.ts
 docker compose -f deploy/compose.dev.yaml down -v
+# Production layout (deploy/node + deploy/control-plane); defaults to strict + gVisor.
+# Docker Desktop: NODE_PROFILE=dev HOST_ADDR=host.docker.internal BIND_ADDR=127.0.0.1 CHOWN=: DOCKER_GID=0
+scripts/e2e-deploy.sh
 ```
 
 CI (`.github/workflows/ci.yml`) runs all of the above, plus multi-arch image builds.
