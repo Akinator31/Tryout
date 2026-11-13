@@ -108,7 +108,7 @@ jobs:
     # See docs/published-images.md and ADR 0013.
     name: Publish ${{ matrix.name }} (amd64 + arm64)
     if: github.event_name == 'push'
-    needs: [node, control-plane, shellcheck, e2e]
+    needs: [node, control-plane, shellcheck, e2e, e2e-deploy]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -219,3 +219,26 @@ jobs:
       - name: Stop
         if: always()
         run: docker compose -f deploy/compose.dev.yaml down -v
+
+  e2e-deploy:
+    # The production layout of docs/deployment.md: deploy/node and deploy/control-plane
+    # as two compose projects, profile strict with gVisor, certificates from tryout-certs.
+    name: End-to-end (production layout, strict + gVisor)
+    runs-on: ubuntu-latest
+    needs: [node, control-plane]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Install gVisor
+        run: |
+          url=https://storage.googleapis.com/gvisor/releases/release/latest/$(uname -m)
+          curl -fsSLO "$url/runsc" -O "$url/runsc.sha512"
+          sha512sum -c runsc.sha512
+          sudo install -m 755 runsc /usr/local/bin/runsc
+          sudo /usr/local/bin/runsc install
+          sudo systemctl restart docker
+          docker info --format '{{json .Runtimes}}' | grep -q runsc
+      - name: Deploy and test
+        run: scripts/e2e-deploy.sh
