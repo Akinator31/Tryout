@@ -32,7 +32,7 @@ console.log("active ->", v.url);
 
 // Polling is the ticket's heartbeat while the gateway is away.
 const keepAlive = setInterval(() => void view(ticket), 5000);
-console.log("recreating the gateway:", recreate.join(" "));
+console.log("recreating:", recreate.join(" "));
 const r = spawnSync(recreate[0], recreate.slice(1), { stdio: "inherit" });
 if (r.status !== 0) fail(`recreate command exited with ${r.status ?? r.error}`);
 

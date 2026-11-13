@@ -211,6 +211,6 @@ in PostgreSQL across restarts.
 
 Running sessions survive a node upgrade, with a short interruption. A recreated gateway is no
 longer attached to the session networks: the agent attaches it again and pushes its routes on
-its next reconcile pass, within 10 s. Connections open through the old gateway (a terminal's
+its next reconcile pass, about 10 s later. Connections open through the old gateway (a terminal's
 WebSocket, a desktop stream) are cut, so the visitor's page has to reconnect; the container and
 its state are kept.

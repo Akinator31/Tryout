@@ -388,10 +388,13 @@ func TestEnsureImageSendsRegistryAuth(t *testing.T) {
 // TestReconcileReattachesGateway: a recreated gateway (an upgrade) is attached
 // only to its compose networks. The reconcile loop must attach it again to the
 // network of every running session, and leave alone the networks it already
-// has, the sessions still being created and the containers that are not
-// running (the gateway does not route them).
+// has, the sessions still being created, the containers that are not running
+// (the gateway does not route them), and a session the API starts removing
+// during the pass (a reattachment would land between destroy's disconnect
+// and its network removal).
 func TestReconcileReattachesGateway(t *testing.T) {
-	attached, missing, creating, stopped := strings.Repeat("a", 26), strings.Repeat("b", 26), strings.Repeat("c", 26), strings.Repeat("d", 26)
+	id := func(c string) string { return strings.Repeat(c, 26) }
+	attached, missing, creating, stopped, removing := id("a"), id("b"), id("c"), id("d"), id("e")
 	future := fmt.Sprint(time.Now().Add(time.Hour).Unix())
 	session := func(id string) map[string]any {
 		state := "running"
@@ -403,16 +406,20 @@ func TestReconcileReattachesGateway(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var connected []string
+	var a *agent
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
 		p := r.URL.Path
 		switch {
 		case r.Method == http.MethodGet && strings.HasSuffix(p, "/containers/json"):
-			_ = json.NewEncoder(w).Encode([]any{session(attached), session(missing), session(creating), session(stopped)})
+			_ = json.NewEncoder(w).Encode([]any{session(attached), session(missing), session(creating), session(stopped), session(removing)})
 		case r.Method == http.MethodGet && strings.HasSuffix(p, "/networks"):
 			_ = json.NewEncoder(w).Encode([]any{})
 		case r.Method == http.MethodGet && strings.HasSuffix(p, "/containers/tryout-gateway/json"):
+			a.mu.Lock() // DELETE /v1/sessions/<removing> arrives after the listing
+			a.destroying[removing] = true
+			a.mu.Unlock()
 			_ = json.NewEncoder(w).Encode(map[string]any{"Id": "gw", "NetworkSettings": map[string]any{"Networks": map[string]any{
 				"tryout_default": map[string]any{}, namePrefix + attached: map[string]any{}}}})
 		case r.Method == http.MethodPost && strings.HasSuffix(p, "/connect"):
@@ -433,10 +440,11 @@ func TestReconcileReattachesGateway(t *testing.T) {
 	}
 	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	t.Cleanup(gw.Close)
-	a := &agent{
+	a = &agent{
 		cfg:         config{gatewayName: "tryout-gateway"},
 		docker:      dc,
 		creating:    map[string]bool{creating: true},
+		destroying:  map[string]bool{},
 		gatewayHTTP: &http.Client{Transport: &http.Transport{Proxy: func(*http.Request) (*url.URL, error) { return url.Parse(gw.URL) }}},
 	}
 	a.reconcile(context.Background())

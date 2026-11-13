@@ -3,7 +3,7 @@
 # deploy/control-plane, run as two separate compose projects that only reach each
 # other through published ports, with certificates made by tryout-certs as the guide
 # does it. Then runs the terminal, queue, SSE and mutual TLS end-to-end tests against it, and
-# recreates the gateway during a session, as an upgrade does.
+# recreates the node (agent and gateway) during a session, as an upgrade does.
 #
 # Usage: scripts/e2e-deploy.sh            (from the repository root)
 #
@@ -140,6 +140,6 @@ node "$root/scripts/e2e-sse.ts" "$cp_url" cli-hello
 # the agent's certificate names HOST_ADDR, which may differ from BIND_ADDR (Docker Desktop).
 node "$root/scripts/e2e-mtls.ts" "$bind_addr:7000" --pki "$work/pki" --node cli --server-name "$host_addr"
 node "$root/scripts/e2e-reattach.ts" "$cp_url" cli-hello -- \
-  docker compose --project-directory "$work/node" -f "$work/node/compose.yaml" up -d --force-recreate --no-deps gateway
+  docker compose --project-directory "$work/node" -f "$work/node/compose.yaml" up -d --force-recreate
 
 echo "e2e-deploy: OK (profile $profile)"

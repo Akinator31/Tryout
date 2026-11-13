@@ -154,6 +154,6 @@ and session metrics.
   `tryout-certs` directory; CI runs it against the production layout's published agent port.
   See [Production deployment](deployment.md#5-check-and-embed).
 - **M2:** the agent's reconcile loop attaches a recreated gateway again to every running session
-  network, so sessions survive a node upgrade with an interruption of at most one reconcile
-  period (10 s). `scripts/e2e-reattach.ts` recreates the gateway during a session, in CI on both
-  the dev and the production layouts. See [Production deployment](deployment.md#upgrade).
+  network, so sessions survive a node upgrade with an interruption of about one reconcile
+  period (10 s). `scripts/e2e-reattach.ts` recreates the gateway during a session in CI: alone
+  on the dev layout, with the agent on the production layout, as an upgrade does. See [Production deployment](deployment.md#upgrade).

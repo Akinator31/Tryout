@@ -99,8 +99,9 @@ type agent struct {
 
 	gatewayHTTP *http.Client // over the shared unix socket
 
-	mu       sync.Mutex
-	creating map[string]bool // ids being created: reconciler must not touch them
+	mu         sync.Mutex
+	creating   map[string]bool // ids being created: reconciler must not touch them
+	destroying map[string]bool // ids being removed through the API: same
 }
 
 // ---------- startup checks: the profile is a contract, not a hint ----------
@@ -507,6 +508,9 @@ func (a *agent) reconcile(ctx context.Context) {
 	for id := range a.creating {
 		busy[id] = true
 	}
+	for id := range a.destroying {
+		busy[id] = true
+	}
 	a.mu.Unlock()
 
 	cs, err := a.docker.ContainerList(ctx, labelSession)
@@ -515,7 +519,8 @@ func (a *agent) reconcile(ctx context.Context) {
 		return
 	}
 	now := time.Now().Unix()
-	live, running := map[string]bool{}, map[string]bool{}
+	live := map[string]bool{}
+	var running []string
 	for _, c := range cs {
 		id := c.Labels[labelSession]
 		if busy[id] {
@@ -529,7 +534,9 @@ func (a *agent) reconcile(ctx context.Context) {
 			continue
 		}
 		live[id] = true
-		running[id] = c.State == "running"
+		if c.State == "running" {
+			running = append(running, id)
+		}
 	}
 	nets, err := a.docker.NetworkList(ctx, labelSession)
 	if err == nil {
@@ -540,36 +547,54 @@ func (a *agent) reconcile(ctx context.Context) {
 			}
 		}
 	}
-	a.reattachGateway(ctx, running, busy)
+	a.reattachGateway(ctx, running)
 	a.pushRoutes(ctx)
 }
 
 // reattachGateway attaches the gateway to the network of every running session
 // it is missing from. A recreated gateway container (an upgrade, a manual
 // `docker compose up`) keeps its name but loses the networks the agent
-// connected it to, which would leave running sessions unreachable. Sessions
-// being created are skipped: create attaches the gateway itself.
-func (a *agent) reattachGateway(ctx context.Context, running, busy map[string]bool) {
+// connected it to, which would leave running sessions unreachable.
+//
+// Sessions being created are skipped (create attaches the gateway itself), and
+// so are sessions being removed through the API: the check and the connect
+// happen under the lock remove takes, so a reattachment never lands between
+// destroy's disconnect and its network removal.
+func (a *agent) reattachGateway(ctx context.Context, running []string) {
 	gw, err := a.docker.ContainerInspect(ctx, a.cfg.gatewayName)
 	if err != nil {
 		slog.Warn("inspect gateway", "name", a.cfg.gatewayName, "err", err)
 		return
 	}
-	for _, id := range slices.Sorted(maps.Keys(running)) {
+	for _, id := range running {
 		name := namePrefix + id
-		if _, ok := gw.NetworkSettings.Networks[name]; ok || !running[id] || busy[id] {
+		if _, ok := gw.NetworkSettings.Networks[name]; ok {
 			continue
 		}
 		if !sessionIDRe.MatchString(id) { // a label, not an id the agent made
 			slog.Warn("reattach gateway: invalid session label", "id", id)
 			continue
 		}
-		if err := a.docker.NetworkConnect(ctx, name, a.cfg.gatewayName); err != nil {
-			slog.Warn("reattach gateway", "id", id, "err", err)
-			continue
+		a.mu.Lock()
+		if !a.creating[id] && !a.destroying[id] {
+			if err := a.docker.NetworkConnect(ctx, name, a.cfg.gatewayName); err != nil {
+				slog.Warn("reattach gateway", "id", id, "err", err)
+			} else {
+				slog.Info("gateway reattached", "id", id)
+			}
 		}
-		slog.Info("gateway reattached", "id", id)
+		a.mu.Unlock()
 	}
+}
+
+// remove destroys a session on the control plane's request. The id is marked
+// so that the reconcile loop leaves it alone meanwhile.
+func (a *agent) remove(ctx context.Context, id string) {
+	a.mu.Lock()
+	a.destroying[id] = true
+	a.mu.Unlock()
+	defer func() { a.mu.Lock(); delete(a.destroying, id); a.mu.Unlock() }()
+	a.destroy(ctx, id)
 }
 
 // ---------- HTTP API ----------
@@ -647,7 +672,7 @@ func (a *agent) routes() *http.ServeMux {
 			http.Error(w, "bad id", 400)
 			return
 		}
-		a.destroy(r.Context(), id)
+		a.remove(r.Context(), id)
 		a.pushRoutes(r.Context())
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -684,7 +709,7 @@ func main() {
 		slog.Error("docker client", "err", err)
 		os.Exit(1)
 	}
-	a := &agent{cfg: cfg, docker: dc, creating: map[string]bool{}}
+	a := &agent{cfg: cfg, docker: dc, creating: map[string]bool{}, destroying: map[string]bool{}}
 	if cfg.registryAuthFile != "" {
 		if a.registry, err = registryauth.Load(cfg.registryAuthFile); err != nil {
 			slog.Error("refusing to start: REGISTRY_AUTH_FILE", "err", err)
