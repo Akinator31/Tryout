@@ -53,7 +53,6 @@ closing (see [Done](#done)). Its other findings are M2 items.
 | A minimal visual pass on the current embed page | Only so the first visitors do not see raw HTML; the real design is M3 |
 | Public repository: private vulnerability reporting enabled, security policy checked | |
 | Versioned releases: semantic version tags, changelog, images tagged per release | First release `v0.1.0` |
-| `scripts/e2e-mtls.ts` against a remote node | It reads certificates from the dev compose stack only |
 | The agent reattaches the gateway to every live session network | Today it attaches the gateway only when it creates a session: a recreated gateway (an upgrade) leaves running sessions unreachable while the control plane still counts them as active |
 | Optional: GitHub Milestones and one issue per roadmap item | This page stays the source of truth |
 
@@ -152,3 +151,6 @@ and session metrics.
   one directory per kind of machine (`deploy/node`, `deploy/control-plane`). CI deploys them as
   written, in profile `strict` with gVisor, and runs the end-to-end tests against them. See
   [Production deployment](deployment.md).
+- **M2:** `scripts/e2e-mtls.ts` checks any agent, local or remote, with the operator's
+  `tryout-certs` directory; CI runs it against the production layout's published agent port.
+  See [Production deployment](deployment.md#5-check-and-embed).

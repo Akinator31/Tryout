@@ -104,7 +104,8 @@ vault with the original stack study (in French) and its sources.
   (ghcr.io images, ADR 0013; YAML config + JSON Schema, ADR 0014; mTLS, ADR 0015; per-IP limits,
   ADR 0016; exit criteria checked on fresh VMs). M2 Live in progress (registry credentials for
   private project images, ADR 0017; production deployment guide and example compose files,
-  `docs/deployment.md`, tested in CI by `scripts/e2e-deploy.sh` with gVisor). Then M3 Design
+  `docs/deployment.md`, tested in CI by `scripts/e2e-deploy.sh` with gVisor; `scripts/e2e-mtls.ts`
+  checks any agent with `--pki`). Then M3 Design
   (theme, Figma, React embed; the UI kit is chosen there), M4 Operate, M5 Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
