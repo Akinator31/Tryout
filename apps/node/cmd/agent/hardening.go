@@ -60,12 +60,15 @@ func hostConfig(r sessionReq, netName string) dockerapi.HostConfig {
 
 // sessionLabels are the Docker labels that describe a session. They are the
 // node's source of truth: the reconcile loop and the route table read them
-// back, the agent keeps no session state of its own.
+// back, the agent keeps no session state of its own. Times are Unix seconds
+// on the agent's clock, which may differ from a remote daemon's.
 func sessionLabels(r sessionReq) map[string]string {
-	expires := time.Now().Add(time.Duration(r.MaxAgeS) * time.Second)
+	created := time.Now()
+	expires := created.Add(time.Duration(r.MaxAgeS) * time.Second)
 	return map[string]string{
 		labelSession: r.ID,
 		labelProject: r.Project,
+		labelCreated: strconv.FormatInt(created.Unix(), 10),
 		labelExpires: strconv.FormatInt(expires.Unix(), 10),
 		labelPort:    strconv.Itoa(r.Port),
 		labelStrip:   strconv.FormatBool(r.StripPrefix),

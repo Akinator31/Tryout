@@ -12,6 +12,10 @@ import (
 // reconcileInterval is the period of the reconcile loop.
 const reconcileInterval = 10 * time.Second
 
+// stuckCreatedAfter is how long a container may stay created, without a
+// create in progress, before the reconcile loop reaps it.
+const stuckCreatedAfter = time.Minute
+
 // reconcileForever runs the reconcile loop for the agent's whole life.
 func (a *agent) reconcileForever(ctx context.Context) {
 	for {
@@ -21,8 +25,8 @@ func (a *agent) reconcileForever(ctx context.Context) {
 }
 
 // reconcile brings the node back to the state its Docker labels describe:
-// Docker labels are the source of truth on the node. It reaps expired and
-// dead sessions, removes orphan networks, attaches a recreated gateway again
+// Docker labels are the source of truth on the node. It reaps expired, dead
+// and stuck sessions (see shouldReap), removes orphan networks, attaches a recreated gateway again
 // to running sessions and pushes the route table. Sessions being created or
 // removed through the API are left alone.
 func (a *agent) reconcile(ctx context.Context) {
@@ -40,11 +44,10 @@ func (a *agent) reconcile(ctx context.Context) {
 	a.pushRoutes(ctx)
 }
 
-// reapSessions destroys the sessions that are expired, or neither running nor
-// just created. It returns the ids of the sessions still alive (busy ones
-// included) and of those running.
+// reapSessions destroys the sessions shouldReap selects. It returns the ids
+// of the sessions still alive (busy ones included) and of those running.
 func (a *agent) reapSessions(ctx context.Context, cs []dockerapi.ContainerSummary, busy map[string]bool) (live map[string]bool, running []string) {
-	now := time.Now().Unix()
+	now := time.Now()
 	live = map[string]bool{}
 
 	for _, c := range cs {
@@ -54,9 +57,8 @@ func (a *agent) reapSessions(ctx context.Context, cs []dockerapi.ContainerSummar
 			continue
 		}
 
-		exp, _ := strconv.ParseInt(c.Labels[labelExpires], 10, 64)
-		if exp < now || (c.State != "running" && c.State != "created") {
-			slog.Info("reaping", "id", id, "state", c.State, "expired", exp < now)
+		if reason := shouldReap(c, now); reason != "" {
+			slog.Info("reaping", "id", id, "state", c.State, "reason", reason)
 			a.destroy(ctx, id)
 			continue
 		}
@@ -67,6 +69,31 @@ func (a *agent) reapSessions(ctx context.Context, cs []dockerapi.ContainerSummar
 		}
 	}
 	return live, running
+}
+
+// shouldReap tells why a session container that no request is creating or
+// removing must go, or returns "" to keep it: "expired" past its maximum age,
+// "dead" when neither running nor created, "stuck" when created more than
+// stuckCreatedAfter ago.
+//
+// A stuck container is the trace of a create aborted by the control plane
+// (the visitor left while the session was starting): Docker can finish
+// creating it after create's rollback ran. Nobody will start it, and kept, it
+// would hold a slot until it expires. The age, read from the agent's own
+// label, also protects a create that starts after the pass's busy snapshot.
+func shouldReap(c dockerapi.ContainerSummary, now time.Time) string {
+	created, _ := strconv.ParseInt(c.Labels[labelCreated], 10, 64)
+	expires, _ := strconv.ParseInt(c.Labels[labelExpires], 10, 64)
+
+	switch {
+	case expires < now.Unix():
+		return "expired"
+	case c.State != "running" && c.State != "created":
+		return "dead"
+	case c.State == "created" && now.Sub(time.Unix(created, 0)) > stuckCreatedAfter:
+		return "stuck"
+	}
+	return ""
 }
 
 // removeOrphanNetworks removes the session networks left without a live

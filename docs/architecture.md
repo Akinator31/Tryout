@@ -62,10 +62,13 @@ What it does:
   3. attaches the gateway to the network;
   4. starts the container;
   5. pushes the route table to the gateway.
-- Runs a **reconcile loop** every 10 s, with Docker labels as the source of truth: it removes
-  expired or dead sessions and orphan networks, attaches the gateway again to every running
-  session network it is missing from (a recreated gateway container starts with only its
-  compose networks), then republishes the routes.
+- Runs a **reconcile loop** every 10 s, with Docker labels as the source of truth:
+  - removes expired or dead sessions, and containers stuck in `created` for over a minute (the
+    trace of a create the control plane aborted when the visitor left during the start);
+  - removes orphan networks;
+  - attaches the gateway again to every running session network it is missing from (a recreated
+    gateway container starts with only its compose networks);
+  - republishes the routes.
 - Validates every session request against the shared JSON Schema and refuses unknown fields.
 - Pulls a missing project image, with the registry credentials of `REGISTRY_AUTH_FILE` when
   the registry has an entry.

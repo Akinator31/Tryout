@@ -157,3 +157,7 @@ and session metrics.
   network, so sessions survive a node upgrade with an interruption of about one reconcile
   period (10 s). `scripts/e2e-reattach.ts` recreates the gateway during a session in CI: alone
   on the dev layout, with the agent on the production layout, as an upgrade does. See [Production deployment](deployment.md#upgrade).
+- **M2:** the reconcile loop reaps session containers stuck in `created` for over a minute,
+  measured with the agent's `tryout.created` label. A create aborted by the control plane (the
+  visitor left while the session was starting) could leave one behind, holding a slot until its
+  maximum age and eventually filling the node; now the slot is free again after about a minute.
