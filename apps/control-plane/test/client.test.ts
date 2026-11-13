@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { clientKeyResolver, StreamLimiter } from "../src/client.ts";
+import { clientKeyResolver, parseCidr, StreamLimiter } from "../src/client.ts";
 
 test("without trusted proxies, the key is the socket address and headers are ignored", () => {
   const key = clientKeyResolver({ trusted_proxies: [] });
@@ -36,7 +36,31 @@ test("a missing, all-trusted or malformed X-Forwarded-For falls back to the last
   assert.equal(key("10.0.0.2", {}), "10.0.0.2");
   assert.equal(key("10.0.0.2", { "x-forwarded-for": "10.0.0.9, 10.0.0.5" }), "10.0.0.9");
   assert.equal(key("10.0.0.2", { "x-forwarded-for": "198.51.100.1, garbage, 10.0.0.5" }), "10.0.0.5");
-  assert.equal(key("10.0.0.2", { "x-forwarded-for": "198.51.100.1:4711" }), "10.0.0.2");
+});
+
+test("ports written by proxies are ignored", () => {
+  const key = clientKeyResolver({ trusted_proxies: ["10.0.0.0/8"] });
+  assert.equal(key("10.0.0.2", { "x-forwarded-for": "198.51.100.1:4711" }), "198.51.100.1");
+  assert.equal(key("10.0.0.2", { "x-forwarded-for": "[2001:db8:5:6::9]:4711" }), "2001:db8:5:6::/64");
+});
+
+test("a trusted proxy that sends no client address is reported once", () => {
+  const warnings: string[] = [];
+  const key = clientKeyResolver({ trusted_proxies: ["10.0.0.0/8"], header: "X-Real-IP" }, (w) => warnings.push(w));
+  assert.equal(key("10.0.0.2", {}), "10.0.0.2");
+  assert.equal(key("10.0.0.3", { "x-real-ip": "a, b" }), "10.0.0.3");
+  assert.equal(key("10.0.0.2", { "x-real-ip": "198.51.100.1" }), "198.51.100.1");
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /X-Real-IP.*share the limits of 10\.0\.0\.2/);
+});
+
+test("trusted proxy blocks: addresses or CIDR blocks, IPv4 written as IPv4", () => {
+  assert.deepEqual(parseCidr("10.0.0.0/8"), { address: "10.0.0.0", prefix: 8, family: "ipv4" });
+  assert.deepEqual(parseCidr("fd00::/8"), { address: "fd00::", prefix: 8, family: "ipv6" });
+  assert.deepEqual(parseCidr("192.0.2.1"), { address: "192.0.2.1", prefix: 32, family: "ipv4" });
+  for (const bad of ["10.0.0.0/33", "fd00::/129", "10.0.0/8", "10.0.0.0/8/1", "::ffff:10.0.0.0/104", "10.0.0.0/x"]) {
+    assert.equal(parseCidr(bad), undefined, bad);
+  }
 });
 
 test("a configured header is used only from trusted proxies, and only if it is an IP", () => {

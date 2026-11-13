@@ -72,11 +72,14 @@ export interface Queue {
 
 export class UnknownProjectError extends Error {}
 
+/** Names of the per-client limits, as reported to the visitor; "streams" is enforced by the HTTP layer. */
+export type LimitName = "live_tickets" | "new_tickets" | "streams";
+
 /** A per-client limit refused the join; the visitor may retry after `retryAfterS`. */
 export class RateLimitedError extends Error {
-  readonly limit: "live_tickets" | "new_tickets";
+  readonly limit: Exclude<LimitName, "streams">;
   readonly retryAfterS: number;
-  constructor(limit: "live_tickets" | "new_tickets", retryAfterS: number) {
+  constructor(limit: Exclude<LimitName, "streams">, retryAfterS: number) {
     super(`rate limited: ${limit}`);
     this.limit = limit;
     this.retryAfterS = retryAfterS;

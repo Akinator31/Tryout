@@ -112,6 +112,10 @@ the embed page poll instead, which keeps its place in line.
   and its limits.
 - **List only your own proxies**, and keep the control plane unreachable except through them: a
   client connecting from a trusted address could write the header itself.
+- If a trusted proxy sends no usable address (header missing, malformed entry), its own address
+  is used, so its visitors share one budget; the control plane logs a `client address warning`
+  the first time. Ports written after an address (`192.0.2.1:4711`, `[2001:db8::1]:4711`) are
+  ignored. Write IPv4 blocks as IPv4, not as `::ffff:` blocks.
 - **Shared addresses** (a school, an office, a mobile carrier) share one budget. Raise the
   limits if you expect groups of visitors behind one address.
 

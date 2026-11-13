@@ -19,15 +19,25 @@ export interface ClientIpConfig {
  * not a trusted proxy is the client. Entries further left are written by the
  * client itself and are never used.
  */
-export function clientKeyResolver(cfg: ClientIpConfig) {
+export function clientKeyResolver(cfg: ClientIpConfig, warn: (msg: string) => void = () => {}) {
   const trusted = new BlockList();
-  for (const cidr of cfg.trusted_proxies) {
-    const [net, prefix] = cidr.split("/");
-    const family = isIP(net) === 6 ? "ipv6" : "ipv4";
-    trusted.addSubnet(net, Number(prefix ?? (family === "ipv6" ? 128 : 32)), family);
+  for (const c of cfg.trusted_proxies) {
+    const cidr = parseCidr(c);
+    if (!cidr) throw new Error(`invalid trusted proxy: ${c}`); // the configuration has checked it
+    trusted.addSubnet(cidr.address, cidr.prefix, cidr.family);
   }
-  const isTrusted = (a: string) => trusted.check(a, isIP(a) === 6 ? "ipv6" : "ipv4");
+  const isTrusted = (a: string) => trusted.check(a, family(a));
   const header = cfg.header?.toLowerCase();
+  // A trusted proxy that sends no usable address puts all its visitors in one
+  // budget: say so once, since it is a configuration mistake.
+  let warned = false;
+  const fallBack = (peer: string, what: string) => {
+    if (!warned) {
+      warned = true;
+      warn(`a trusted proxy sent no usable client address in ${what}; its visitors share the limits of ${peer}`);
+    }
+    return keyOf(peer);
+  };
 
   return function clientKey(remoteAddress: string | undefined, headers: IncomingHttpHeaders): string {
     const peer = remoteAddress ? normalize(remoteAddress) : "";
@@ -36,24 +46,42 @@ export function clientKeyResolver(cfg: ClientIpConfig) {
 
     if (header) {
       const v = normalize(String(headers[header] ?? "").trim());
-      return keyOf(isIP(v) ? v : peer);
+      return isIP(v) ? keyOf(v) : fallBack(peer, cfg.header!);
     }
     const xff = headers["x-forwarded-for"];
     const hops = (Array.isArray(xff) ? xff.join(",") : (xff ?? "")).split(",").map((s) => s.trim()).filter(Boolean);
-    let last = peer;
+    let last = peer; // the last address vouched for by a trusted hop
     for (let i = hops.length - 1; i >= 0; i--) {
       const hop = normalize(hops[i]);
       if (!isIP(hop)) break; // malformed: nothing further left can be trusted
+      if (!isTrusted(hop) || i === 0) return keyOf(hop);
       last = hop;
-      if (!isTrusted(hop)) break;
     }
-    return keyOf(last);
+    return fallBack(last, "X-Forwarded-For");
   };
 }
 
-/** Drops an IPv6 zone and turns an IPv4-mapped IPv6 address into IPv4. */
+/** An IP address or CIDR block; IPv4-mapped IPv6 blocks are refused (write them as IPv4). */
+export function parseCidr(s: string): { address: string; prefix: number; family: "ipv4" | "ipv6" } | undefined {
+  const [address, prefix, ...rest] = s.split("/");
+  if (!isIP(address) || rest.length || normalize(address) !== address) return undefined;
+  const f = family(address);
+  const max = f === "ipv6" ? 128 : 32;
+  if (prefix !== undefined && !(/^\d{1,3}$/.test(prefix) && Number(prefix) <= max)) return undefined;
+  return { address, prefix: prefix === undefined ? max : Number(prefix), family: f };
+}
+
+const family = (a: string) => (isIP(a) === 6 ? "ipv6" : "ipv4");
+
+/**
+ * Drops an IPv6 zone and a port ("192.0.2.1:4711", "[2001:db8::1]:4711", as
+ * some proxies write them), and turns an IPv4-mapped IPv6 address into IPv4.
+ */
 function normalize(addr: string): string {
-  const a = addr.replace(/%.*$/, "");
+  const a = addr
+    .replace(/^\[([^\]]+)\](:\d+)?$/, "$1")
+    .replace(/^(\d+\.\d+\.\d+\.\d+):\d+$/, "$1")
+    .replace(/%.*$/, "");
   if (isIP(a) !== 6) return a;
   const g = groups(a);
   if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) {

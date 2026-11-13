@@ -27,7 +27,9 @@ open point of [ADR 0012](0012-ticket-push-sse.md) on streams per IP.
   the address on its left: the first address that is not a trusted proxy is the client. The
   leftmost entries, written by the client itself, are never used. `client_ip.header` names a
   single-address header instead (`CF-Connecting-IP`, `X-Real-IP`), believed only from a trusted
-  proxy. No provider is named in the code or the defaults.
+  proxy. No provider is named in the code or the defaults. When a trusted proxy sends no usable
+  address, the last address a trusted hop vouched for is used (never one the client wrote), and
+  a warning is logged once.
 - **Limits**, global to every project, on by default, `0` disabling one:
 
   | Key | Default | Counted |

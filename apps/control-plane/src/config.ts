@@ -8,7 +8,7 @@ import { isIP } from "node:net";
 import { dirname, resolve } from "node:path";
 import { Ajv2020, type ErrorObject } from "ajv/dist/2020.js";
 import { isMap, isScalar, LineCounter, parseDocument, type Document } from "yaml";
-import type { ClientIpConfig } from "./client.ts";
+import { parseCidr, type ClientIpConfig } from "./client.ts";
 import { FORGET_ENDED_MS, type QueueConfig } from "./queue.ts";
 
 export type Kind = "terminal" | "desktop";
@@ -157,8 +157,8 @@ export function parseConfig(
   const clientIp = (isObject(file.client_ip) ? file.client_ip : {}) as Partial<ClientIpConfig>;
   const trustedProxies = Array.isArray(clientIp.trusted_proxies) ? clientIp.trusted_proxies : [];
   trustedProxies.forEach((c, i) => {
-    if (typeof c === "string" && !isCidr(c)) {
-      report(["client_ip", "trusted_proxies", i], "must be an IP address or a CIDR block, such as 10.0.0.0/8 or fd00::/8");
+    if (typeof c === "string" && !parseCidr(c)) {
+      report(["client_ip", "trusted_proxies", i], "must be an IP address or a CIDR block, such as 10.0.0.0/8 or fd00::/8 (IPv4 written as IPv4)");
     }
   });
   const limits = parseLimits(file.limits, report);
@@ -266,27 +266,20 @@ function loadAgentTls(
 
 // ---------- client_ip and limits ----------
 
-const DEFAULT_LIMITS = { live_tickets_per_ip: 4, new_tickets_per_ip: { max: 10, per: "1m" }, streams_per_ip: 8 };
+/** Also written as `default` annotations in the schema, for editors; a test keeps them equal. */
+export const DEFAULT_LIMITS = { live_tickets_per_ip: 4, new_tickets_per_ip: { max: 10, per: "1m" }, streams_per_ip: 8 };
 // The window counts ended tickets, which are deleted after FORGET_ENDED_MS.
 const MAX_WINDOW_S = FORGET_ENDED_MS / 1000;
 
 function parseLimits(v: unknown, report: (path: (string | number)[], msg: string) => void): Limits {
-  const l = { ...DEFAULT_LIMITS, ...(isObject(v) ? v : {}) } as typeof DEFAULT_LIMITS;
-  const per = isObject(l.new_tickets_per_ip) && typeof l.new_tickets_per_ip.per === "string" ? l.new_tickets_per_ip.per : "";
+  const limits = { ...DEFAULT_LIMITS, ...(isObject(v) ? v : {}) } as typeof DEFAULT_LIMITS;
+  const rate = limits.new_tickets_per_ip;
+  const per = isObject(rate) && typeof rate.per === "string" ? rate.per : "";
   const perS = parseDuration(per);
   if (per && !(perS > 0 && perS <= MAX_WINDOW_S)) {
-    report(["limits", "new_tickets_per_ip", "per"], "must be greater than zero and at most 5m");
+    report(["limits", "new_tickets_per_ip", "per"], `must be greater than zero and at most ${MAX_WINDOW_S / 60}m`);
   }
-  return { ...l, new_tickets_per_ip: { ...l.new_tickets_per_ip, per_s: perS } };
-}
-
-/** An IPv4 or IPv6 address, optionally followed by /prefix within the family's range. */
-function isCidr(s: string): boolean {
-  const [addr, prefix, ...rest] = s.split("/");
-  const family = isIP(addr);
-  if (!family || rest.length) return false;
-  if (prefix === undefined) return true;
-  return /^\d{1,3}$/.test(prefix) && Number(prefix) <= (family === 6 ? 128 : 32);
+  return { ...limits, new_tickets_per_ip: { ...rate, per_s: perS } };
 }
 
 /** Upper bound for max_age; the agent applies its own, usually lower, cap too. */

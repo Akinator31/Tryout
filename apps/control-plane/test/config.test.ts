@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { copyFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ConfigError, frameAncestors, loadConfig, parseConfig, parseDuration, queueConfig, validateSessionRequest } from "../src/config.ts";
+import { ConfigError, DEFAULT_LIMITS, frameAncestors, loadConfig, parseConfig, parseDuration, queueConfig, schema, validateSessionRequest } from "../src/config.ts";
 import { makePki, TEST_DAYS } from "./pki.ts";
 
 const root = new URL("../../../", import.meta.url);
@@ -118,6 +118,14 @@ limits:
     new_tickets_per_ip: { max: 30, per: "5m", per_s: 300 },
     streams_per_ip: 8,
   });
+});
+
+test("the schema's default annotations match the limits applied", () => {
+  const props = schema.properties.limits.properties;
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(props).map(([k, p]) => [k, (p as { default: unknown }).default])),
+    DEFAULT_LIMITS,
+  );
 });
 
 test("trusted proxies must be IP addresses or CIDR blocks", () => {
