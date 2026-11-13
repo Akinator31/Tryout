@@ -193,5 +193,6 @@ docker compose pull && docker compose up -d
 ```
 
 Upgrade the nodes and the control plane to the same version. Recreating the gateway interrupts
-the sessions running on that node: upgrade a node when it is idle. The control plane keeps its
+the sessions running on that node until the agent reattaches it, which is on the
+[Roadmap](roadmap.md#m2-live): upgrade a node when it is idle. The control plane keeps its
 queue in PostgreSQL across restarts.
