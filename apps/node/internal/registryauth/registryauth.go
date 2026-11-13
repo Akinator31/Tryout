@@ -20,6 +20,7 @@ import (
 
 const dockerHub = "docker.io"
 
+// entry is one registry of the file's "auths".
 type entry struct {
 	Auth          string `json:"auth"`
 	Username      string `json:"username"`
@@ -27,6 +28,7 @@ type entry struct {
 	IdentityToken string `json:"identitytoken"`
 }
 
+// file is the part of a Docker config.json the agent reads.
 type file struct {
 	Auths       map[string]entry  `json:"auths"`
 	CredsStore  string            `json:"credsStore"`
@@ -40,22 +42,49 @@ type Store struct {
 }
 
 // Load reads and checks a config.json-style file. Every entry must be usable:
-// a broken entry is a startup error, not a pull that fails later.
+// a broken entry is a startup error, not a pull that fails later. The error
+// lists every problem of the file at once, so that an operator fixes it in
+// one go.
 func Load(path string) (*Store, error) {
-	raw, err := os.ReadFile(path)
+	f, err := readFile(path)
 	if err != nil {
 		return nil, err
 	}
+
+	errs := checkTopLevel(path, f)
+	keysByHost, keyErrs := groupKeysByHost(path, f.Auths)
+	errs = append(errs, keyErrs...)
+	headers, headerErrs := buildHeaders(path, f.Auths, keysByHost)
+	errs = append(errs, headerErrs...)
+
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
+	return &Store{headers: headers}, nil
+}
+
+// readFile reads and parses the file. On a syntax error it reports the
+// position only: the decoder's message can quote a character of the file,
+// which may be part of a secret.
+func readFile(path string) (file, error) {
 	var f file
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return f, err
+	}
+
 	if err := json.Unmarshal(raw, &f); err != nil {
-		// The decoder's message can quote a character of the file: report
-		// the position only.
 		var se *json.SyntaxError
 		if errors.As(err, &se) {
-			return nil, fmt.Errorf("parse %s: invalid JSON at byte %d", path, se.Offset)
+			return f, fmt.Errorf("parse %s: invalid JSON at byte %d", path, se.Offset)
 		}
-		return nil, fmt.Errorf("parse %s: not a Docker config.json", path)
+		return f, fmt.Errorf("parse %s: not a Docker config.json", path)
 	}
+	return f, nil
+}
+
+// checkTopLevel refuses credential helpers and a file without any registry.
+func checkTopLevel(path string, f file) []error {
 	var errs []error
 	if f.CredsStore != "" || len(f.CredHelpers) > 0 {
 		errs = append(errs, fmt.Errorf("%s: credential helpers (credsStore, credHelpers) are not supported; write static \"auths\" entries", path))
@@ -63,9 +92,16 @@ func Load(path string) (*Store, error) {
 	if len(f.Auths) == 0 {
 		errs = append(errs, fmt.Errorf("%s: no registry in \"auths\"", path))
 	}
-	s := &Store{headers: map[string]string{}}
+	return errs
+}
+
+// groupKeysByHost maps each registry host to the "auths" keys that name it,
+// so that two keys for one registry ("docker.io" and its legacy URL) can be
+// refused rather than one silently winning.
+func groupKeysByHost(path string, auths map[string]entry) (map[string][]string, []error) {
+	var errs []error
 	keysByHost := map[string][]string{}
-	for key := range f.Auths {
+	for key := range auths {
 		host, err := normalizeKey(key)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: registry %s: %w", path, key, err))
@@ -73,6 +109,14 @@ func Load(path string) (*Store, error) {
 		}
 		keysByHost[host] = append(keysByHost[host], key)
 	}
+	return keysByHost, errs
+}
+
+// buildHeaders builds the header of each registry host, in sorted order so
+// that errors come out the same on every run.
+func buildHeaders(path string, auths map[string]entry, keysByHost map[string][]string) (map[string]string, []error) {
+	var errs []error
+	headers := map[string]string{}
 	for _, host := range slices.Sorted(maps.Keys(keysByHost)) {
 		keys := keysByHost[host]
 		if len(keys) > 1 {
@@ -80,47 +124,62 @@ func Load(path string) (*Store, error) {
 			errs = append(errs, fmt.Errorf("%s: two entries for registry %s: %s", path, host, strings.Join(keys, ", ")))
 			continue
 		}
-		h, err := header(keys[0], f.Auths[keys[0]])
+
+		h, err := header(keys[0], auths[keys[0]])
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: registry %s: %w", path, keys[0], err))
 			continue
 		}
-		s.headers[host] = h
+		headers[host] = h
 	}
-	if err := errors.Join(errs...); err != nil {
-		return nil, err
-	}
-	return s, nil
+	return headers, errs
 }
 
-// header builds the base64url JSON AuthConfig the Engine API expects.
+// authConfig is the Engine API's AuthConfig, the decoded X-Registry-Auth.
+type authConfig struct {
+	Username      string `json:"username,omitempty"`
+	Password      string `json:"password,omitempty"`
+	IdentityToken string `json:"identitytoken,omitempty"`
+	ServerAddress string `json:"serveraddress"`
+}
+
+// header builds the base64url JSON AuthConfig the Engine API expects. An
+// "auth" field (base64 of user:password) takes precedence over "username"
+// and "password". Its errors never quote the entry.
 func header(serverAddress string, e entry) (string, error) {
-	type authConfig struct {
-		Username      string `json:"username,omitempty"`
-		Password      string `json:"password,omitempty"`
-		IdentityToken string `json:"identitytoken,omitempty"`
-		ServerAddress string `json:"serveraddress"`
-	}
 	ac := authConfig{Username: e.Username, Password: e.Password, IdentityToken: e.IdentityToken, ServerAddress: serverAddress}
 	if e.Auth != "" {
-		dec, err := base64.StdEncoding.DecodeString(e.Auth)
+		user, pass, err := decodeAuth(e.Auth)
 		if err != nil {
-			return "", errors.New(`"auth" is not valid base64`)
-		}
-		user, pass, ok := strings.Cut(string(dec), ":")
-		if !ok {
-			return "", errors.New(`"auth" must encode "user:password"`)
+			return "", err
 		}
 		ac.Username, ac.Password = user, pass
 	}
+
 	if ac.IdentityToken == "" && (ac.Username == "" || ac.Password == "") {
 		return "", errors.New("no credentials: set \"auth\", \"username\" and \"password\", or \"identitytoken\"")
 	}
+
 	b, err := json.Marshal(ac)
 	if err != nil {
 		return "", err
 	}
 	return base64.URLEncoding.EncodeToString(b), nil
+}
+
+// decodeAuth decodes an "auth" field into its user and password; the
+// password may contain colons.
+func decodeAuth(auth string) (user, pass string, err error) {
+	dec, err := base64.StdEncoding.DecodeString(auth)
+	if err != nil {
+		return "", "", errors.New(`"auth" is not valid base64`)
+	}
+
+	user, pass, ok := strings.Cut(string(dec), ":")
+	if !ok {
+		return "", "", errors.New(`"auth" must encode "user:password"`)
+	}
+	return user, pass, nil
 }
 
 // normalizeKey turns an "auths" key ("https://index.docker.io/v1/",
@@ -141,6 +200,7 @@ func normalizeKey(key string) (string, error) {
 	return host, nil
 }
 
+// canonical maps Docker Hub's aliases to docker.io.
 func canonical(host string) string {
 	switch host {
 	case "index.docker.io", "registry-1.docker.io":

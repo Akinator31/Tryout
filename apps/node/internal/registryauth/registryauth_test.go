@@ -9,6 +9,7 @@ import (
 	"testing"
 )
 
+// write writes a config.json with the given content and returns its path.
 func write(t *testing.T, content string) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "config.json")
@@ -18,6 +19,7 @@ func write(t *testing.T, content string) string {
 	return p
 }
 
+// b64 encodes s with standard base64, as in a config.json "auth" field.
 func b64(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
 
 // decode reads an X-Registry-Auth value the way the Docker daemon does.
@@ -34,6 +36,7 @@ func decode(t *testing.T, h string) map[string]string {
 	return m
 }
 
+// TestRegistryOf checks the Docker rules for the registry of a reference.
 func TestRegistryOf(t *testing.T) {
 	for ref, want := range map[string]string{
 		"alpine":                    "docker.io",
@@ -54,6 +57,8 @@ func TestRegistryOf(t *testing.T) {
 	}
 }
 
+// TestHeaderForMatchingRegistry checks the header of each entry form (auth,
+// username and password, identity token) and that other registries get none.
 func TestHeaderForMatchingRegistry(t *testing.T) {
 	s, err := Load(write(t, `{"auths": {
 		"ghcr.io": {"auth": "`+b64("bot:s3cret:with-colon")+`"},
@@ -84,6 +89,8 @@ func TestHeaderForMatchingRegistry(t *testing.T) {
 	}
 }
 
+// TestKeyForms checks that keys with a scheme, upper case or a Docker Hub
+// alias map to the registry host.
 func TestKeyForms(t *testing.T) {
 	s, err := Load(write(t, `{"auths": {
 		"http://Registry.Example:5000/": {"auth": "`+b64("a:b")+`"},
@@ -103,6 +110,7 @@ func TestKeyForms(t *testing.T) {
 	}
 }
 
+// TestNilStoreSendsNothing checks that a nil store means anonymous pulls.
 func TestNilStoreSendsNothing(t *testing.T) {
 	var s *Store
 	if got := s.HeaderFor("ghcr.io/owner/app"); got != "" {
@@ -113,6 +121,7 @@ func TestNilStoreSendsNothing(t *testing.T) {
 	}
 }
 
+// TestLoadRefusals checks that each kind of broken file is a load error.
 func TestLoadRefusals(t *testing.T) {
 	for name, c := range map[string]struct{ content, want string }{
 		"invalid JSON":    {`{`, "parse"},
@@ -159,6 +168,8 @@ func TestLoadReportsEveryError(t *testing.T) {
 	}
 }
 
+// TestErrorsNeverContainSecrets checks that load errors, which are logged,
+// never quote a credential.
 func TestErrorsNeverContainSecrets(t *testing.T) {
 	_, err := Load(write(t, `{"auths": {"ghcr.io": {"auth": "`+b64("nocolon-supersecret")+`"}}}`))
 	if err == nil || strings.Contains(err.Error(), "supersecret") || strings.Contains(err.Error(), b64("nocolon-supersecret")) {

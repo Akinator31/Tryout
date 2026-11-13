@@ -2,6 +2,7 @@
 .env
 deploy/.env
 pki/
+!apps/node/internal/pki/
 deploy/node/registry/
 
 # dependencies / build output

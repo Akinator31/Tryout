@@ -1,3 +1,6 @@
+// The queue, through its interface only: caps, promotion, heartbeat loss,
+// maximum age, start failures and timeouts, several instances on one
+// database, watching (ADR 0012) and per-client limits (ADR 0016).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createQueue, RateLimitedError, UnknownProjectError, type QueueConfig, type TicketView } from "../src/queue.ts";
@@ -11,18 +14,31 @@ const config: QueueConfig = {
   },
 };
 
+/**
+ * A queue on a fresh database, with a fake clock and runtime. `active` waits
+ * for a ticket to become active; `joinAll` joins one ticket per project, in
+ * order. Disposing it closes the database.
+ */
 async function setup(opts: { manual?: boolean; config?: QueueConfig } = {}) {
   const db = await freshDb();
   const clock = fakeClock();
   const fake = fakeRuntime(opts);
   const queue = await createQueue({ db, config: opts.config ?? config, runtime: fake.runtime, now: clock.now });
+
   const active = (t: string) => eventually(() => queue.poll(t), (v) => v?.state === "active");
-  return { db, clock, fake, queue, active, [Symbol.asyncDispose]: () => db.close() };
+  const joinAll = async (projects: string[], client?: string) => {
+    const views: TicketView[] = [];
+    for (const p of projects) views.push(await queue.join(p, client));
+    return views;
+  };
+
+  return { db, clock, fake, queue, active, joinAll, [Symbol.asyncDispose]: () => db.close() };
 }
 
 test("a visitor gets a session URL when a slot is free", async () => {
   await using s = await setup();
   const { ticket } = await s.queue.join("cli");
+
   const view = await s.active(ticket);
   assert.equal(view?.state, "active");
   assert.match(view?.url ?? "", /^https:\/\/n1\.test\/s\/[a-z2-7]{26}\/$/);
@@ -30,12 +46,10 @@ test("a visitor gets a session URL when a slot is free", async () => {
 
 test("visitors beyond the project cap wait in line with their position", async () => {
   await using s = await setup();
-  const a = await s.queue.join("cli");
-  const b = await s.queue.join("cli");
-  const c = await s.queue.join("cli");
-  const d = await s.queue.join("cli");
+  const [a, b, c, d] = await s.joinAll(["cli", "cli", "cli", "cli"]);
   await s.active(a.ticket);
   await s.active(b.ticket);
+
   assert.deepEqual(await s.queue.poll(c.ticket), { ticket: c.ticket, state: "waiting", position: 1 });
   assert.deepEqual(await s.queue.poll(d.ticket), { ticket: d.ticket, state: "waiting", position: 2 });
 });
@@ -56,8 +70,9 @@ test("leaving stops the session and gives the slot to the next visitor", async (
 
 test("the node cap applies across projects", async () => {
   await using s = await setup(); // n1 allows 3 sessions; cli and gui allow 2 each
-  const tickets = [await s.queue.join("cli"), await s.queue.join("cli"), await s.queue.join("gui")];
+  const tickets = await s.joinAll(["cli", "cli", "gui"]);
   for (const t of tickets) await s.active(t.ticket);
+
   const fourth = await s.queue.join("gui");
   assert.deepEqual(await s.queue.poll(fourth.ticket), { ticket: fourth.ticket, state: "waiting", position: 1 });
 });
@@ -88,6 +103,7 @@ test("a session shows its remaining time and ends at the project's maximum age",
   await using s = await setup(); // cli: maxAgeS = 600
   const a = await s.queue.join("cli");
   await s.active(a.ticket);
+
   for (let elapsed = 0; elapsed < 590_000; elapsed += 10_000) {
     s.clock.advance(10_000);
     await s.queue.poll(a.ticket);
@@ -111,6 +127,7 @@ test("a failed start ends the ticket with an error and frees the slot", async ()
   s.fake.pending[0].reject(new Error("image pull failed"));
   const failed = await eventually(() => s.queue.poll(a.ticket), (v) => v?.state === "ended");
   assert.deepEqual(failed, { ticket: a.ticket, state: "ended", error: "Could not start the session." });
+
   const promoted = await eventually(() => s.queue.poll(c.ticket), (v) => v?.state === "starting");
   assert.equal(promoted?.state, "starting");
 });
@@ -129,12 +146,15 @@ test("a session that finishes starting after the visitor left is stopped", async
 test("a start that never completes times out and frees the slot", async () => {
   await using s = await setup({ manual: true });
   const a = await s.queue.join("cli");
+
   for (let elapsed = 0; elapsed <= 180_000; elapsed += 10_000) {
     s.clock.advance(10_000);
     await s.queue.poll(a.ticket);
   }
   await s.queue.tick();
-  assert.deepEqual(await s.queue.poll(a.ticket), { ticket: a.ticket, state: "ended", error: "Could not start the session." });
+
+  const timedOut = { ticket: a.ticket, state: "ended", error: "Could not start the session." };
+  assert.deepEqual(await s.queue.poll(a.ticket), timedOut);
   assert.equal(s.fake.running.size, 0);
 });
 
@@ -142,6 +162,7 @@ test("joining tells the visitor their position right away", async () => {
   await using s = await setup({ manual: true });
   await s.queue.join("cli");
   await s.queue.join("cli");
+
   const third = await s.queue.join("cli");
   assert.deepEqual(third, { ticket: third.ticket, state: "waiting", position: 1 });
 });
@@ -157,9 +178,11 @@ test("ended tickets are forgotten after five minutes", async () => {
   await using s = await setup();
   const a = await s.queue.join("cli");
   await s.queue.release(a.ticket);
+
   s.clock.advance(4 * 60_000);
   await s.queue.tick();
   assert.equal((await s.queue.poll(a.ticket))?.state, "ended");
+
   s.clock.advance(2 * 60_000);
   await s.queue.tick();
   assert.equal(await s.queue.poll(a.ticket), null);
@@ -178,9 +201,11 @@ test("a session whose start fails after the visitor left is cleaned up", async (
 test("two control plane instances sharing a database never exceed the caps", async () => {
   await using s = await setup({ manual: true }); // cli allows 2 sessions
   const other = await createQueue({ db: s.db, config, runtime: s.fake.runtime, now: s.clock.now });
+
   const views = await Promise.all(
     Array.from({ length: 8 }, (_, i) => (i % 2 ? other : s.queue).join("cli")),
   );
+
   const states = await Promise.all(views.map((v) => s.queue.poll(v.ticket)));
   assert.equal(states.filter((v) => v?.state === "starting").length, 2);
   assert.equal(states.filter((v) => v?.state === "waiting").length, 6);
@@ -188,6 +213,7 @@ test("two control plane instances sharing a database never exceed the caps", asy
 
 // Watching: the push channel behind SSE (ADR 0012).
 
+/** Records every view delivered to its listener. */
 function recorder() {
   const views: (TicketView | null)[] = [];
   const last = () => views.at(-1);
@@ -200,6 +226,7 @@ test("a watcher gets the current view at once, then every change without polling
   await s.queue.join("cli");
   const c = await s.queue.join("cli");
   await s.active(a.ticket);
+
   const rec = recorder();
   await s.queue.watch(c.ticket, rec.listener);
   assert.deepEqual(rec.views, [{ ticket: c.ticket, state: "waiting", position: 1 }]);
@@ -211,8 +238,9 @@ test("a watcher gets the current view at once, then every change without polling
 
 test("watchers see their position move up when someone ahead leaves", async () => {
   await using s = await setup();
-  const [a, , , d] = [await s.queue.join("cli"), await s.queue.join("cli"), await s.queue.join("cli"), await s.queue.join("cli")];
+  const [a, , , d] = await s.joinAll(["cli", "cli", "cli", "cli"]);
   await s.active(a.ticket);
+
   const rec = recorder();
   await s.queue.watch(d.ticket, rec.listener);
   assert.equal(rec.last()?.position, 2);
@@ -246,6 +274,7 @@ test("watchers get a fresh view every 10 s even when nothing changes", async () 
   await using s = await setup();
   const a = await s.queue.join("cli");
   await s.active(a.ticket);
+
   const rec = recorder();
   await s.queue.watch(a.ticket, rec.listener);
   const before = rec.views.length;
@@ -262,11 +291,13 @@ test("a ticket released on another instance reaches its watcher, which then stop
   const other = await createQueue({ db: s.db, config, runtime: s.fake.runtime, now: s.clock.now });
   const a = await s.queue.join("cli");
   await s.active(a.ticket);
+
   const rec = recorder();
   await s.queue.watch(a.ticket, rec.listener);
 
   await other.release(a.ticket);
   await eventually(async () => rec.last(), (v) => v?.state === "ended");
+
   const count = rec.views.length;
   s.clock.advance(10_000);
   await s.queue.tick();
@@ -282,6 +313,7 @@ const limited = (live: number, max: number, windowMs = 60_000): QueueConfig => (
   limits: { liveTicketsPerClient: live, newTicketsPerClient: { max, windowMs } },
 });
 
+/** Asserts that a join was refused by a per-client limit; returns the error. */
 async function refused(p: Promise<unknown>): Promise<RateLimitedError> {
   try {
     await p;
@@ -294,7 +326,8 @@ async function refused(p: Promise<unknown>): Promise<RateLimitedError> {
 
 test("a client cannot hold more live tickets than the limit; leaving frees one", async () => {
   await using s = await setup({ config: limited(3, 100) });
-  const mine = [await s.queue.join("cli", "1.2.3.4"), await s.queue.join("gui", "1.2.3.4"), await s.queue.join("cli", "1.2.3.4")];
+  const mine = await s.joinAll(["cli", "gui", "cli"], "1.2.3.4");
+
   const e = await refused(s.queue.join("cli", "1.2.3.4"));
   assert.equal(e.limit, "live_tickets");
   assert.equal(e.retryAfterS, 30);
@@ -308,6 +341,7 @@ test("tickets lost to a missing heartbeat no longer count as live", async () => 
   await using s = await setup({ config: limited(1, 100) });
   await s.queue.join("cli", "1.2.3.4");
   await refused(s.queue.join("cli", "1.2.3.4"));
+
   s.clock.advance(31_000);
   await s.queue.tick();
   await s.queue.join("cli", "1.2.3.4");
@@ -320,6 +354,7 @@ test("a client cannot create more tickets than the limit within the window", asy
     await s.queue.release(v.ticket); // released tickets still count towards the rate
     s.clock.advance(10_000);
   }
+
   const e = await refused(s.queue.join("cli", "1.2.3.4"));
   assert.equal(e.limit, "new_tickets");
   assert.equal(e.retryAfterS, 30, "the first ticket leaves the window 30 s from now");
@@ -332,6 +367,7 @@ test("a client cannot create more tickets than the limit within the window", asy
 test("zero disables a limit, and a join without a client key is never limited", async () => {
   await using s = await setup({ config: limited(0, 0) });
   for (let i = 0; i < 6; i++) await s.queue.join("cli", "1.2.3.4");
+
   await using t = await setup({ config: limited(1, 1) });
   for (let i = 0; i < 3; i++) await t.queue.join("cli");
 });
@@ -339,9 +375,11 @@ test("zero disables a limit, and a join without a client key is never limited", 
 test("limits hold across control plane instances under concurrent joins", async () => {
   await using s = await setup({ config: limited(2, 100) });
   const other = await createQueue({ db: s.db, config: limited(2, 100), runtime: s.fake.runtime, now: s.clock.now });
+
   const results = await Promise.allSettled(
     Array.from({ length: 8 }, (_, i) => (i % 2 ? other : s.queue).join("cli", "1.2.3.4")),
   );
+
   assert.equal(results.filter((r) => r.status === "fulfilled").length, 2);
   for (const r of results) if (r.status === "rejected") assert.ok(r.reason instanceof RateLimitedError);
 });

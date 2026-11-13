@@ -4,9 +4,17 @@
 // and per-node caps, per-client limits, FIFO promotion, session start and readiness, heartbeat
 // loss, maximum age, change notifications. State lives in Postgres (ADR 0007)
 // so several control plane instances can share it; time comes from an
-// injected clock.
+// injected clock. The storage, the limits and the watchers live in the
+// sibling queue-*.ts modules.
 import { randomBytes } from "node:crypto";
 import type { Db, Query } from "./db.ts";
+import { checkClientLimits } from "./queue-limits.ts";
+import { CHANNEL, migrate, SCHEDULER_LOCK, SELECT_WITH_POSITION, type Row } from "./queue-schema.ts";
+import { FORGET_ENDED_MS, HEARTBEAT_LOST_MS, RESYNC_MS, START_TIMEOUT_MS } from "./queue-timing.ts";
+import { createWatchers, type Watcher } from "./queue-watchers.ts";
+
+export { RateLimitedError, type LimitName } from "./queue-limits.ts";
+export { FORGET_ENDED_MS, START_TIMEOUT_MS } from "./queue-timing.ts";
 
 export interface QueueConfig {
   nodes: Record<string, { maxSessions: number }>;
@@ -72,355 +80,373 @@ export interface Queue {
 
 export class UnknownProjectError extends Error {}
 
-/** Names of the per-client limits, as reported to the visitor; "streams" is enforced by the HTTP layer. */
-export type LimitName = "live_tickets" | "new_tickets" | "streams";
-
-/** A per-client limit refused the join; the visitor may retry after `retryAfterS`. */
-export class RateLimitedError extends Error {
-  readonly limit: Exclude<LimitName, "streams">;
-  readonly retryAfterS: number;
-  constructor(limit: Exclude<LimitName, "streams">, retryAfterS: number) {
-    super(`rate limited: ${limit}`);
-    this.limit = limit;
-    this.retryAfterS = retryAfterS;
-  }
-}
-
-const HEARTBEAT_LOST_MS = 30_000;
-// Image pulls on a fresh node can be slow; an agent call or a control plane
-// restart must not hold a slot forever. The runtime gets an AbortSignal that
-// fires at this deadline, so both sides share one timeout.
-export const START_TIMEOUT_MS = 180_000;
-// Watchers get a fresh view this often, even without changes (missed
-// notifications, countdown drift, keepalive for proxies).
-const RESYNC_MS = 10_000;
-const CHANNEL = "tryout_tickets";
-// Ended tickets stay readable for a while so the page can show why it ended.
-// The new-ticket window counts ended tickets too, so it must not outlast them.
-export const FORGET_ENDED_MS = 5 * 60_000;
-// A live ticket ends within this delay once its page is gone (heartbeat loss).
-const LIVE_RETRY_AFTER_S = HEARTBEAT_LOST_MS / 1000;
+/** Error shown to the visitor when a session failed or timed out while starting. */
 const START_FAILED = "Could not start the session.";
-// Advisory lock keys (arbitrary constants private to this module).
-const SCHEDULER_LOCK = 0x7472796f; // "tryo"
-const SCHEMA_LOCK = 0x74727973; // "trys"
-const CLIENT_LOCK = 0x7472796c; // "tryl", paired with a hash of the client key
 
-const SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS tickets (
-  id          text PRIMARY KEY,
-  seq         bigint GENERATED ALWAYS AS IDENTITY,
-  project     text NOT NULL,
-  node        text NOT NULL,
-  state       text NOT NULL CHECK (state IN ('waiting', 'starting', 'active', 'ended')),
-  session_id  text UNIQUE,
-  url         text,
-  error       text,
-  created_at  double precision NOT NULL,
-  last_seen   double precision NOT NULL,
-  ends_at     double precision,
-  start_deadline double precision,
-  ended_at    double precision
-)`,
-  `CREATE INDEX IF NOT EXISTS tickets_project_state ON tickets (project, state, seq)`,
-  // Per-client limits (ADR 0016). Added after the table's first release.
-  `ALTER TABLE tickets ADD COLUMN IF NOT EXISTS client_key text`,
-  `CREATE INDEX IF NOT EXISTS tickets_client ON tickets (client_key, created_at)`,
-  // Any state change may move every waiting ticket of the project, so the
-  // payload is the project. NOTIFY is sent on commit and deduplicated per
-  // transaction; heartbeats (last_seen) do not notify.
-  `CREATE OR REPLACE FUNCTION tickets_notify() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-  PERFORM pg_notify('${CHANNEL}', NEW.project);
-  RETURN NULL;
-END $$`,
-  `CREATE OR REPLACE TRIGGER tickets_notify AFTER UPDATE OF state ON tickets
-  FOR EACH ROW WHEN (OLD.state IS DISTINCT FROM NEW.state) EXECUTE FUNCTION tickets_notify()`,
-];
-
-// A waiting ticket's position: 1 + the waiting tickets of the same project ahead of it.
-const SELECT_WITH_POSITION = `
-  SELECT t.*, CASE WHEN t.state = 'waiting' THEN 1 + (
-    SELECT count(*)::int FROM tickets o
-    WHERE o.project = t.project AND o.state = 'waiting' AND o.seq < t.seq) END AS position
-  FROM tickets t WHERE t.id = ANY($1::text[])`;
-
-interface Row {
-  id: string;
-  project: string;
-  node: string;
-  state: TicketState;
-  session_id: string | null;
-  url: string | null;
-  error: string | null;
-  ends_at: number | null;
-  position: number | null;
-}
-
-// 26 base32 chars = 130 bits: the session id is the credential in the URL.
+/** A session id: 26 base32 chars = 130 bits, since the session id is the credential in the URL. */
 export function randomId(): string {
   const alphabet = "abcdefghijklmnopqrstuvwxyz234567";
   return Array.from(randomBytes(26), (b) => alphabet[b & 31]).join("");
 }
 
-export async function createQueue(deps: {
+/** Sessions starting or running, per project and per node. */
+interface Usage {
+  perProject: Map<string, number>;
+  perNode: Map<string, number>;
+}
+
+/** Counts the sessions starting or running, per project and per node. */
+async function readUsage(q: Query): Promise<Usage> {
+  const busy = await q<{ project: string; node: string; n: number }>(
+    `SELECT project, node, count(*)::int AS n
+     FROM tickets
+     WHERE state IN ('starting', 'active')
+     GROUP BY project, node`,
+  );
+
+  const usage: Usage = { perProject: new Map(), perNode: new Map() };
+  for (const b of busy) {
+    usage.perProject.set(b.project, (usage.perProject.get(b.project) ?? 0) + b.n);
+    usage.perNode.set(b.node, (usage.perNode.get(b.node) ?? 0) + b.n);
+  }
+  return usage;
+}
+
+/**
+ * Takes a slot for `ticket` if its project and its node are both below their
+ * caps. A ticket whose project or node left the configuration never starts.
+ */
+function takeSlot(config: QueueConfig, usage: Usage, ticket: Row): boolean {
+  const project = config.projects[ticket.project];
+  const node = config.nodes[ticket.node];
+  const usedByProject = usage.perProject.get(ticket.project) ?? 0;
+  const usedOnNode = usage.perNode.get(ticket.node) ?? 0;
+
+  if (!project || !node) return false;
+  if (usedByProject >= project.maxSessions || usedOnNode >= node.maxSessions) return false;
+
+  usage.perProject.set(ticket.project, usedByProject + 1);
+  usage.perNode.set(ticket.node, usedOnNode + 1);
+  return true;
+}
+
+const sessionOf = (row: Row): SessionRef => ({ sessionId: row.session_id!, project: row.project, node: row.node });
+
+/** What a queue needs: its database, configuration and nodes, plus an injectable clock and logger. */
+export interface QueueDeps {
   db: Db;
   config: QueueConfig;
   runtime: SessionRuntime;
   now?: () => number;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
-}): Promise<Queue> {
-  const { db, config, runtime } = deps;
-  const now = deps.now ?? Date.now;
-  const log = deps.log ?? (() => {});
-  // Several instances may start at once; CREATE ... IF NOT EXISTS is not race-free.
-  await db.tx(async (q) => {
-    await q(`SELECT pg_advisory_xact_lock(${SCHEMA_LOCK})`);
-    for (const statement of SCHEMA) await q(statement);
-  });
+}
 
-  function view(row: Row): TicketView {
-    return {
-      ticket: row.id,
-      state: row.state,
-      ...(row.state === "waiting" && row.position != null ? { position: row.position } : {}),
-      ...(row.state === "active" && row.url ? { url: row.url } : {}),
-      ...(row.state === "ended" && row.error ? { error: row.error } : {}),
-      ...(row.state === "active" && row.ends_at != null
-        ? { endsInS: Math.max(0, Math.round((row.ends_at - now()) / 1000)) }
-        : {}),
-    };
-  }
+/** Creates the queue, after creating or upgrading its table and subscribing to ticket changes. */
+export async function createQueue(deps: QueueDeps): Promise<Queue> {
+  return PgQueue.open(deps);
+}
 
-  // Promotion is serialized by a transaction-scoped advisory lock, so several
-  // control plane instances can schedule concurrently without exceeding caps.
-  async function schedule(): Promise<void> {
-    const promoted = await db.tx(async (q) => {
-      await q(`SELECT pg_advisory_xact_lock(${SCHEDULER_LOCK})`);
-      const busy = await q<{ project: string; node: string; n: number }>(
-        `SELECT project, node, count(*)::int AS n FROM tickets
-         WHERE state IN ('starting', 'active') GROUP BY project, node`,
-      );
-      const perProject = new Map<string, number>();
-      const perNode = new Map<string, number>();
-      for (const b of busy) {
-        perProject.set(b.project, (perProject.get(b.project) ?? 0) + b.n);
-        perNode.set(b.node, (perNode.get(b.node) ?? 0) + b.n);
-      }
-      const waiting = await q<Row>(`SELECT * FROM tickets WHERE state = 'waiting' ORDER BY seq`);
-      const started: Row[] = [];
-      for (const t of waiting) {
-        const p = config.projects[t.project];
-        const node = config.nodes[t.node];
-        const usedByProject = perProject.get(t.project) ?? 0;
-        const usedOnNode = perNode.get(t.node) ?? 0;
-        if (!p || !node || usedByProject >= p.maxSessions || usedOnNode >= node.maxSessions) continue;
-        perProject.set(t.project, usedByProject + 1);
-        perNode.set(t.node, usedOnNode + 1);
-        const [row] = await q<Row>(
-          `UPDATE tickets SET state = 'starting', session_id = $2, start_deadline = $3
-           WHERE id = $1 RETURNING *`,
-          [t.id, randomId(), now() + START_TIMEOUT_MS],
-        );
-        started.push(row);
-      }
-      return started;
-    });
-    for (const t of promoted) {
-      // Never let a failure escape: an unhandled rejection would stop the process.
-      start(t).catch((e) => log("start crashed", { ticket: t.id, err: String(e) }));
-    }
-  }
+/**
+ * The queue, with its state in Postgres. Every instance of the control plane
+ * runs one; they coordinate through the tickets table, an advisory lock for
+ * promotion and `LISTEN/NOTIFY` for change notifications.
+ */
+class PgQueue implements Queue {
+  readonly #db: Db;
+  readonly #config: QueueConfig;
+  readonly #runtime: SessionRuntime;
+  readonly #now: () => number;
+  readonly #log: (msg: string, extra?: Record<string, unknown>) => void;
+  readonly #watchers: ReturnType<typeof createWatchers>;
 
-  // Watchers registered on this instance. Deliveries go through one chain so
-  // a listener never sees an older view after a newer one.
-  interface Watcher { ticket: string; project: string; listener: (view: TicketView | null) => void }
-  const watchers = new Set<Watcher>();
-  let delivery: Promise<void> = Promise.resolve();
-  let lastResync = now();
+  /** Starts run by this instance, by ticket: aborted when the ticket ends. */
+  readonly #inFlight = new Map<string, AbortController>();
+  #lastResync: number;
 
-  const ticketsOf = (ws: Iterable<Watcher>) => [...new Set([...ws].map((w) => w.ticket))];
-
-  function refresh(targets: Watcher[]): Promise<void> {
-    if (targets.length === 0) return delivery;
-    delivery = delivery
-      .then(async () => {
-        const live = targets.filter((w) => watchers.has(w));
-        if (live.length === 0) return;
-        const rows = await db.query<Row>(SELECT_WITH_POSITION, [ticketsOf(live)]);
-        const byId = new Map(rows.map((r) => [r.id, r]));
-        for (const w of live) {
-          if (!watchers.has(w)) continue;
-          const row = byId.get(w.ticket);
-          const v = row ? view(row) : null;
-          if (v === null || v.state === "ended") watchers.delete(w); // last delivery
-          try {
-            w.listener(v);
-          } catch (e) {
-            log("watch listener failed", { ticket: w.ticket, err: String(e) });
-          }
-        }
-      })
-      .catch((e) => log("watch refresh failed", { err: String(e) }));
-    return delivery;
-  }
-
-  await db.listen(
-    CHANNEL,
-    (project) => void refresh([...watchers].filter((w) => w.project === project)),
-    () => void refresh([...watchers]), // (re)connected: notifications may have been missed
-  );
-
-  const ref = (row: Row): SessionRef => ({ sessionId: row.session_id!, project: row.project, node: row.node });
-  const inFlight = new Map<string, AbortController>(); // starts run by this instance
-
-  async function stopSession(session: SessionRef): Promise<void> {
-    // The agent's reaper removes expired sessions anyway; log and move on.
-    await runtime.stop(session).catch((e) => log("stop failed", { session: session.sessionId, err: String(e) }));
-  }
-
-  async function start(t: Row): Promise<void> {
-    const session = ref(t);
-    const abort = new AbortController();
-    inFlight.set(t.id, abort);
-    const deadline = setTimeout(() => abort.abort(new Error("start timed out")), START_TIMEOUT_MS);
-    deadline.unref(); // never keep the process alive for a pending start
-    log("starting", { ticket: t.id, project: t.project, node: t.node });
-    try {
-      let url: string;
-      try {
-        ({ url } = await runtime.start(session, abort.signal));
-      } catch (e) {
-        log("start failed", { ticket: t.id, project: t.project, err: String(e) });
-        await end(t.id, START_FAILED);
-        await stopSession(session); // the agent may have created it before failing
-        await schedule();
-        return;
-      }
-      const maxAgeMs = (config.projects[t.project]?.maxAgeS ?? 0) * 1000;
-      const activated = await db.query(
-        `UPDATE tickets SET state = 'active', url = $2, ends_at = $3
-         WHERE id = $1 AND state = 'starting' RETURNING id`,
-        [t.id, url, now() + maxAgeMs],
-      );
-      if (activated.length > 0) {
-        log("active", { ticket: t.id, project: t.project });
-      } else {
-        // Ended while starting (visitor left, heartbeat lost): the session is an orphan.
-        await stopSession(session);
-      }
-    } finally {
-      clearTimeout(deadline);
-      inFlight.delete(t.id);
-    }
-  }
-
-  /** Marks a ticket ended (once) and stops its session if it had one. */
-  async function end(ticket: string, error?: string): Promise<void> {
-    const [row] = await db.query<Row>(
-      `UPDATE tickets SET state = 'ended', error = coalesce($2, error), ended_at = $3
-       WHERE id = $1 AND state <> 'ended'
-       RETURNING *`,
-      [ticket, error ?? null, now()],
-    );
-    if (!row) return;
-    log("ended", { ticket: ticket, project: row.project, error: error ?? null });
-    inFlight.get(ticket)?.abort(new Error("ticket ended"));
-    if (row.session_id) await stopSession(ref(row));
+  private constructor(deps: QueueDeps) {
+    this.#db = deps.db;
+    this.#config = deps.config;
+    this.#runtime = deps.runtime;
+    this.#now = deps.now ?? Date.now;
+    this.#log = deps.log ?? (() => {});
+    this.#watchers = createWatchers({ db: deps.db, view: (row) => this.#view(row), log: this.#log });
+    this.#lastResync = this.#now();
   }
 
   /**
-   * Throws RateLimitedError if `client` is over a limit. Joins of the same
-   * client are serialized by an advisory lock until the transaction commits,
-   * so concurrent joins, from any instance, cannot overshoot.
+   * Migrates the table, then subscribes to ticket changes. On (re)connection,
+   * notifications may have been missed, so every watcher is refreshed.
    */
-  async function checkLimits(q: Query, client: string, t: number, limits: NonNullable<QueueConfig["limits"]>) {
-    await q(`SELECT pg_advisory_xact_lock(${CLIENT_LOCK}, hashtext($1))`, [client]);
-    const { liveTicketsPerClient: live, newTicketsPerClient: rate } = limits;
-    if (live > 0) {
-      const [{ n }] = await q<{ n: number }>(
-        `SELECT count(*)::int AS n FROM tickets WHERE client_key = $1 AND state <> 'ended'`,
-        [client],
-      );
-      if (n >= live) throw new RateLimitedError("live_tickets", LIVE_RETRY_AFTER_S);
+  static async open(deps: QueueDeps): Promise<PgQueue> {
+    await migrate(deps.db);
+
+    const queue = new PgQueue(deps);
+    await deps.db.listen(
+      CHANNEL,
+      (project) => void queue.#watchers.refreshProject(project),
+      () => void queue.#watchers.refreshAll(),
+    );
+    return queue;
+  }
+
+  async join(project: string, client?: string): Promise<TicketView> {
+    const p = this.#config.projects[project];
+    if (!p) throw new UnknownProjectError(project);
+
+    const inserted = await this.#insertTicket(project, p.node, client);
+    await this.#schedule();
+    return this.#view((await this.#readRow(inserted.id))!);
+  }
+
+  async poll(ticket: string): Promise<TicketView | null> {
+    await this.#heartbeat(ticket);
+    const row = await this.#readRow(ticket);
+    return row ? this.#view(row) : null;
+  }
+
+  /**
+   * Unknown or ended tickets still get one delivery (null or the ended view),
+   * then stop; they match no project's notifications in the meantime. The
+   * watcher is registered before the first read, so no change is missed.
+   */
+  async watch(ticket: string, listener: (view: TicketView | null) => void): Promise<() => void> {
+    const project = await this.#heartbeat(ticket);
+    const watcher: Watcher = { ticket, project: project ?? "", listener };
+
+    this.#watchers.add(watcher);
+    await this.#watchers.refresh([watcher]);
+    return () => this.#watchers.delete(watcher);
+  }
+
+  async release(ticket: string): Promise<TicketView | null> {
+    await this.#end(ticket);
+    await this.#schedule();
+    return this.poll(ticket);
+  }
+
+  async tick(): Promise<void> {
+    const t = this.#now();
+
+    await this.#keepWatchedAlive(t);
+    await this.#expireTickets(t);
+    await this.#forgetEnded(t);
+    await this.#schedule();
+    this.#resyncWatchers(t);
+  }
+
+  /** What the visitor may see of a ticket: only the fields that make sense in its state. */
+  #view(row: Row): TicketView {
+    const v: TicketView = { ticket: row.id, state: row.state };
+
+    if (row.state === "waiting" && row.position != null) v.position = row.position;
+    if (row.state === "active" && row.url) v.url = row.url;
+    if (row.state === "ended" && row.error) v.error = row.error;
+    if (row.state === "active" && row.ends_at != null) {
+      v.endsInS = Math.max(0, Math.round((row.ends_at - this.#now()) / 1000));
     }
-    if (rate.max > 0) {
-      const recent = await q<{ created_at: number }>(
-        `SELECT created_at FROM tickets WHERE client_key = $1 AND created_at > $2 ORDER BY created_at`,
-        [client, t - rate.windowMs],
+    return v;
+  }
+
+  /** Reads a ticket with its position in its project's queue. */
+  async #readRow(ticket: string): Promise<Row | undefined> {
+    const [row] = await this.#db.query<Row>(SELECT_WITH_POSITION, [[ticket]]);
+    return row;
+  }
+
+  /** Records a heartbeat for a live ticket; returns its project, or undefined if it is unknown or ended. */
+  async #heartbeat(ticket: string): Promise<string | undefined> {
+    const [row] = await this.#db.query<{ project: string }>(
+      `UPDATE tickets SET last_seen = $2
+       WHERE id = $1 AND state <> 'ended'
+       RETURNING project`,
+      [ticket, this.#now()],
+    );
+    return row?.project;
+  }
+
+  /** Inserts a waiting ticket, after checking the client's limits in the same transaction. */
+  #insertTicket(project: string, node: string, client: string | undefined): Promise<Row> {
+    return this.#db.tx(async (q) => {
+      const t = this.#now();
+      const limits = this.#config.limits;
+      if (client !== undefined && limits) await checkClientLimits(q, client, t, limits);
+
+      const [inserted] = await q<Row>(
+        `INSERT INTO tickets (id, project, node, state, created_at, last_seen, client_key)
+         VALUES ($1, $2, $3, 'waiting', $4, $4, $5)
+         RETURNING *`,
+        [randomId(), project, node, t, client ?? null],
       );
-      if (recent.length >= rate.max) {
-        // A slot frees up when enough of the oldest tickets leave the window.
-        const freesAt = recent[recent.length - rate.max].created_at + rate.windowMs;
-        throw new RateLimitedError("new_tickets", Math.max(1, Math.ceil((freesAt - t) / 1000)));
-      }
+      return inserted;
+    });
+  }
+
+  /**
+   * Promotes waiting tickets, in FIFO order, while their project and node
+   * have room, then starts their sessions in the background. Promotion is
+   * serialized by a transaction-scoped advisory lock, so several control
+   * plane instances can schedule concurrently without exceeding the caps.
+   * A failed start never escapes: an unhandled rejection would stop the process.
+   */
+  async #schedule(): Promise<void> {
+    const promoted = await this.#db.tx((q) => this.#promoteWaiting(q));
+
+    for (const ticket of promoted) {
+      this.#start(ticket).catch((e) => this.#log("start crashed", { ticket: ticket.id, err: String(e) }));
     }
   }
 
-  const queue: Queue = {
-    async join(project, client) {
-      const p = config.projects[project];
-      if (!p) throw new UnknownProjectError(project);
-      const row = await db.tx(async (q) => {
-        const t = now();
-        if (client !== undefined && config.limits) await checkLimits(q, client, t, config.limits);
-        const [inserted] = await q<Row>(
-          `INSERT INTO tickets (id, project, node, state, created_at, last_seen, client_key)
-           VALUES ($1, $2, $3, 'waiting', $4, $4, $5) RETURNING *`,
-          [randomId(), project, p.node, t, client ?? null],
-        );
-        return inserted;
-      });
-      await schedule();
-      const [current] = await db.query<Row>(SELECT_WITH_POSITION, [[row.id]]);
-      return view(current);
-    },
-    async poll(ticket) {
-      await db.query(`UPDATE tickets SET last_seen = $2 WHERE id = $1 AND state <> 'ended'`, [ticket, now()]);
-      const [row] = await db.query<Row>(SELECT_WITH_POSITION, [[ticket]]);
-      return row ? view(row) : null;
-    },
-    async watch(ticket, listener) {
-      const [row] = await db.query<{ project: string }>(
-        `UPDATE tickets SET last_seen = $2 WHERE id = $1 AND state <> 'ended' RETURNING project`,
-        [ticket, now()],
+  /**
+   * Inside the scheduling transaction: takes the advisory lock, then walks the
+   * waiting tickets in arrival order and moves to `starting` each one whose
+   * project and node still have room. A ticket that does not fit is skipped,
+   * so a full project does not block another project's queue.
+   */
+  async #promoteWaiting(q: Query): Promise<Row[]> {
+    await q(`SELECT pg_advisory_xact_lock(${SCHEDULER_LOCK})`);
+    const usage = await readUsage(q);
+    const waiting = await q<Row>(`SELECT * FROM tickets WHERE state = 'waiting' ORDER BY seq`);
+
+    const promoted: Row[] = [];
+    for (const ticket of waiting) {
+      if (!takeSlot(this.#config, usage, ticket)) continue;
+
+      const [row] = await q<Row>(
+        `UPDATE tickets SET state = 'starting', session_id = $2, start_deadline = $3
+         WHERE id = $1
+         RETURNING *`,
+        [ticket.id, randomId(), this.#now() + START_TIMEOUT_MS],
       );
-      // Unknown or ended tickets still get one delivery (null or the ended view),
-      // then stop; they match no project's notifications in the meantime.
-      const w: Watcher = { ticket, project: row?.project ?? "", listener };
-      watchers.add(w); // before the first read, so no change is missed
-      await refresh([w]);
-      return () => void watchers.delete(w);
-    },
-    async release(ticket) {
-      await end(ticket);
-      await schedule();
-      return queue.poll(ticket);
-    },
-    async tick() {
-      const t = now();
-      if (watchers.size > 0) {
-        await db.query(`UPDATE tickets SET last_seen = $2 WHERE id = ANY($1::text[]) AND state <> 'ended'`, [
-          ticketsOf(watchers),
-          t,
-        ]);
+      promoted.push(row);
+    }
+    return promoted;
+  }
+
+  /** Starts a promoted ticket's session and activates the ticket once the session is reachable. */
+  async #start(ticket: Row): Promise<void> {
+    const session = sessionOf(ticket);
+    const { signal, finish } = this.#trackStart(ticket.id);
+    this.#log("starting", { ticket: ticket.id, project: ticket.project, node: ticket.node });
+
+    try {
+      let url: string;
+      try {
+        ({ url } = await this.#runtime.start(session, signal));
+      } catch (e) {
+        await this.#failStart(ticket, session, e);
+        return;
       }
-      const expired = await db.query<{ id: string; timed_out: boolean }>(
-        `SELECT id, (state = 'starting' AND start_deadline <= $3) AS timed_out FROM tickets
-         WHERE state <> 'ended' AND (
-           last_seen < $1
-           OR (state = 'active' AND ends_at <= $2)
-           OR (state = 'starting' AND start_deadline <= $3))`,
-        [t - HEARTBEAT_LOST_MS, t, t],
-      );
-      for (const e of expired) await end(e.id, e.timed_out ? START_FAILED : undefined);
-      await db.query(`DELETE FROM tickets WHERE state = 'ended' AND ended_at < $1`, [t - FORGET_ENDED_MS]);
-      await schedule();
-      if (t - lastResync >= RESYNC_MS) {
-        lastResync = t;
-        void refresh([...watchers]);
-      }
-    },
-  };
-  return queue;
+      await this.#activate(ticket, session, url);
+    } finally {
+      finish();
+    }
+  }
+
+  /**
+   * Registers a start in flight, with an AbortSignal that fires at the start
+   * deadline or when the ticket ends. `finish` unregisters it. The timer
+   * never keeps the process alive.
+   */
+  #trackStart(ticket: string): { signal: AbortSignal; finish: () => void } {
+    const abort = new AbortController();
+    this.#inFlight.set(ticket, abort);
+    const deadline = setTimeout(() => abort.abort(new Error("start timed out")), START_TIMEOUT_MS);
+    deadline.unref();
+
+    const finish = () => {
+      clearTimeout(deadline);
+      this.#inFlight.delete(ticket);
+    };
+    return { signal: abort.signal, finish };
+  }
+
+  /** Ends a ticket whose start failed and frees its slot. The agent may have created the session before failing. */
+  async #failStart(ticket: Row, session: SessionRef, e: unknown): Promise<void> {
+    this.#log("start failed", { ticket: ticket.id, project: ticket.project, err: String(e) });
+    await this.#end(ticket.id, START_FAILED);
+    await this.#stopSession(session);
+    await this.#schedule();
+  }
+
+  /**
+   * Makes a started ticket active, with its URL and maximum age. A ticket that
+   * ended while starting (visitor left, heartbeat lost) is left alone, and its
+   * session, now an orphan, is stopped.
+   */
+  async #activate(ticket: Row, session: SessionRef, url: string): Promise<void> {
+    const maxAgeMs = (this.#config.projects[ticket.project]?.maxAgeS ?? 0) * 1000;
+    const activated = await this.#db.query(
+      `UPDATE tickets SET state = 'active', url = $2, ends_at = $3
+       WHERE id = $1 AND state = 'starting'
+       RETURNING id`,
+      [ticket.id, url, this.#now() + maxAgeMs],
+    );
+
+    if (activated.length > 0) {
+      this.#log("active", { ticket: ticket.id, project: ticket.project });
+    } else {
+      await this.#stopSession(session);
+    }
+  }
+
+  /** Marks a ticket ended (once), aborts its start if one is in flight here, and stops its session if it had one. */
+  async #end(ticket: string, error?: string): Promise<void> {
+    const [row] = await this.#db.query<Row>(
+      `UPDATE tickets SET state = 'ended', error = coalesce($2, error), ended_at = $3
+       WHERE id = $1 AND state <> 'ended'
+       RETURNING *`,
+      [ticket, error ?? null, this.#now()],
+    );
+    if (!row) return;
+
+    this.#log("ended", { ticket: ticket, project: row.project, error: error ?? null });
+    this.#inFlight.get(ticket)?.abort(new Error("ticket ended"));
+    if (row.session_id) await this.#stopSession(sessionOf(row));
+  }
+
+  /** Stops a session, logging a failure: the agent's reaper removes expired sessions anyway. */
+  async #stopSession(session: SessionRef): Promise<void> {
+    await this.#runtime.stop(session).catch((e) => this.#log("stop failed", { session: session.sessionId, err: String(e) }));
+  }
+
+  /** Watched tickets need no polling: their open stream is the heartbeat (ADR 0012). */
+  async #keepWatchedAlive(t: number): Promise<void> {
+    if (this.#watchers.size === 0) return;
+
+    await this.#db.query(
+      `UPDATE tickets SET last_seen = $2
+       WHERE id = ANY($1::text[]) AND state <> 'ended'`,
+      [this.#watchers.tickets(), t],
+    );
+  }
+
+  /** Ends tickets that lost their heartbeat, reached their maximum age, or missed their start deadline. */
+  async #expireTickets(t: number): Promise<void> {
+    const expired = await this.#db.query<{ id: string; timed_out: boolean }>(
+      `SELECT id, (state = 'starting' AND start_deadline <= $3) AS timed_out
+       FROM tickets
+       WHERE state <> 'ended' AND (
+         last_seen < $1
+         OR (state = 'active' AND ends_at <= $2)
+         OR (state = 'starting' AND start_deadline <= $3))`,
+      [t - HEARTBEAT_LOST_MS, t, t],
+    );
+
+    for (const e of expired) {
+      await this.#end(e.id, e.timed_out ? START_FAILED : undefined);
+    }
+  }
+
+  /** Deletes the tickets ended long enough ago that no visitor will ask for them again. */
+  async #forgetEnded(t: number): Promise<void> {
+    await this.#db.query(`DELETE FROM tickets WHERE state = 'ended' AND ended_at < $1`, [t - FORGET_ENDED_MS]);
+  }
+
+  /** Refreshes every watcher now and then, in case a notification was lost. */
+  #resyncWatchers(t: number): void {
+    if (t - this.#lastResync < RESYNC_MS) return;
+
+    this.#lastResync = t;
+    void this.#watchers.refreshAll();
+  }
 }

@@ -12,6 +12,8 @@ import (
 // agree on every file.
 const fixtures = "../../../../schema/testdata/session_request"
 
+// TestEmbeddedSchemaIsInSync checks that the embedded copy matches the source
+// of truth at the repository root.
 func TestEmbeddedSchemaIsInSync(t *testing.T) {
 	src, err := os.ReadFile("../../../../schema/tryout.schema.json")
 	if err != nil {
@@ -22,6 +24,8 @@ func TestEmbeddedSchemaIsInSync(t *testing.T) {
 	}
 }
 
+// TestSessionRequestFixtures checks every shared fixture: valid ones pass,
+// invalid ones fail.
 func TestSessionRequestFixtures(t *testing.T) {
 	for _, want := range []string{"valid", "invalid"} {
 		files, _ := filepath.Glob(filepath.Join(fixtures, want, "*.json"))
@@ -49,6 +53,7 @@ func TestSessionRequestFixtures(t *testing.T) {
 	}
 }
 
+// TestErrorNamesThePath checks that an error names the failing field.
 func TestErrorNamesThePath(t *testing.T) {
 	err := ValidateSessionRequest([]byte(`{"id":"abcdefghijklmnopqrstuvwxyz","project":"p","image":"x","kind":"terminal","port":7681,"max_age_s":60,"limits":{"cpus":0}}`))
 	if err == nil || !strings.Contains(err.Error(), "/limits/cpus") {
@@ -56,12 +61,16 @@ func TestErrorNamesThePath(t *testing.T) {
 	}
 }
 
+// TestInvalidJSON checks that a body that is not JSON is refused.
 func TestInvalidJSON(t *testing.T) {
 	if err := ValidateSessionRequest([]byte(`{`)); err == nil {
 		t.Fatal("accepted")
 	}
 }
 
+// TestUnknownFieldReportedBesideOtherErrors checks that an unknown field is
+// reported with the other errors, and that a failing known field is not
+// also reported as unknown.
 func TestUnknownFieldReportedBesideOtherErrors(t *testing.T) {
 	err := ValidateSessionRequest([]byte(`{"id":"abcdefghijklmnopqrstuvwxyz","project":"p","image":"x","kind":"terminal","port":0,"max_age_s":60,"privileged":true}`))
 	if err == nil || !strings.Contains(err.Error(), "/privileged: unknown field") || !strings.Contains(err.Error(), "/port:") {
