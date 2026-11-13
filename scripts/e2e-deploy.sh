@@ -135,7 +135,8 @@ cp_url="http://$bind_addr:3000"
 node "$root/scripts/e2e-cli.ts" "$cp_url" cli-hello
 node "$root/scripts/e2e-queue.ts" "$cp_url"
 node "$root/scripts/e2e-sse.ts" "$cp_url" cli-hello
-# The agent's published port, from outside both stacks, with the operator's certificates.
+# The agent's published port, from outside both stacks, with the operator's certificates;
+# the agent's certificate names HOST_ADDR, which may differ from BIND_ADDR (Docker Desktop).
 node "$root/scripts/e2e-mtls.ts" "$bind_addr:7000" --pki "$work/pki" --node cli --server-name "$host_addr"
 
 echo "e2e-deploy: OK (profile $profile)"

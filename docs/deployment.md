@@ -179,13 +179,15 @@ node scripts/e2e-cli.ts https://tryout.example.org cli-hello
 From a machine that reaches a node's agent (the control plane's, or one on the same VPN), check
 that the agent accepts the control plane's certificate and refuses every other client: no
 certificate, TLS 1.2, plain HTTP, the node's own certificate, a certificate from another CA.
-`--pki` is your `tryout-certs` directory; add `--server-name` when you connect through a tunnel
-or a port forward, under another name than the one in the node's certificate. It needs the
-`openssl` command.
+`--pki` is a directory in the `tryout-certs` layout holding `control-plane/` and
+`nodes/<name>/` only: run the check on your own machine, or copy those two directories, never
+`ca/`. Add `--server-name` when you connect through a tunnel or a port forward, under another
+address than the one in the node's certificate. It needs the `openssl` command.
 
 ```bash
 node scripts/e2e-mtls.ts 10.0.50.10:7000 --pki ./pki --node cli
-node scripts/e2e-mtls.ts 127.0.0.1:7000 --pki ./pki --node cli --server-name sbx-cli.internal
+# through a port forward to the agent, from your machine
+node scripts/e2e-mtls.ts 127.0.0.1:7000 --pki ./pki --node cli --server-name 10.0.50.10
 ```
 
 Then embed a project in your portfolio:
