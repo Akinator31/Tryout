@@ -104,8 +104,8 @@ vault with the original stack study (in French) and its sources.
   (ghcr.io images, ADR 0013; YAML config + JSON Schema, ADR 0014; mTLS, ADR 0015; per-IP limits,
   ADR 0016; exit criteria checked on fresh VMs). M2 Live in progress (registry credentials for
   private project images, ADR 0017; production deployment guide and example compose files,
-  `docs/deployment.md`, tested in CI by `scripts/e2e-deploy.sh` with gVisor). Then M3 Design (theme, Figma, React embed; the UI kit is chosen there), M4 Operate, M5
-  Hosting options.
+  `docs/deployment.md`, tested in CI by `scripts/e2e-deploy.sh` with gVisor). Then M3 Design
+  (theme, Figma, React embed; the UI kit is chosen there), M4 Operate, M5 Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module
@@ -156,7 +156,7 @@ node scripts/e2e-cli.ts && node scripts/e2e-queue.ts && node scripts/e2e-sse.ts 
   && node scripts/e2e-limits.ts
 docker compose -f deploy/compose.dev.yaml down -v
 # Production layout (deploy/node + deploy/control-plane); defaults to strict + gVisor.
-# Docker Desktop: NODE_PROFILE=dev HOST_ADDR=host.docker.internal BIND_ADDR=127.0.0.1 CHOWN=: DOCKER_GID=0
+# Docker Desktop: NODE_PROFILE=dev HOST_ADDR=host.docker.internal BIND_ADDR=127.0.0.1 CHOWN_CMD=: DOCKER_GID=0
 scripts/e2e-deploy.sh
 ```
 

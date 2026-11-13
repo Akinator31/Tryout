@@ -2,9 +2,8 @@
 # Guide: docs/deployment.md. Run it next to its .env, on the machine that runs sessions,
 # against the Docker daemon that runs them:
 #   cp .env.example .env && docker compose up -d
-# In single-host, point the Docker CLI at the dedicated rootless daemon as well
-# (DOCKER_HOST=unix:///run/user/<uid>/docker.sock docker compose up -d): the gateway
-# must run on the daemon whose session networks the agent attaches it to.
+# Written for the strict profile (a machine or VM dedicated to sessions); single-host,
+# with a rootless daemon, has its own guide on the roadmap.
 name: tryout-node
 
 x-hardening: &hardening
@@ -36,8 +35,7 @@ services:
       MAX_SESSIONS: ${MAX_SESSIONS:-10}
       SESSION_MAX_AGE_CAP: ${SESSION_MAX_AGE_CAP:-2h}
     volumes:
-      # The daemon that runs sessions. In single-host: the dedicated rootless daemon's
-      # socket, never the main root socket.
+      # The daemon that runs sessions; the gateway must run on the same daemon.
       - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
       - gateway-admin:/run/tryout
       # This node's certificates (pki/nodes/<name>/ from tryout-certs), readable by uid 65532.

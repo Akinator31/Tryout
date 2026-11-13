@@ -10,8 +10,9 @@ deploy/control-plane/   the control plane and PostgreSQL (compose.yaml, .env.exa
 ```
 
 Nothing in them is tied to a provider, a domain or a reverse proxy: you choose how the services
-are exposed. CI deploys these files as written, with gVisor and the `strict` profile, and runs
-the end-to-end tests against them (`scripts/e2e-deploy.sh`).
+are exposed. CI deploys both compose files and their `.env.example`, with gVisor and the
+`strict` profile, and runs the end-to-end tests against them (`scripts/e2e-deploy.sh`). It uses
+its own `tryout.yaml`; the example one is checked against the schema by the unit tests.
 
 ```
                   ┌──────────── your reverse proxy or tunnel (TLS) ────────────┐
@@ -25,15 +26,16 @@ browser ─► https://tryout.example.org             https://sbx.example.dev/s/
                                                    └──────────────────────────┘
 ```
 
-The control plane and a node may share a machine, but read [Security](security.md) first: a
-node belongs on a machine or VM dedicated to sessions (`strict`), or behind a dedicated rootless
-daemon (`single-host`).
+This guide covers nodes in the `strict` profile: a machine or VM dedicated to sessions. The
+control plane may run on the same machine. The `single-host` profile, for a machine shared with
+other services, needs a dedicated rootless daemon and has its own guide on the
+[Roadmap](roadmap.md#m5-hosting-options).
 
 ## Requirements
 
 | Machine | Needs |
 |---|---|
-| Node | Linux, amd64 or arm64; Docker Engine with Compose v2; [gVisor](https://gvisor.dev/docs/user_guide/install/) registered in Docker as `runsc`; for `single-host`, a dedicated rootless daemon and cgroup v2 |
+| Node | Linux, amd64 or arm64; Docker Engine with Compose v2; [gVisor](https://gvisor.dev/docs/user_guide/install/) registered in Docker as `runsc` |
 | Control plane | Docker Engine with Compose v2 |
 | Your machine | Docker, to run `tryout-certs` |
 | Network | the control plane reaches each agent's port 7000 over a private network, a VPN or a tunnel; your proxy reaches the control plane's port 3000 and each gateway's port 8080 |
@@ -80,7 +82,7 @@ Fill in `.env`:
 | Variable | Value |
 |---|---|
 | `TRYOUT_VERSION` | the version to run, pinned by digest in production: `0.1.0@sha256:…` |
-| `NODE_PROFILE` | `strict` (a machine or VM dedicated to sessions) or `single-host` |
+| `NODE_PROFILE` | `strict`: a machine or VM dedicated to sessions |
 | `DOCKER_SOCKET`, `DOCKER_GID` | the socket of the daemon that runs sessions, and its group: `stat -c %g /var/run/docker.sock` |
 | `GATEWAY_TOKEN` | `openssl rand -hex 32` |
 | `AGENT_PUBLISH` | where the agent's API is published: a private or VPN address and port, or `127.0.0.1:7000` when a tunnel carries it. **Never a public address.** |
@@ -100,20 +102,10 @@ The agent refuses to start when the profile is not met, with the reason in its l
 ### Private project images
 
 If a project image is private, write its registry credentials to `registry/auth.json` next to
-`compose.yaml` and set `REGISTRY_AUTH_FILE=/etc/tryout/registry/auth.json` in `.env`. The file
+`compose.yaml` (Docker creates an empty `registry/` otherwise) and set `REGISTRY_AUTH_FILE=/etc/tryout/registry/auth.json` in `.env`. The file
 format and the token to use are in [Project images](project-images.md#private-images). The
 sample project `ghcr.io/akinator31/tryout-example-cli-hello` needs it while the packages are
 private.
-
-### `single-host`
-
-On a machine shared with other services, the node uses a dedicated rootless daemon, never the
-main root socket:
-
-- set `NODE_PROFILE=single-host`, and `DOCKER_SOCKET` and `DOCKER_GID` to the rootless
-  daemon's socket (`/run/user/<uid>/docker.sock`) and its group;
-- run Compose **against that daemon**, so that the gateway runs where the sessions run:
-  `DOCKER_HOST=unix:///run/user/<uid>/docker.sock docker compose up -d`.
 
 ### Network isolation
 

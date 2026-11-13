@@ -69,6 +69,19 @@ test("the dev configuration is valid", () => {
   assert.deepEqual(warnings, []);
 });
 
+test("the production example configuration is valid", () => {
+  // Same layout as deploy/control-plane/compose.yaml: pki/ next to the configuration.
+  const dir = mkdtempSync(join(tmpdir(), "tryout-prod-"));
+  mkdirSync(join(dir, "pki"));
+  copyFileSync(new URL("deploy/control-plane/tryout.yaml", root), join(dir, "tryout.yaml"));
+  copyFileSync(pki.caFile, join(dir, "pki/ca.crt"));
+  copyFileSync(join(pki.dir, "cp.crt"), join(dir, "pki/tls.crt"));
+  copyFileSync(join(pki.dir, "cp.key"), join(dir, "pki/tls.key"));
+  const { config, warnings } = loadConfig(join(dir, "tryout.yaml"), {});
+  assert.equal(config.projects["cli-hello"].node, "cli");
+  assert.deepEqual(warnings, []);
+});
+
 test("shared session request fixtures: ajv agrees with the agent", () => {
   for (const want of ["valid", "invalid"]) {
     const dir = new URL(`schema/testdata/session_request/${want}/`, root);

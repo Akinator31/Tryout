@@ -16,7 +16,7 @@
 #                   host.docker.internal with Docker Desktop)
 #   BIND_ADDR       address the services are published on (default: HOST_ADDR;
 #                   127.0.0.1 with Docker Desktop)
-#   CHOWN           command that gives a directory to a uid (default: sudo chown -R;
+#   CHOWN_CMD       command that gives a directory to a uid (default: sudo chown -R;
 #                   ":" where bind mounts ignore ownership, as with Docker Desktop)
 #   KEEP=1          leave the stack running
 set -euo pipefail
@@ -26,7 +26,7 @@ mkdir -p "$root/.cache"
 work=$(mktemp -d -p "$root/.cache" e2e-deploy.XXXXXX)
 host_addr=${HOST_ADDR:-$(hostname -I | awk '{print $1}')}
 bind_addr=${BIND_ADDR:-$host_addr}
-chown_cmd=${CHOWN:-sudo chown -R}
+chown_cmd=${CHOWN_CMD:-sudo chown -R}
 profile=${NODE_PROFILE:-strict}
 
 if [ -z "${TRYOUT_VERSION:-}" ]; then
@@ -42,6 +42,17 @@ if [ -z "$project_image" ]; then
   docker build -q -t "$project_image" "$root/examples/cli-hello" >/dev/null
 fi
 
+# write_env <dir> <image variable> <sed args...>: .env from .env.example, with the
+# image under test.
+write_env() {
+  local dir=$1 image_var=$2
+  shift 2
+  {
+    sed "$@" -e "/^TRYOUT_VERSION=/d" "$work/$dir/.env.example"
+    echo "TRYOUT_VERSION=$TRYOUT_VERSION"
+    if [ -n "${!image_var:-}" ]; then echo "$image_var=${!image_var}"; fi
+  } >"$work/$dir/.env"
+}
 compose() { docker compose --project-directory "$work/$1" -f "$work/$1/compose.yaml" "${@:2}"; }
 cleanup() {
   status=$?
@@ -77,30 +88,20 @@ $chown_cmd 1000:1000 "$work/control-plane/pki"
 
 # 3. Node.
 docker_sock=${DOCKER_SOCKET:-/var/run/docker.sock}
-{
-  sed -e "s|^NODE_PROFILE=.*|NODE_PROFILE=$profile|" \
-      -e "s|^DOCKER_SOCKET=.*|DOCKER_SOCKET=$docker_sock|" \
-      -e "s|^DOCKER_GID=.*|DOCKER_GID=${DOCKER_GID:-$(stat -c %g "$docker_sock")}|" \
-      -e "s|^GATEWAY_TOKEN=.*|GATEWAY_TOKEN=$(openssl rand -hex 32)|" \
-      -e "s|^AGENT_PUBLISH=.*|AGENT_PUBLISH=$bind_addr:7000|" \
-      -e "s|^GATEWAY_PUBLISH=.*|GATEWAY_PUBLISH=$bind_addr:8080|" \
-      -e "s|^FRAME_ANCESTORS=.*|FRAME_ANCESTORS=http://$bind_addr:3000|" \
-      -e "/^TRYOUT_VERSION=/d" \
-      "$work/node/.env.example"
-  echo "TRYOUT_VERSION=$TRYOUT_VERSION"
-  if [ -n "${TRYOUT_NODE_IMAGE:-}" ]; then echo "TRYOUT_NODE_IMAGE=$TRYOUT_NODE_IMAGE"; fi
-} >"$work/node/.env"
+write_env node TRYOUT_NODE_IMAGE \
+  -e "s|^NODE_PROFILE=.*|NODE_PROFILE=$profile|" \
+  -e "s|^DOCKER_SOCKET=.*|DOCKER_SOCKET=$docker_sock|" \
+  -e "s|^DOCKER_GID=.*|DOCKER_GID=${DOCKER_GID:-$(stat -c %g "$docker_sock")}|" \
+  -e "s|^GATEWAY_TOKEN=.*|GATEWAY_TOKEN=$(openssl rand -hex 32)|" \
+  -e "s|^AGENT_PUBLISH=.*|AGENT_PUBLISH=$bind_addr:7000|" \
+  -e "s|^GATEWAY_PUBLISH=.*|GATEWAY_PUBLISH=$bind_addr:8080|" \
+  -e "s|^FRAME_ANCESTORS=.*|FRAME_ANCESTORS=http://$bind_addr:3000|"
 compose node up -d --quiet-pull
 
 # 4. Control plane: the operator writes their own tryout.yaml from the example.
-{
-  sed -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 32)|" \
-      -e "s|^CONTROL_PLANE_PUBLISH=.*|CONTROL_PLANE_PUBLISH=$bind_addr:3000|" \
-      -e "/^TRYOUT_VERSION=/d" \
-      "$work/control-plane/.env.example"
-  echo "TRYOUT_VERSION=$TRYOUT_VERSION"
-  if [ -n "${TRYOUT_CONTROL_PLANE_IMAGE:-}" ]; then echo "TRYOUT_CONTROL_PLANE_IMAGE=$TRYOUT_CONTROL_PLANE_IMAGE"; fi
-} >"$work/control-plane/.env"
+write_env control-plane TRYOUT_CONTROL_PLANE_IMAGE \
+  -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 32)|" \
+  -e "s|^CONTROL_PLANE_PUBLISH=.*|CONTROL_PLANE_PUBLISH=$bind_addr:3000|"
 cat >"$work/control-plane/tryout.yaml" <<EOF
 listen: ":3000"
 embed_frame_ancestors: ["http://$bind_addr:3000"]
@@ -127,7 +128,8 @@ for _ in $(seq 90); do
   curl -fs "http://$bind_addr:3000/healthz" >/dev/null && curl -fs "http://$bind_addr:8080/healthz" >/dev/null && break
   sleep 1
 done
-curl -fs "http://$bind_addr:3000/healthz" >/dev/null
+curl -fsS "http://$bind_addr:3000/healthz" >/dev/null
+curl -fsS "http://$bind_addr:8080/healthz" >/dev/null
 
 cp_url="http://$bind_addr:3000"
 node "$root/scripts/e2e-cli.ts" "$cp_url" cli-hello
