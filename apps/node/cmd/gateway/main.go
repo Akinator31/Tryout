@@ -3,7 +3,7 @@
 // Public:  /s/<session-id>/...  -> session container (HTTP + WebSocket)
 // Admin:   PUT /routes on a unix socket (bearer token, agent only)
 //
-// The session id is a 128-bit+ random capability carried in every request,
+// The session id is a 130-bit random capability carried in every request,
 // so no cookies are needed (third-party cookies are blocked in iframes).
 //
 // Files of this package: main.go (wiring), routes.go (the route table, the

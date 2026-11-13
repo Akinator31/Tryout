@@ -11,7 +11,7 @@ import (
 func TestContainerSpecHardening(t *testing.T) {
 	a := testAgent("strict", false)
 
-	for _, kind := range []string{"terminal", "desktop"} {
+	for _, kind := range []sessionKind{kindTerminal, kindDesktop} {
 		r := validReq(kind)
 		if err := r.validate(a); err != nil {
 			t.Fatal(err)

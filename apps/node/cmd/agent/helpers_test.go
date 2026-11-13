@@ -26,7 +26,7 @@ func testAgent(profile string, allowRunc bool) *agent {
 }
 
 // validReq returns a minimal valid request of the given kind.
-func validReq(kind string) sessionReq {
+func validReq(kind sessionKind) sessionReq {
 	return sessionReq{ID: strings.Repeat("a", 26), Project: "p", Image: "img", Kind: kind, Port: 3000}
 }
 

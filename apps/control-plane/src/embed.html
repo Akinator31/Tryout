@@ -94,6 +94,7 @@ async function onStreamError() {
   if (current === ticket) retry = setTimeout(listen, 3000);
 }
 
+/** Shows a ticket's view, pushed or polled, whatever its state. */
 function render(v) {
   if (v.state === "waiting") {
     show(`Queue position: <b>${v.position}</b><br><small>Your session will start automatically.</small>`);
@@ -119,6 +120,7 @@ function renderActive(v) {
   bar.hidden = false;
 }
 
+/** Updates the remaining time shown under the session. */
 function tickDown() {
   const left = Math.max(0, Math.round((endsAt - Date.now()) / 1000));
   const seconds = String(left % 60).padStart(2, "0");

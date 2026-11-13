@@ -17,6 +17,16 @@ import (
 // container and network names and in the gateway's /s/<id>/ paths.
 var sessionIDRe = regexp.MustCompile(`^[a-z0-9]{26}$`)
 
+// sessionKind is what a session serves: a web terminal (ttyd) or a streamed
+// desktop (Selkies). The kind selects the hardening variant, the locked
+// environment and the default limits.
+type sessionKind string
+
+const (
+	kindTerminal sessionKind = "terminal"
+	kindDesktop  sessionKind = "desktop"
+)
+
 // limits are a session's resource limits. Zero means the kind's default.
 type limits struct {
 	MemoryMB int     `json:"memory_mb"`
@@ -26,9 +36,9 @@ type limits struct {
 
 // defaultLimits are the resource limits of each session kind, used for the
 // fields a request leaves at zero.
-var defaultLimits = map[string]limits{
-	"terminal": {MemoryMB: 256, CPUs: 0.5, Pids: 128},
-	"desktop":  {MemoryMB: 2048, CPUs: 1.5, Pids: 1024},
+var defaultLimits = map[sessionKind]limits{
+	kindTerminal: {MemoryMB: 256, CPUs: 0.5, Pids: 128},
+	kindDesktop:  {MemoryMB: 2048, CPUs: 1.5, Pids: 1024},
 }
 
 // sessionReq is the body of POST /v1/sessions.
@@ -36,7 +46,7 @@ type sessionReq struct {
 	ID          string            `json:"id"`
 	Project     string            `json:"project"`
 	Image       string            `json:"image"`
-	Kind        string            `json:"kind"` // terminal | desktop
+	Kind        sessionKind       `json:"kind"`
 	Port        int               `json:"port"`
 	Runtime     string            `json:"runtime,omitempty"`
 	MaxAgeS     int               `json:"max_age_s"`
@@ -83,7 +93,7 @@ func (r *sessionReq) checkShape() error {
 		return errors.New("invalid id")
 	case r.Image == "":
 		return errors.New("image required")
-	case r.Kind != "terminal" && r.Kind != "desktop":
+	case r.Kind != kindTerminal && r.Kind != kindDesktop:
 		return errors.New("kind must be terminal or desktop")
 	case r.Port <= 0 || r.Port > 65535:
 		return errors.New("invalid port")
@@ -179,9 +189,9 @@ func lockedEnv(r sessionReq) map[string]string {
 	}
 
 	switch r.Kind {
-	case "terminal":
+	case kindTerminal:
 		env["HOME"] = "/tmp"
-	case "desktop":
+	case kindDesktop:
 		maps.Copy(env, desktopLockedEnv)
 		env["SUBFOLDER"] = base + "/"
 	}
@@ -196,8 +206,8 @@ func isReservedEnv(k string) bool {
 		return true
 	}
 
-	_, inTerminal := lockedEnv(sessionReq{Kind: "terminal"})[k]
-	_, inDesktop := lockedEnv(sessionReq{Kind: "desktop"})[k]
+	_, inTerminal := lockedEnv(sessionReq{Kind: kindTerminal})[k]
+	_, inDesktop := lockedEnv(sessionReq{Kind: kindDesktop})[k]
 	return inTerminal || inDesktop
 }
 
@@ -205,7 +215,7 @@ func isReservedEnv(k string) bool {
 // locked env. The result is sorted for deterministic container specs.
 func sessionEnv(r sessionReq) []string {
 	merged := map[string]string{}
-	if r.Kind == "desktop" {
+	if r.Kind == kindDesktop {
 		maps.Copy(merged, desktopDefaults)
 		merged["TITLE"] = r.Project
 	}

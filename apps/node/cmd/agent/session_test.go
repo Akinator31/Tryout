@@ -139,7 +139,7 @@ func TestSchemaReservedEnvMatchesLockedEnv(t *testing.T) {
 	}
 
 	want := map[string]bool{}
-	for _, kind := range []string{"terminal", "desktop"} {
+	for _, kind := range []sessionKind{kindTerminal, kindDesktop} {
 		for k := range lockedEnv(sessionReq{Kind: kind}) {
 			if !strings.HasPrefix(k, "TRYOUT_") {
 				want[k] = true

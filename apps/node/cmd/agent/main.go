@@ -32,12 +32,6 @@ import (
 	"github.com/Akinator31/Tryout/apps/node/internal/registryauth"
 )
 
-// Periods of the background loops.
-const (
-	reconcileInterval   = 10 * time.Second
-	expiryCheckInterval = 24 * time.Hour
-)
-
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
@@ -110,12 +104,4 @@ func unixSocketClient(path string) *http.Client {
 		return d.DialContext(ctx, "unix", path)
 	}
 	return &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{DialContext: dial}}
-}
-
-// reconcileForever runs the reconcile loop for the agent's whole life.
-func (a *agent) reconcileForever(ctx context.Context) {
-	for {
-		a.reconcile(ctx)
-		time.Sleep(reconcileInterval)
-	}
 }

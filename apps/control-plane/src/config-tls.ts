@@ -68,11 +68,16 @@ function readPemFiles(v: Record<string, unknown>, baseDir: string, report: Repor
   return pem;
 }
 
+/** The CA file must hold a CA certificate, within its validity dates. */
 function checkCa(ca: X509Certificate, checkDates: (k: PemFile, c: X509Certificate) => void, report: Report): void {
   if (!ca.ca) report(["agent_tls", "ca"], "not a CA certificate");
   checkDates("ca", ca);
 }
 
+/**
+ * The control plane's certificate must allow client authentication (ADR 0015:
+ * agents refuse any other leaf), be within its validity dates and match its key.
+ */
 function checkClientCert(
   cert: X509Certificate,
   key: KeyObject | undefined,

@@ -180,6 +180,10 @@ function checkSemantics(
   };
 }
 
+/**
+ * `server_name` overrides the name checked in the agent's certificate, so it
+ * must be a DNS name: an IP address belongs in the certificate itself.
+ */
 function checkServerNames(nodes: Record<string, NodeConfig>, report: Report): void {
   for (const [name, n] of Object.entries(nodes)) {
     if (isObject(n) && typeof n.server_name === "string" && isIP(n.server_name)) {
@@ -191,6 +195,10 @@ function checkServerNames(nodes: Record<string, NodeConfig>, report: Report): vo
   }
 }
 
+/**
+ * Reads `client_ip`: every trusted proxy must be an address or a CIDR block,
+ * and `header` is kept only when set (ADR 0016).
+ */
 function checkClientIp(v: unknown, report: Report): ClientIpConfig {
   const clientIp = (isObject(v) ? v : {}) as Partial<ClientIpConfig>;
   const trustedProxies = Array.isArray(clientIp.trusted_proxies) ? clientIp.trusted_proxies : [];

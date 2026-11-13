@@ -13,6 +13,7 @@ function fail(msg: string): never {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const release = (t: string) => fetch(`${CP}/api/tickets/${t}/release`, { method: "POST" });
 
+/** Joins the project's queue and returns the new ticket's id. */
 async function join(): Promise<string> {
   const r = await fetch(`${CP}/api/projects/${P}/tickets`, { method: "POST" });
   return (await r.json()).ticket;

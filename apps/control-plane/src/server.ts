@@ -14,6 +14,7 @@ function log(msg: string, extra: Record<string, unknown> = {}) {
   console.log(JSON.stringify({ t: new Date().toISOString(), msg, ...extra }));
 }
 
+/** The Postgres connection string; the control plane refuses to start without it. */
 function requireDatabaseUrl(): string {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {

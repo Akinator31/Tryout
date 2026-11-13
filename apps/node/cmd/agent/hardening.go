@@ -47,11 +47,11 @@ func hostConfig(r sessionReq, netName string) dockerapi.HostConfig {
 	}
 
 	switch r.Kind {
-	case "terminal":
+	case kindTerminal:
 		hc.Init = true
 		hc.ReadonlyRootfs = true
 		hc.Tmpfs = map[string]string{"/tmp": "rw,nosuid,nodev,size=64m,mode=1777"}
-	case "desktop":
+	case kindDesktop:
 		hc.CapAdd = slices.Clone(desktopCapabilities)
 		hc.ShmSize = 1 << 30
 	}

@@ -48,6 +48,7 @@ export function createHandler(cfg: Config, queue: Queue, log: (msg: string) => v
   const streams = new StreamLimiter(cfg.limits.streams_per_ip);
   const clientOf = (req: IncomingMessage) => clientKey(req.socket.remoteAddress, req.headers);
 
+  /** Creates a ticket; 404 for an unknown project, 429 when a per-IP ticket limit refuses it. */
   async function join(req: IncomingMessage, res: ServerResponse, project: string): Promise<void> {
     try {
       return json(res, 201, wire(await queue.join(project, clientOf(req))));
@@ -69,16 +70,9 @@ export function createHandler(cfg: Config, queue: Queue, log: (msg: string) => v
     return streamTicket(queue, ticket, req, res);
   }
 
-  /** Polls or releases a ticket; undefined when the request matches neither. */
-  async function ticketAction(method: string | undefined, parts: string[]): Promise<TicketView | null | undefined> {
-    if (method === "GET" && parts.length === 3) return queue.poll(parts[2]);
-    if (method === "POST" && parts[3] === "release") return queue.release(parts[2]);
-    return undefined;
-  }
-
-  async function ticket(req: IncomingMessage, res: ServerResponse, parts: string[]): Promise<void> {
-    const v = await ticketAction(req.method, parts);
-    if (v === undefined) return json(res, 404, { error: "not found" });
+  /** Answers with a ticket's view after a poll or a release; 404 when the ticket is unknown. */
+  async function ticket(res: ServerResponse, view: Promise<TicketView | null>): Promise<void> {
+    const v = await view;
     if (v === null) return json(res, 404, { error: "unknown ticket" });
     return json(res, 200, wire(v));
   }
@@ -94,7 +88,8 @@ export function createHandler(cfg: Config, queue: Queue, log: (msg: string) => v
     if (isGet && url.pathname === "/demo") return serveDemo(cfg, res);
     if (isPost && api("projects") && parts[3] === "tickets") return join(req, res, parts[2]);
     if (isGet && api("tickets") && parts[3] === "events" && parts.length === 4) return openStream(req, res, parts[2]);
-    if (api("tickets") && parts[2]) return ticket(req, res, parts);
+    if (isGet && api("tickets") && parts.length === 3) return ticket(res, queue.poll(parts[2]));
+    if (isPost && api("tickets") && parts[3] === "release") return ticket(res, queue.release(parts[2]));
     if (url.pathname === "/healthz") return json(res, 200, { ok: true });
 
     json(res, 404, { error: "not found" });
@@ -113,6 +108,7 @@ function serveEmbed(cfg: Config, res: ServerResponse, project: string): void {
   res.end(embedHtml.replaceAll("__PROJECT__", project));
 }
 
+/** The demo page, listing the configured projects. */
 function serveDemo(cfg: Config, res: ServerResponse): void {
   res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
   res.end(demoHtml.replace("__PROJECTS__", JSON.stringify(Object.keys(cfg.projects))));

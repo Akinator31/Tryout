@@ -62,6 +62,9 @@ func warnExpiry(certs []*x509.Certificate, now time.Time) {
 	}
 }
 
+// expiryCheckInterval is how often a running agent checks its certificates' expiry.
+const expiryCheckInterval = 24 * time.Hour
+
 // warnExpiryForever repeats warnExpiry daily, since a long-running agent
 // would otherwise only warn at startup.
 func warnExpiryForever(certs []*x509.Certificate) {

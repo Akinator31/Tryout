@@ -9,6 +9,17 @@ import (
 	"github.com/Akinator31/Tryout/apps/node/internal/dockerapi"
 )
 
+// reconcileInterval is the period of the reconcile loop.
+const reconcileInterval = 10 * time.Second
+
+// reconcileForever runs the reconcile loop for the agent's whole life.
+func (a *agent) reconcileForever(ctx context.Context) {
+	for {
+		a.reconcile(ctx)
+		time.Sleep(reconcileInterval)
+	}
+}
+
 // reconcile brings the node back to the state its Docker labels describe:
 // Docker labels are the source of truth on the node. It reaps expired and
 // dead sessions, removes orphan networks, attaches a recreated gateway again
