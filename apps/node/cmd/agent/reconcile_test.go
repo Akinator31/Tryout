@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Akinator31/Tryout/apps/node/internal/dockerapi"
 )
 
 // TestReconcileReattachesGateway: a recreated gateway (an upgrade) is attached
@@ -32,7 +34,8 @@ func TestReconcileReattachesGateway(t *testing.T) {
 			state = "created"
 		}
 		labels := map[string]string{labelSession: id, labelExpires: future, labelPort: "7681"}
-		return map[string]any{"Id": id, "State": state, "Created": time.Now().Unix(), "Labels": labels}
+		labels[labelCreated] = fmt.Sprint(time.Now().Unix())
+		return map[string]any{"Id": id, "State": state, "Labels": labels}
 	}
 	gatewayNetworks := map[string]any{"tryout_default": map[string]any{}, namePrefix + attached: map[string]any{}}
 
@@ -101,7 +104,8 @@ func TestReconcileReapsStuckCreatedContainers(t *testing.T) {
 	future := fmt.Sprint(time.Now().Add(time.Hour).Unix())
 	created := func(id string, age time.Duration) map[string]any {
 		labels := map[string]string{labelSession: id, labelExpires: future, labelPort: "7681"}
-		return map[string]any{"Id": id, "State": "created", "Created": time.Now().Add(-age).Unix(), "Labels": labels}
+		labels[labelCreated] = fmt.Sprint(time.Now().Add(-age).Unix())
+		return map[string]any{"Id": id, "State": "created", "Labels": labels}
 	}
 
 	var mu sync.Mutex
@@ -147,5 +151,38 @@ func TestReconcileReapsStuckCreatedContainers(t *testing.T) {
 	defer mu.Unlock()
 	if want := []string{namePrefix + stuck}; !slices.Equal(removed, want) {
 		t.Errorf("removed %v, want %v", removed, want)
+	}
+}
+
+// TestShouldReap covers each reason to reap a session container, and the
+// containers kept. Ages come from the agent's labels, never from the daemon.
+func TestShouldReap(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	container := func(state string, age, expiresIn time.Duration) dockerapi.ContainerSummary {
+		return dockerapi.ContainerSummary{State: state, Labels: map[string]string{
+			labelCreated: fmt.Sprint(now.Add(-age).Unix()),
+			labelExpires: fmt.Sprint(now.Add(expiresIn).Unix()),
+		}}
+	}
+
+	cases := []struct {
+		name string
+		c    dockerapi.ContainerSummary
+		want string
+	}{
+		{"running", container("running", time.Hour, time.Hour), ""},
+		{"just created", container("created", 5*time.Second, time.Hour), ""},
+		{"created a minute ago", container("created", time.Minute, time.Hour), ""},
+		{"stuck in created", container("created", 2*time.Minute, time.Hour), "stuck"},
+		{"exited", container("exited", time.Minute, time.Hour), "dead"},
+		{"expired", container("running", time.Hour, -time.Second), "expired"},
+		{"created before the label existed", dockerapi.ContainerSummary{State: "created", Labels: map[string]string{
+			labelExpires: fmt.Sprint(now.Add(time.Hour).Unix()),
+		}}, "stuck"},
+	}
+	for _, c := range cases {
+		if got := shouldReap(c.c, now); got != c.want {
+			t.Errorf("%s: shouldReap = %q, want %q", c.name, got, c.want)
+		}
 	}
 }

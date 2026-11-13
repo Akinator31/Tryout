@@ -14,6 +14,7 @@ import (
 const (
 	labelSession = "tryout.session"
 	labelProject = "tryout.project"
+	labelCreated = "tryout.created"
 	labelExpires = "tryout.expires"
 	labelPort    = "tryout.port"
 	labelStrip   = "tryout.strip-prefix"

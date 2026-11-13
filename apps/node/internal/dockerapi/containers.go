@@ -74,11 +74,10 @@ func (c *Client) ContainerRemove(ctx context.Context, id string) error {
 
 // ContainerSummary is an entry of GET /containers/json.
 type ContainerSummary struct {
-	ID      string `json:"Id"`
-	Names   []string
-	State   string
-	Created int64 // creation time, in Unix seconds
-	Labels  map[string]string
+	ID     string `json:"Id"`
+	Names  []string
+	State  string
+	Labels map[string]string
 }
 
 // ContainerList lists the containers carrying label, in any state.

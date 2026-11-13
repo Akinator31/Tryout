@@ -25,8 +25,8 @@ func (a *agent) reconcileForever(ctx context.Context) {
 }
 
 // reconcile brings the node back to the state its Docker labels describe:
-// Docker labels are the source of truth on the node. It reaps expired and
-// dead sessions, removes orphan networks, attaches a recreated gateway again
+// Docker labels are the source of truth on the node. It reaps expired, dead
+// and stuck sessions (see shouldReap), removes orphan networks, attaches a recreated gateway again
 // to running sessions and pushes the route table. Sessions being created or
 // removed through the API are left alone.
 func (a *agent) reconcile(ctx context.Context) {
@@ -72,21 +72,17 @@ func (a *agent) reapSessions(ctx context.Context, cs []dockerapi.ContainerSummar
 }
 
 // shouldReap tells why a session container that no request is creating or
-// removing must go, or returns "" to keep it:
+// removing must go, or returns "" to keep it: "expired" past its maximum age,
+// "dead" when neither running nor created, "stuck" when created more than
+// stuckCreatedAfter ago.
 //
-//   - "expired": past its maximum age;
-//   - "dead": neither running nor created (exited, dead...);
-//   - "stuck": created more than stuckCreatedAfter ago. Create starts its
-//     container right after creating it, so nobody will start this one. It
-//     is the trace of a create aborted by the control plane (the visitor left
-//     while the session was starting): Docker can finish creating the
-//     container after destroy has already run. Kept, it would hold a slot
-//     until it expires and fill the node.
-//
-// The age guard also covers the reconcile pass's busy snapshot, which is
-// taken before the listing: a create that starts after the snapshot owns a
-// container only milliseconds old.
+// A stuck container is the trace of a create aborted by the control plane
+// (the visitor left while the session was starting): Docker can finish
+// creating it after create's rollback ran. Nobody will start it, and kept, it
+// would hold a slot until it expires. The age, read from the agent's own
+// label, also protects a create that starts after the pass's busy snapshot.
 func shouldReap(c dockerapi.ContainerSummary, now time.Time) string {
+	created, _ := strconv.ParseInt(c.Labels[labelCreated], 10, 64)
 	expires, _ := strconv.ParseInt(c.Labels[labelExpires], 10, 64)
 
 	switch {
@@ -94,7 +90,7 @@ func shouldReap(c dockerapi.ContainerSummary, now time.Time) string {
 		return "expired"
 	case c.State != "running" && c.State != "created":
 		return "dead"
-	case c.State == "created" && now.Sub(time.Unix(c.Created, 0)) > stuckCreatedAfter:
+	case c.State == "created" && now.Sub(time.Unix(created, 0)) > stuckCreatedAfter:
 		return "stuck"
 	}
 	return ""
