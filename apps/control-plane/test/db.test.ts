@@ -14,9 +14,15 @@ const skip = url ? false : "needs TEST_DATABASE_URL";
 const DELAY_MS = 20;
 const TIMEOUT_MS = 100;
 
-type Mode = "forward" | "refuse" | "hold";
+const TRIES = 400; // eventually() polls every 5 ms: about 2 s
 
-/** TCP proxy to the database. `hold` accepts connections but forwards nothing until `forward`. */
+type Mode = "forward" | "refuse" | "hold" | "drop-query";
+
+/**
+ * TCP proxy to the database. `hold` accepts connections but forwards nothing
+ * until `forward`; `drop-query` lets the handshake through, then cuts the link
+ * when the client sends a simple query (such as LISTEN).
+ */
 async function dbProxy(target: string) {
   const { hostname, port } = new URL(target);
   const sockets = new Set<net.Socket>();
@@ -30,7 +36,14 @@ async function dbProxy(target: string) {
     upstream.on("close", () => sockets.delete(upstream));
     client.on("error", () => upstream.destroy());
     upstream.on("error", () => client.destroy());
-    client.pipe(upstream).pipe(client);
+    client.on("data", (chunk) => {
+      if (mode === "drop-query" && chunk[0] === 0x51 /* 'Q' */) {
+        client.destroy();
+        upstream.destroy();
+      } else upstream.write(chunk);
+    });
+    client.on("end", () => upstream.end());
+    upstream.pipe(client);
   };
   const server = net.createServer((client) => {
     accepted++;
@@ -84,14 +97,17 @@ const listening = (channel: string) =>
   ]);
 
 /** Subscribes through the proxy and records what pgDb reports. */
-async function subscribe(proxyUrl: string) {
+async function subscribe(proxyUrl: string, listenTimeoutMs = TIMEOUT_MS) {
   const channel = `test_${randomUUID().replaceAll("-", "")}`;
-  const db = pgDb(proxyUrl, { relistenDelayMs: DELAY_MS, listenTimeoutMs: TIMEOUT_MS });
+  const db = pgDb(proxyUrl, { relistenDelayMs: DELAY_MS, listenTimeoutMs });
+  let closing: Promise<void> | undefined;
+  const close = () => (closing ??= db.close());
   const got: string[] = [];
   let connects = 0;
   await db.listen(channel, (p) => got.push(p), () => connects++);
   return {
-    db,
+    close,
+    [Symbol.asyncDispose]: close, // also on a failed assertion: stops the reconnect loop
     channel,
     got,
     get connects() { return connects; },
@@ -101,6 +117,7 @@ async function subscribe(proxyUrl: string) {
       const seen = await eventually(
         async () => { await notify(channel, `${tag}-${++n}`); return got; },
         (g) => g.some((p) => p.startsWith(`${tag}-`)),
+        TRIES,
       );
       return seen.some((p) => p.startsWith(`${tag}-`));
     },
@@ -121,7 +138,7 @@ test("the first LISTEN connection failing fails listen()", { skip }, async () =>
 
 test("LISTEN resumes after the server terminates the session", { skip }, async () => {
   await using proxy = await dbProxy(url!);
-  const s = await subscribe(proxy.url);
+  await using s = await subscribe(proxy.url);
   assert.equal(s.connects, 1);
   assert.ok(await s.live("before"));
 
@@ -129,50 +146,62 @@ test("LISTEN resumes after the server terminates the session", { skip }, async (
   assert.equal(backends.length, 1, "the LISTEN backend was found");
   await direct("SELECT pg_terminate_backend($1)", [backends[0].pid]);
 
-  await eventually(async () => s.connects, (n) => n === 2);
+  await eventually(async () => s.connects, (n) => n === 2, TRIES);
   assert.equal(s.connects, 2, "onConnect runs again so the caller resynchronises");
   assert.ok(await s.live("after"));
-  await s.db.close();
 });
 
 test("LISTEN keeps retrying while the database is unreachable", { skip }, async () => {
   await using proxy = await dbProxy(url!);
-  const s = await subscribe(proxy.url);
+  await using s = await subscribe(proxy.url);
   proxy.setMode("refuse");
   proxy.cut();
-  await eventually(async () => proxy.accepted, (n) => n >= 4);
+  await eventually(async () => proxy.accepted, (n) => n >= 4, TRIES);
   assert.ok(proxy.accepted >= 4, "several failed attempts");
   assert.equal(s.connects, 1);
 
   proxy.setMode("forward");
-  await eventually(async () => s.connects, (n) => n === 2);
+  await eventually(async () => s.connects, (n) => n === 2, TRIES);
   assert.equal(s.connects, 2);
   assert.ok(await s.live("back"));
-  await s.db.close();
+});
+
+test("a link dropped during LISTEN is retried without crashing", { skip }, async () => {
+  await using proxy = await dbProxy(url!);
+  await using s = await subscribe(proxy.url);
+  proxy.setMode("drop-query"); // connected, then cut before LISTEN completes
+  proxy.cut();
+  await eventually(async () => proxy.accepted, (n) => n >= 3, TRIES);
+  assert.ok(proxy.accepted >= 3, "several attempts cut during LISTEN");
+
+  proxy.setMode("forward");
+  await eventually(async () => s.connects, (n) => n === 2, TRIES);
+  assert.equal(s.connects, 2);
+  assert.ok(await s.live("back"));
 });
 
 test("a hung attempt times out and is retried", { skip }, async () => {
   await using proxy = await dbProxy(url!);
-  const s = await subscribe(proxy.url);
+  await using s = await subscribe(proxy.url);
   proxy.setMode("hold"); // accepts, never answers
   proxy.cut();
-  await eventually(async () => proxy.accepted, (n) => n >= 4, 100);
+  await eventually(async () => proxy.accepted, (n) => n >= 4, TRIES);
   assert.ok(proxy.accepted >= 4, "attempts keep coming despite the silent server");
 
   proxy.setMode("forward");
-  await eventually(async () => s.connects, (n) => n === 2, 100);
+  await eventually(async () => s.connects, (n) => n === 2, TRIES);
   assert.equal(s.connects, 2);
   assert.ok(await s.live("back"));
-  await s.db.close();
 });
 
 test("close() stops the reconnect loop", { skip }, async () => {
   await using proxy = await dbProxy(url!);
-  const s = await subscribe(proxy.url);
+  await using s = await subscribe(proxy.url);
   proxy.setMode("refuse");
   proxy.cut();
-  await eventually(async () => proxy.accepted, (n) => n >= 2);
-  await s.db.close();
+  await eventually(async () => proxy.accepted, (n) => n >= 2, TRIES);
+  await s.close();
+  await sleep(DELAY_MS * 2);
   const after = proxy.accepted;
   proxy.setMode("forward");
   await sleep(DELAY_MS * 10);
@@ -182,14 +211,15 @@ test("close() stops the reconnect loop", { skip }, async () => {
 
 test("close() during a reconnect attempt leaves no LISTEN session behind", { skip }, async () => {
   await using proxy = await dbProxy(url!);
-  const s = await subscribe(proxy.url);
+  // A long timeout: the attempt must complete after close(), not time out.
+  await using s = await subscribe(proxy.url, 5000);
   proxy.setMode("hold");
   proxy.cut();
-  await eventually(async () => proxy.accepted, (n) => n >= 2); // an attempt is pending
-  await s.db.close();
+  await eventually(async () => proxy.accepted, (n) => n >= 2, TRIES); // an attempt is pending
+  const closing = s.close();
   proxy.setMode("forward"); // the pending attempt now completes
-  await sleep(DELAY_MS * 10);
+  await closing; // waits for the attempt to settle
   assert.equal(s.connects, 1, "no subscription after close()");
-  const left = await eventually(() => listening(s.channel), (b) => b.length === 0);
+  const left = await eventually(() => listening(s.channel), (b) => b.length === 0, TRIES);
   assert.deepEqual(left, [], "no backend still listens");
 });

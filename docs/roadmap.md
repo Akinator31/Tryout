@@ -127,4 +127,5 @@ and session metrics.
   client address read through trusted proxies only. See [Configuration](configuration.md#per-ip-limits)
   and ADR [0016](decisions/0016-per-ip-limits.md).
 - **M1:** the node-postgres `LISTEN` reconnect is tested against PostgreSQL in CI: server-side
-  termination, unreachable or silent database, and `close()` during an attempt.
+  termination, unreachable or silent database, a link cut during `LISTEN`, and `close()` during
+  an attempt.

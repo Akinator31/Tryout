@@ -17,6 +17,8 @@ export interface Db {
   close(): Promise<void>;
 }
 
+const KEEPALIVE_DELAY_MS = 10_000;
+
 export interface PgDbOptions {
   /** Delay between attempts to re-establish a lost LISTEN session. */
   relistenDelayMs?: number;
@@ -34,7 +36,7 @@ export function pgDb(
   pool.on("error", () => {});
   // LISTEN needs a dedicated session, outside the pool.
   const listeners = new Set<pg.Client>(); // subscribed
-  const connecting = new Set<pg.Client>(); // attempts in flight
+  const attempts = new Set<Promise<unknown>>(); // connections in flight
   let closed = false;
 
   // The first connection must succeed (startup fails otherwise); after
@@ -46,10 +48,15 @@ export function pgDb(
         connectionString,
         connectionTimeoutMillis: listenTimeoutMs,
         query_timeout: listenTimeoutMs,
+        // The session is idle between notifications: without probes, a link
+        // dropped silently (NAT, firewall) would never be noticed.
+        keepAlive: true,
+        keepAliveInitialDelayMillis: KEEPALIVE_DELAY_MS,
       });
+      let subscribed = false;
       let lost = false;
       const reconnect = () => {
-        if (lost) return;
+        if (!subscribed || lost) return;
         lost = true;
         listeners.delete(client);
         client.end().catch(() => {});
@@ -59,24 +66,32 @@ export function pgDb(
         };
         setTimeout(again, relistenDelayMs).unref();
       };
+      // Listeners go on before connecting: pg emits "error" when the link
+      // breaks outside a query, and an unhandled "error" crashes the process.
+      client.on("error", reconnect);
+      client.on("end", reconnect);
       client.on("notification", (msg) => {
         if (msg.channel === channel) onNotify(msg.payload ?? "");
       });
-      connecting.add(client);
+      const attempt = (async () => {
+        try {
+          await client.connect();
+          await client.query(`LISTEN ${pg.escapeIdentifier(channel)}`);
+          // close() ran meanwhile: this session must not outlive it.
+          if (closed) throw new Error("database closed");
+        } catch (e) {
+          client.end().catch(() => {});
+          throw e;
+        }
+      })();
+      attempts.add(attempt);
       try {
-        await client.connect();
-        await client.query(`LISTEN ${pg.escapeIdentifier(channel)}`);
-        // close() ran meanwhile: this session must not outlive it.
-        if (closed) throw new Error("database closed");
-      } catch (e) {
-        client.end().catch(() => {});
-        throw e;
+        await attempt;
       } finally {
-        connecting.delete(client);
+        attempts.delete(attempt);
       }
+      subscribed = true;
       listeners.add(client);
-      client.on("error", reconnect);
-      client.on("end", reconnect);
       onConnect();
     }
     await connect();
@@ -105,9 +120,10 @@ export function pgDb(
     },
     async close() {
       closed = true;
-      // An attempt in flight may wait on an unresponsive server: end it
-      // without waiting (listenTimeoutMs bounds it).
-      for (const c of connecting) c.end().catch(() => {});
+      // Ending a client during its handshake leaves connect() pending
+      // forever (pg 8), so let attempts in flight settle instead: each is
+      // bounded by listenTimeoutMs and drops its session once it sees closed.
+      await Promise.allSettled([...attempts]);
       await Promise.all([...listeners].map((c) => c.end().catch(() => {})));
       await pool.end();
     },
