@@ -213,6 +213,10 @@ jobs:
         run: node scripts/e2e-mtls.ts
       - name: Per-IP limits
         run: node scripts/e2e-limits.ts
+      - name: Session survives a recreated gateway
+        run: >-
+          node scripts/e2e-reattach.ts http://localhost:3000 cli-hello --
+          docker compose -f deploy/compose.dev.yaml up -d --force-recreate --no-deps gateway
       - name: Logs
         if: always()
         run: docker compose -f deploy/compose.dev.yaml logs --no-color
