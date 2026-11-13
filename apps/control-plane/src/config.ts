@@ -8,7 +8,8 @@ import { isIP } from "node:net";
 import { dirname, resolve } from "node:path";
 import { Ajv2020, type ErrorObject } from "ajv/dist/2020.js";
 import { isMap, isScalar, LineCounter, parseDocument, type Document } from "yaml";
-import type { QueueConfig } from "./queue.ts";
+import type { ClientIpConfig } from "./client.ts";
+import { FORGET_ENDED_MS, type QueueConfig } from "./queue.ts";
 
 export type Kind = "terminal" | "desktop";
 
@@ -51,9 +52,19 @@ export interface AgentTls {
   key: string;
 }
 
+/** Per-IP limits (ADR 0016); 0 disables a limit. */
+export interface Limits {
+  live_tickets_per_ip: number;
+  /** per as written in the file; per_s derived from it. */
+  new_tickets_per_ip: { max: number; per: string; per_s: number };
+  streams_per_ip: number;
+}
+
 export interface Config {
   listen: { host: string; port: number };
   embed_frame_ancestors: string[];
+  client_ip: ClientIpConfig;
+  limits: Limits;
   agent_tls: AgentTls;
   nodes: Record<string, NodeConfig>;
   projects: Record<string, ProjectConfig>;
@@ -143,6 +154,14 @@ export function parseConfig(
   }
 
   const agentTls = loadAgentTls(file.agent_tls, baseDir, now, report, warnings);
+  const clientIp = (isObject(file.client_ip) ? file.client_ip : {}) as Partial<ClientIpConfig>;
+  const trustedProxies = Array.isArray(clientIp.trusted_proxies) ? clientIp.trusted_proxies : [];
+  trustedProxies.forEach((c, i) => {
+    if (typeof c === "string" && !isCidr(c)) {
+      report(["client_ip", "trusted_proxies", i], "must be an IP address or a CIDR block, such as 10.0.0.0/8 or fd00::/8");
+    }
+  });
+  const limits = parseLimits(file.limits, report);
 
   const projects: Record<string, ProjectConfig> = {};
   for (const [name, p] of Object.entries(fileProjects)) {
@@ -171,6 +190,8 @@ export function parseConfig(
     config: {
       listen: listen!,
       embed_frame_ancestors: file.embed_frame_ancestors as string[],
+      client_ip: { trusted_proxies: trustedProxies, ...(clientIp.header ? { header: clientIp.header } : {}) },
+      limits,
       agent_tls: agentTls!,
       nodes,
       projects,
@@ -243,6 +264,31 @@ function loadAgentTls(
   return pem.ca && pem.cert && pem.key ? (pem as AgentTls) : undefined;
 }
 
+// ---------- client_ip and limits ----------
+
+const DEFAULT_LIMITS = { live_tickets_per_ip: 4, new_tickets_per_ip: { max: 10, per: "1m" }, streams_per_ip: 8 };
+// The window counts ended tickets, which are deleted after FORGET_ENDED_MS.
+const MAX_WINDOW_S = FORGET_ENDED_MS / 1000;
+
+function parseLimits(v: unknown, report: (path: (string | number)[], msg: string) => void): Limits {
+  const l = { ...DEFAULT_LIMITS, ...(isObject(v) ? v : {}) } as typeof DEFAULT_LIMITS;
+  const per = isObject(l.new_tickets_per_ip) && typeof l.new_tickets_per_ip.per === "string" ? l.new_tickets_per_ip.per : "";
+  const perS = parseDuration(per);
+  if (per && !(perS > 0 && perS <= MAX_WINDOW_S)) {
+    report(["limits", "new_tickets_per_ip", "per"], "must be greater than zero and at most 5m");
+  }
+  return { ...l, new_tickets_per_ip: { ...l.new_tickets_per_ip, per_s: perS } };
+}
+
+/** An IPv4 or IPv6 address, optionally followed by /prefix within the family's range. */
+function isCidr(s: string): boolean {
+  const [addr, prefix, ...rest] = s.split("/");
+  const family = isIP(addr);
+  if (!family || rest.length) return false;
+  if (prefix === undefined) return true;
+  return /^\d{1,3}$/.test(prefix) && Number(prefix) <= (family === 6 ? 128 : 32);
+}
+
 /** Upper bound for max_age; the agent applies its own, usually lower, cap too. */
 const MAX_AGE_LIMIT_S = 24 * 3600;
 
@@ -262,6 +308,10 @@ export function queueConfig(cfg: Config): QueueConfig {
         { node: p.node, maxSessions: p.max_sessions, maxAgeS: p.max_age_s },
       ]),
     ),
+    limits: {
+      liveTicketsPerClient: cfg.limits.live_tickets_per_ip,
+      newTicketsPerClient: { max: cfg.limits.new_tickets_per_ip.max, windowMs: cfg.limits.new_tickets_per_ip.per_s * 1000 },
+    },
   };
 }
 

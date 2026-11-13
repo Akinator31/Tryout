@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { copyFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ConfigError, frameAncestors, loadConfig, parseConfig, parseDuration, validateSessionRequest } from "../src/config.ts";
+import { ConfigError, frameAncestors, loadConfig, parseConfig, parseDuration, queueConfig, validateSessionRequest } from "../src/config.ts";
 import { makePki, TEST_DAYS } from "./pki.ts";
 
 const root = new URL("../../../", import.meta.url);
@@ -86,7 +86,64 @@ test("defaults and derived values", () => {
   assert.deepEqual(config.listen, { host: "", port: 3000 });
   assert.equal(config.projects.cli.max_age_s, 900);
   assert.equal(frameAncestors(config), "'self' https://portfolio.example.org");
+  assert.deepEqual(config.client_ip, { trusted_proxies: [] });
+  assert.deepEqual(config.limits, {
+    live_tickets_per_ip: 4,
+    new_tickets_per_ip: { max: 10, per: "1m", per_s: 60 },
+    streams_per_ip: 8,
+  });
+  assert.deepEqual(queueConfig(config).limits, {
+    liveTicketsPerClient: 4,
+    newTicketsPerClient: { max: 10, windowMs: 60_000 },
+  });
 });
+
+// ---------- client_ip and limits (ADR 0016) ----------
+
+test("client_ip and limits can be set, and 0 disables a limit", () => {
+  const { config } = parseConfig(
+    `${base}
+client_ip:
+  trusted_proxies: [10.0.0.0/8, "fd00::/8", 192.0.2.1]
+  header: CF-Connecting-IP
+limits:
+  live_tickets_per_ip: 0
+  new_tickets_per_ip: { max: 30, per: 5m }
+`,
+    opts,
+  );
+  assert.deepEqual(config.client_ip, { trusted_proxies: ["10.0.0.0/8", "fd00::/8", "192.0.2.1"], header: "CF-Connecting-IP" });
+  assert.deepEqual(config.limits, {
+    live_tickets_per_ip: 0,
+    new_tickets_per_ip: { max: 30, per: "5m", per_s: 300 },
+    streams_per_ip: 8,
+  });
+});
+
+test("trusted proxies must be IP addresses or CIDR blocks", () => {
+  const bad = (cidr: string) => problems(`${base}
+client_ip:
+  trusted_proxies: ["${cidr}"]
+`);
+  for (const c of ["10.0.0.0/33", "fd00::/129", "10.0.0.300/8", "10.0.0/8", "::g/64"]) {
+    assert.match(bad(c)[0] ?? "", /^\/client_ip\/trusted_proxies\/0 \(line \d+\): /, c);
+  }
+  assert.match(bad("10.0.0.0/33")[0], /must be an IP address or a CIDR block/);
+});
+
+test("the new-ticket window is between 1 second and 5 minutes", () => {
+  const per = (d: string) => problems(`${base}
+limits:
+  new_tickets_per_ip: { max: 5, per: ${d} }
+`);
+  assert.match(per("6m")[0], /^\/limits\/new_tickets_per_ip\/per \(line \d+\): must be greater than zero and at most 5m/);
+  assert.equal(per("0s").length, 1);
+  assert.match(problems(`${base}
+limits:
+  streams_per_ip: -1
+`)[0], /^\/limits\/streams_per_ip/);
+});
+
 
 test("listen accepts a host", () => {
   assert.deepEqual(parseConfig(`listen: "127.0.0.1:8000"\n${base}`, opts).config.listen, { host: "127.0.0.1", port: 8000 });
