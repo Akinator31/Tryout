@@ -29,9 +29,11 @@
   first path component is a registry when it contains a dot or a colon, or is `localhost`;
   otherwise Docker Hub) and sends that registry's credentials, and only them, in
   `X-Registry-Auth`. An image on a registry without an entry is pulled anonymously.
-- **Checks at startup**: an unreadable file, invalid JSON, a credential helper, an entry with no
-  usable credential, invalid base64, or two entries for the same registry (`docker.io` and
-  `https://index.docker.io/v1/`) stop the agent with every error at once. The agent logs the
+- **Checks at startup**: an unreadable file, invalid JSON, a credential helper, no `auths`
+  entry at all, an entry with no usable credential, invalid base64, a key scoped to a path
+  (`ghcr.io/owner`, which would otherwise be widened to the whole registry), or two entries for
+  the same registry (`docker.io` and `https://index.docker.io/v1/`) stop the agent with every
+  error at once. The agent logs the
   registries it has credentials for, never the credentials; error messages never contain them.
 - **Scope**: credentials stay on the node. They are never part of the configuration of the
   control plane nor of `POST /v1/sessions`, so the control plane holds no registry secret and a

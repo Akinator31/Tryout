@@ -84,6 +84,25 @@ func TestHeaderForMatchingRegistry(t *testing.T) {
 	}
 }
 
+func TestKeyForms(t *testing.T) {
+	s, err := Load(write(t, `{"auths": {
+		"http://Registry.Example:5000/": {"auth": "`+b64("a:b")+`"},
+		"HTTPS://GHCR.IO": {"auth": "`+b64("c:d")+`"},
+		"registry-1.docker.io": {"auth": "`+b64("e:f")+`"}
+	}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(s.Registries(), ","); got != "docker.io,ghcr.io,registry.example:5000" {
+		t.Errorf("Registries() = %s", got)
+	}
+	for ref, user := range map[string]string{"registry.example:5000/app": "a", "ghcr.io/o/app": "c", "alpine": "e"} {
+		if h := decode(t, s.HeaderFor(ref)); h["username"] != user {
+			t.Errorf("%s: header %v", ref, h)
+		}
+	}
+}
+
 func TestNilStoreSendsNothing(t *testing.T) {
 	var s *Store
 	if got := s.HeaderFor("ghcr.io/owner/app"); got != "" {
@@ -104,6 +123,8 @@ func TestLoadRefusals(t *testing.T) {
 		"empty entry":     {`{"auths": {"ghcr.io": {}}}`, "no credentials"},
 		"duplicate hub":   {`{"auths": {"docker.io": {"auth": "` + b64("a:b") + `"}, "https://index.docker.io/v1/": {"auth": "` + b64("c:d") + `"}}}`, "docker.io"},
 		"no auths at all": {`{}`, "no registry"},
+		"path-scoped key": {`{"auths": {"ghcr.io/owner": {"auth": "` + b64("a:b") + `"}}}`, "scoped to a path"},
+		"empty key":       {`{"auths": {"https://": {"auth": "` + b64("a:b") + `"}}}`, "registry host"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := Load(write(t, c.content))
@@ -117,9 +138,35 @@ func TestLoadRefusals(t *testing.T) {
 	}
 }
 
+// TestLoadReportsEveryError checks that one run lists every problem, whatever
+// the map order, so an operator fixes the file once.
+func TestLoadReportsEveryError(t *testing.T) {
+	for range 20 {
+		_, err := Load(write(t, `{"credsStore": "desktop", "auths": {
+			"docker.io": {"auth": "%%%"},
+			"https://index.docker.io/v1/": {"auth": "`+b64("a:b")+`"},
+			"ghcr.io": {},
+			"quay.io": {"auth": "`+b64("nocolon")+`"}
+		}}`))
+		if err == nil {
+			t.Fatal("want an error")
+		}
+		for _, want := range []string{"credential helpers", "two entries for registry docker.io", "ghcr.io", "quay.io"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("error %q does not mention %q", err, want)
+			}
+		}
+	}
+}
+
 func TestErrorsNeverContainSecrets(t *testing.T) {
 	_, err := Load(write(t, `{"auths": {"ghcr.io": {"auth": "`+b64("nocolon-supersecret")+`"}}}`))
 	if err == nil || strings.Contains(err.Error(), "supersecret") || strings.Contains(err.Error(), b64("nocolon-supersecret")) {
+		t.Fatalf("err = %v", err)
+	}
+	// A syntax error right after a secret must not quote the file.
+	_, err = Load(write(t, `{"auths": {"ghcr.io": {"password": "Zsecret" Q}}}`))
+	if err == nil || strings.Contains(err.Error(), "Q") || strings.Contains(err.Error(), "secret") {
 		t.Fatalf("err = %v", err)
 	}
 }

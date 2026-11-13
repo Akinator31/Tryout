@@ -341,43 +341,45 @@ func TestEnsureImageSendsRegistryAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	for ref, wantUser := range map[string]string{"ghcr.io/owner/app:edge": "bot", "quay.io/other/app:1": ""} {
-		var mu sync.Mutex
-		pulled, gotAuth := false, ""
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			mu.Lock()
-			defer mu.Unlock()
-			switch {
-			case strings.HasSuffix(r.URL.Path, "/images/create"):
-				pulled, gotAuth = true, r.Header.Get("X-Registry-Auth")
-				_, _ = w.Write([]byte(`{"status":"done"}`))
-			case strings.HasSuffix(r.URL.Path, "/json") && pulled:
-				_, _ = w.Write([]byte(`{"Id":"sha256:x","Architecture":"amd64","Os":"linux"}`))
-			default:
-				http.Error(w, `{"message":"no such image"}`, http.StatusNotFound)
+		t.Run(ref, func(t *testing.T) {
+			var mu sync.Mutex
+			pulled, gotAuth := false, ""
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				defer mu.Unlock()
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/images/create"):
+					pulled, gotAuth = true, r.Header.Get("X-Registry-Auth")
+					_, _ = w.Write([]byte(`{"status":"done"}`))
+				case strings.HasSuffix(r.URL.Path, "/json") && pulled:
+					_, _ = w.Write([]byte(`{"Id":"sha256:x","Architecture":"amd64","Os":"linux"}`))
+				default:
+					http.Error(w, `{"message":"no such image"}`, http.StatusNotFound)
+				}
+			}))
+			t.Cleanup(srv.Close)
+			dc, err := dockerapi.New("tcp://" + srv.Listener.Addr().String())
+			if err != nil {
+				t.Fatal(err)
 			}
-		}))
-		dc, err := dockerapi.New("tcp://" + srv.Listener.Addr().String())
-		if err != nil {
-			t.Fatal(err)
-		}
-		a := &agent{docker: dc, arch: "amd64", registry: store}
-		if err := a.ensureImage(context.Background(), ref); err != nil {
-			t.Fatalf("%s: %v", ref, err)
-		}
-		srv.Close()
-		if wantUser == "" {
-			if gotAuth != "" {
-				t.Errorf("%s: credentials sent to the wrong registry", ref)
+			a := &agent{docker: dc, arch: "amd64", registry: store}
+			if err := a.ensureImage(context.Background(), ref); err != nil {
+				t.Fatalf("%s: %v", ref, err)
 			}
-			continue
-		}
-		raw, err := base64.URLEncoding.DecodeString(gotAuth)
-		if err != nil {
-			t.Fatalf("%s: X-Registry-Auth %q: %v", ref, gotAuth, err)
-		}
-		var ac map[string]string
-		if err := json.Unmarshal(raw, &ac); err != nil || ac["username"] != wantUser || ac["password"] != "token" {
-			t.Errorf("%s: X-Registry-Auth = %s (%v)", ref, raw, err)
-		}
+			if wantUser == "" {
+				if gotAuth != "" {
+					t.Errorf("%s: credentials sent to the wrong registry", ref)
+				}
+				return
+			}
+			raw, err := base64.URLEncoding.DecodeString(gotAuth)
+			if err != nil {
+				t.Fatalf("%s: X-Registry-Auth %q: %v", ref, gotAuth, err)
+			}
+			var ac map[string]string
+			if err := json.Unmarshal(raw, &ac); err != nil || ac["username"] != wantUser || ac["password"] != "token" {
+				t.Errorf("%s: X-Registry-Auth = %s (%v)", ref, raw, err)
+			}
+		})
 	}
 }

@@ -30,10 +30,12 @@ give the agent a credentials file with `REGISTRY_AUTH_FILE`, mounted read-only:
 
 - The format is the Docker CLI's `config.json`. Each entry holds `auth` (base64 of
   `user:password`), or `username` and `password`, or `identitytoken`. The key is the registry
-  host; Docker Hub is `docker.io` or `https://index.docker.io/v1/`.
+  host alone; Docker Hub is `docker.io` or `https://index.docker.io/v1/`. Keys scoped to a path
+  (`ghcr.io/owner`) are refused rather than widened to the whole registry.
 - Credential helpers (`credsStore`, `credHelpers`) are refused. A `config.json` written by
   `docker login` on a desktop usually uses one; write the file by hand instead
-  (`printf 'user:token' | base64`).
+  (`printf 'user:token' | base64 -w0`; without `-w0`, GNU `base64` wraps long values onto
+  several lines, which breaks the JSON string).
 - The agent sends an image's credentials only to that image's registry. Other images are pulled
   anonymously.
 - The file is read at startup: restart the agent after changing it. A broken file stops the

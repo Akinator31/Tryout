@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -47,25 +48,41 @@ func Load(path string) (*Store, error) {
 	}
 	var f file
 	if err := json.Unmarshal(raw, &f); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+		// The decoder's message can quote a character of the file: report
+		// the position only.
+		var se *json.SyntaxError
+		if errors.As(err, &se) {
+			return nil, fmt.Errorf("parse %s: invalid JSON at byte %d", path, se.Offset)
+		}
+		return nil, fmt.Errorf("parse %s: not a Docker config.json", path)
 	}
+	var errs []error
 	if f.CredsStore != "" || len(f.CredHelpers) > 0 {
-		return nil, fmt.Errorf("%s: credential helpers (credsStore, credHelpers) are not supported; write static \"auths\" entries", path)
+		errs = append(errs, fmt.Errorf("%s: credential helpers (credsStore, credHelpers) are not supported; write static \"auths\" entries", path))
 	}
 	if len(f.Auths) == 0 {
-		return nil, fmt.Errorf("%s: no registry in \"auths\"", path)
+		errs = append(errs, fmt.Errorf("%s: no registry in \"auths\"", path))
 	}
 	s := &Store{headers: map[string]string{}}
-	var errs []error
-	for key, e := range f.Auths {
-		host := normalizeKey(key)
-		if _, dup := s.headers[host]; dup {
-			errs = append(errs, fmt.Errorf("%s: two entries for registry %s", path, host))
-			continue
-		}
-		h, err := header(key, e)
+	keysByHost := map[string][]string{}
+	for key := range f.Auths {
+		host, err := normalizeKey(key)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: registry %s: %w", path, key, err))
+			continue
+		}
+		keysByHost[host] = append(keysByHost[host], key)
+	}
+	for _, host := range slices.Sorted(maps.Keys(keysByHost)) {
+		keys := keysByHost[host]
+		if len(keys) > 1 {
+			slices.Sort(keys)
+			errs = append(errs, fmt.Errorf("%s: two entries for registry %s: %s", path, host, strings.Join(keys, ", ")))
+			continue
+		}
+		h, err := header(keys[0], f.Auths[keys[0]])
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: registry %s: %w", path, keys[0], err))
 			continue
 		}
 		s.headers[host] = h
@@ -107,12 +124,21 @@ func header(serverAddress string, e entry) (string, error) {
 }
 
 // normalizeKey turns an "auths" key ("https://index.docker.io/v1/",
-// "ghcr.io") into the registry host RegistryOf returns.
-func normalizeKey(key string) string {
+// "ghcr.io") into the registry host RegistryOf returns. A key scoped to a
+// path ("ghcr.io/owner", as Podman allows) is refused rather than widened to
+// the whole registry; only Docker Hub's legacy "/v1/" suffix is accepted.
+func normalizeKey(key string) (string, error) {
 	k := strings.ToLower(key)
 	k = strings.TrimPrefix(strings.TrimPrefix(k, "https://"), "http://")
-	k, _, _ = strings.Cut(k, "/")
-	return canonical(k)
+	host, rest, _ := strings.Cut(k, "/")
+	host = canonical(host)
+	if host == "" {
+		return "", errors.New("the key must be a registry host")
+	}
+	if rest = strings.TrimSuffix(rest, "/"); rest != "" && !(host == dockerHub && rest == "v1") {
+		return "", errors.New("keys scoped to a path are not supported: use the registry host alone")
+	}
+	return host, nil
 }
 
 func canonical(host string) string {
