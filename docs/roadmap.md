@@ -6,7 +6,7 @@ moves to [Done](#done) when it ships. There are no dates.
 | Milestone | Goal | Status |
 |---|---|---|
 | [M0 — Proof of concept](#m0-proof-of-concept) | Show that the stack works end to end | Done |
-| [M1 — Deployable](#m1-deployable) | Run Tryout on real infrastructure without building anything on the node | In progress |
+| [M1 — Deployable](#m1-deployable) | Run Tryout on real infrastructure without building anything on the node | Done |
 | [M2 — Live](#m2-live) | A first public deployment, a public repository and versioned releases | Planned |
 | [M3 — Design](#m3-design) | A dark, clear and robust visitor experience, designed before it is built | Planned |
 | [M4 — Operate](#m4-operate) | See and control what runs: admin UI, metrics, logs | Planned |
@@ -27,11 +27,21 @@ Done. Validated end to end:
 **Goal:** an operator can run Tryout from published images and a documented configuration, with
 the control plane and its nodes on different networks.
 
-Every item has shipped (see [Done](#done)). M1 closes once the exit criteria below are checked on
-a fresh machine.
-
 **Exit criteria:** a fresh machine runs the stack from `ghcr.io` images and a YAML file; the
 control plane reaches a remote node over mTLS; CI covers all of it.
+
+Done. Checked on two fresh Debian 13 virtual machines, each behind its own NAT, with the
+control plane and the node reaching each other only through forwarded ports:
+
+- node in profile `strict` with gVisor, control plane with PostgreSQL, both from `ghcr.io`
+  images pinned by digest and a YAML file;
+- the control plane reaches the agent over mutual TLS through a port forward, with
+  `server_name`; every other client is refused;
+- `e2e-cli`, `e2e-queue` and `e2e-sse` pass against that deployment; sessions run under `runsc`,
+  read-only, with no capabilities, on their own internal network.
+
+The check found that the agent accepted runc under another name in `strict`; fixed before
+closing (see [Done](#done)). Its other findings are M2 items.
 
 ## M2 — Live
 
@@ -44,6 +54,8 @@ control plane reaches a remote node over mTLS; CI covers all of it.
 | A minimal visual pass on the current embed page | Only so the first visitors do not see raw HTML; the real design is M3 |
 | Public repository: private vulnerability reporting enabled, security policy checked | |
 | Versioned releases: semantic version tags, changelog, images tagged per release | First release `v0.1.0` |
+| Private project images | The agent pulls without registry credentials, so a private image must be pulled on the node beforehand. Document it, or give the agent registry credentials |
+| `scripts/e2e-mtls.ts` against a remote node | It reads certificates from the dev compose stack only |
 | Optional: GitHub Milestones and one issue per roadmap item | This page stays the source of truth |
 
 **Exit criteria:** a portfolio embeds Tryout in production; the repository is public; `v0.1.0`
@@ -129,3 +141,7 @@ and session metrics.
 - **M1:** the node-postgres `LISTEN` reconnect is tested against PostgreSQL in CI: server-side
   termination, unreachable or silent database, a link cut during `LISTEN`, and `close()` during
   an attempt.
+- **M1:** outside the `dev` profile, the agent accepts only the `runsc` runtime, as
+  `DEFAULT_RUNTIME` and per session, unless `ALLOW_RUNC=true`. See ADR
+  [0003](decisions/0003-node-profiles-and-runtimes.md).
+- **M1** closed: exit criteria checked on fresh machines, see [above](#m1-deployable).
