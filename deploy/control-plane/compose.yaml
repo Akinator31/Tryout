@@ -1,0 +1,54 @@
+# Tryout control plane and its PostgreSQL database, from the published images.
+# Guide: docs/deployment.md. Run it next to its .env and tryout.yaml:
+#   cp .env.example .env && docker compose up -d
+name: tryout-control-plane
+
+services:
+  control-plane:
+    image: ${TRYOUT_CONTROL_PLANE_IMAGE:-ghcr.io/akinator31/tryout-control-plane}:${TRYOUT_VERSION:?set TRYOUT_VERSION in .env}
+    environment:
+      TRYOUT_CONFIG: /etc/tryout/tryout.yaml
+      # Generate a URL-safe password (openssl rand -hex 32): it is part of a URL.
+      DATABASE_URL: postgres://tryout:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/tryout
+      # Add here the variables that tryout.yaml reads with ${NAME}.
+    volumes:
+      - ./tryout.yaml:/etc/tryout/tryout.yaml:ro
+      # The control plane's certificates (pki/control-plane/ from tryout-certs), readable by uid 1000.
+      - ./pki:/etc/tryout/pki:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # The embed page and the queue API. Put your reverse proxy or tunnel in front,
+    # and list it in client_ip.trusted_proxies.
+    ports: ["${CONTROL_PLANE_PUBLISH:?set CONTROL_PLANE_PUBLISH in .env}:3000"]
+    networks: [default, db]   # default: outbound to the agents; db: PostgreSQL only
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
+    logging: &logging
+      driver: local
+      options: { max-size: 10m, max-file: "3" }
+
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:17-alpine}
+    environment:
+      POSTGRES_USER: tryout
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: tryout
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tryout"]
+      interval: 2s
+      retries: 30
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    networks: [db]   # the control plane only: nodes and the Internet never reach it
+    restart: unless-stopped
+    logging: *logging
+
+networks:
+  default: {}
+  db:
+    internal: true
+
+volumes:
+  postgres: {}
