@@ -12,6 +12,10 @@ import (
 // reconcileInterval is the period of the reconcile loop.
 const reconcileInterval = 10 * time.Second
 
+// stuckCreatedAfter is how long a container may stay created, without a
+// create in progress, before the reconcile loop reaps it.
+const stuckCreatedAfter = time.Minute
+
 // reconcileForever runs the reconcile loop for the agent's whole life.
 func (a *agent) reconcileForever(ctx context.Context) {
 	for {
@@ -40,11 +44,10 @@ func (a *agent) reconcile(ctx context.Context) {
 	a.pushRoutes(ctx)
 }
 
-// reapSessions destroys the sessions that are expired, or neither running nor
-// just created. It returns the ids of the sessions still alive (busy ones
-// included) and of those running.
+// reapSessions destroys the sessions shouldReap selects. It returns the ids
+// of the sessions still alive (busy ones included) and of those running.
 func (a *agent) reapSessions(ctx context.Context, cs []dockerapi.ContainerSummary, busy map[string]bool) (live map[string]bool, running []string) {
-	now := time.Now().Unix()
+	now := time.Now()
 	live = map[string]bool{}
 
 	for _, c := range cs {
@@ -54,9 +57,8 @@ func (a *agent) reapSessions(ctx context.Context, cs []dockerapi.ContainerSummar
 			continue
 		}
 
-		exp, _ := strconv.ParseInt(c.Labels[labelExpires], 10, 64)
-		if exp < now || (c.State != "running" && c.State != "created") {
-			slog.Info("reaping", "id", id, "state", c.State, "expired", exp < now)
+		if reason := shouldReap(c, now); reason != "" {
+			slog.Info("reaping", "id", id, "state", c.State, "reason", reason)
 			a.destroy(ctx, id)
 			continue
 		}
@@ -67,6 +69,35 @@ func (a *agent) reapSessions(ctx context.Context, cs []dockerapi.ContainerSummar
 		}
 	}
 	return live, running
+}
+
+// shouldReap tells why a session container that no request is creating or
+// removing must go, or returns "" to keep it:
+//
+//   - "expired": past its maximum age;
+//   - "dead": neither running nor created (exited, dead...);
+//   - "stuck": created more than stuckCreatedAfter ago. Create starts its
+//     container right after creating it, so nobody will start this one. It
+//     is the trace of a create aborted by the control plane (the visitor left
+//     while the session was starting): Docker can finish creating the
+//     container after destroy has already run. Kept, it would hold a slot
+//     until it expires and fill the node.
+//
+// The age guard also covers the reconcile pass's busy snapshot, which is
+// taken before the listing: a create that starts after the snapshot owns a
+// container only milliseconds old.
+func shouldReap(c dockerapi.ContainerSummary, now time.Time) string {
+	expires, _ := strconv.ParseInt(c.Labels[labelExpires], 10, 64)
+
+	switch {
+	case expires < now.Unix():
+		return "expired"
+	case c.State != "running" && c.State != "created":
+		return "dead"
+	case c.State == "created" && now.Sub(time.Unix(c.Created, 0)) > stuckCreatedAfter:
+		return "stuck"
+	}
+	return ""
 }
 
 // removeOrphanNetworks removes the session networks left without a live

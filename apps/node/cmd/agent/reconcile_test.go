@@ -32,7 +32,7 @@ func TestReconcileReattachesGateway(t *testing.T) {
 			state = "created"
 		}
 		labels := map[string]string{labelSession: id, labelExpires: future, labelPort: "7681"}
-		return map[string]any{"Id": id, "State": state, "Labels": labels}
+		return map[string]any{"Id": id, "State": state, "Created": time.Now().Unix(), "Labels": labels}
 	}
 	gatewayNetworks := map[string]any{"tryout_default": map[string]any{}, namePrefix + attached: map[string]any{}}
 
@@ -85,5 +85,67 @@ func TestReconcileReattachesGateway(t *testing.T) {
 	defer mu.Unlock()
 	if want := []string{namePrefix + missing + "<-tryout-gateway"}; !slices.Equal(connected, want) {
 		t.Errorf("connected %v, want %v", connected, want)
+	}
+}
+
+// TestReconcileReapsStuckCreatedContainers: a create aborted by the control
+// plane (the visitor left while the session was starting) can leave a
+// container in the created state, after destroy already ran. Nobody will
+// start it, so the reconcile loop must reap it instead of keeping it until it
+// expires, which would fill the node. A created container that is young, or
+// whose create is still in progress, is left alone.
+func TestReconcileReapsStuckCreatedContainers(t *testing.T) {
+	id := func(c string) string { return strings.Repeat(c, 26) }
+	stuck, young, creating := id("a"), id("b"), id("c")
+
+	future := fmt.Sprint(time.Now().Add(time.Hour).Unix())
+	created := func(id string, age time.Duration) map[string]any {
+		labels := map[string]string{labelSession: id, labelExpires: future, labelPort: "7681"}
+		return map[string]any{"Id": id, "State": "created", "Created": time.Now().Add(-age).Unix(), "Labels": labels}
+	}
+
+	var mu sync.Mutex
+	var removed []string
+	docker := fakeDockerClient(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		p := r.URL.Path
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(p, "/containers/json"):
+			_ = json.NewEncoder(w).Encode([]any{created(stuck, 2*time.Minute), created(young, 5*time.Second), created(creating, 2*time.Minute)})
+
+		case r.Method == http.MethodDelete && strings.Contains(p, "/containers/"):
+			removed = append(removed, p[strings.LastIndex(p, "/")+1:])
+			w.WriteHeader(http.StatusNoContent)
+
+		case r.Method == http.MethodGet && strings.HasSuffix(p, "/networks"):
+			_ = json.NewEncoder(w).Encode([]any{})
+
+		case r.Method == http.MethodGet && strings.HasSuffix(p, "/containers/tryout-gateway/json"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"Id": "gw"})
+
+		default: // network disconnect and removal by destroy
+			http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
+		}
+	})
+
+	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	t.Cleanup(gw.Close)
+	toGateway := func(*http.Request) (*url.URL, error) { return url.Parse(gw.URL) }
+
+	a := &agent{
+		cfg:         config{gatewayName: "tryout-gateway"},
+		docker:      docker,
+		creating:    map[string]bool{creating: true},
+		destroying:  map[string]bool{},
+		gatewayHTTP: &http.Client{Transport: &http.Transport{Proxy: toGateway}},
+	}
+	a.reconcile(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	if want := []string{namePrefix + stuck}; !slices.Equal(removed, want) {
+		t.Errorf("removed %v, want %v", removed, want)
 	}
 }
