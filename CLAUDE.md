@@ -99,7 +99,7 @@ vault with the original stack study (in French) and its sources.
   - Selkies under gVisor on a Raspberry Pi 5 (arm64), behind a base path.
 - The roadmap is organised in milestones (`docs/roadmap.md`): M1 Deployable is in progress
   (ghcr.io images done, ADR 0013; YAML config + JSON Schema done, ADR 0014; mTLS done, ADR 0015; per-IP limits done, ADR 0016;
-  next: LISTEN reconnect unit test), then
+  LISTEN reconnect tests done; next: check the exit criteria on a fresh machine), then
   M2 Live, M3 Design (theme, Figma, React embed; the UI kit is chosen there), M4 Operate, M5
   Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to

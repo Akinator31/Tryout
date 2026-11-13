@@ -36,7 +36,8 @@ and replaces the 2 s polling of [0011](0011-queue-implementation.md) in the embe
 - **Module interface**: `Queue.watch(ticket, listener) → unwatch`. The queue owns the
   subscription, the heartbeat and the resynchronisation; the HTTP layer only writes events. The
   `Db` port gains `listen(channel, onNotify, onConnect)`. node-postgres uses a dedicated
-  connection outside the pool and reconnects after 1 s. PGlite uses its built-in `listen`.
+  connection outside the pool and reconnects after 1 s; each attempt times out after 10 s, and
+  `close()` also ends an attempt in flight. PGlite uses its built-in `listen`.
 - **Countdown**: every `active` view carries `ends_in_s`; the page counts down locally between messages.
 - **Polling stays**: `GET /api/tickets/<ticket>` still works and still counts as a heartbeat, for
   scripts and clients without `EventSource`.
