@@ -78,7 +78,7 @@ deploy/               compose.dev.yaml, tryout.dev.yaml, .env.example (dev); nod
                       examples from published images, docs/deployment.md)
 schema/               tryout.schema.json (source of truth) + testdata/ fixtures shared by TS and Go
 examples/cli-hello/   sample terminal project (ttyd)
-scripts/              e2e-*.ts (cli, queue, sse, mtls, limits), e2e-deploy.sh, feasibility-node.sh
+scripts/              e2e-*.ts (cli, queue, sse, mtls, limits, reattach), e2e-deploy.sh, feasibility-node.sh
 docs/                 Zensical documentation (English); decisions/ holds the ADRs
 SECURITY.md           threat model and profiles (included in the docs site)
 ```
@@ -105,7 +105,8 @@ vault with the original stack study (in French) and its sources.
   ADR 0016; exit criteria checked on fresh VMs). M2 Live in progress (registry credentials for
   private project images, ADR 0017; production deployment guide and example compose files,
   `docs/deployment.md`, tested in CI by `scripts/e2e-deploy.sh` with gVisor; `scripts/e2e-mtls.ts`
-  checks any agent with `--pki`). Then M3 Design
+  checks any agent with `--pki`; the reconcile loop reattaches a recreated gateway to running
+  session networks, checked by `scripts/e2e-reattach.ts`). Then M3 Design
   (theme, Figma, React embed; the UI kit is chosen there), M4 Operate, M5 Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
@@ -154,7 +155,9 @@ docker build -t tryout-example/cli-hello:dev examples/cli-hello
 cp deploy/.env.example deploy/.env
 docker compose -f deploy/compose.dev.yaml up -d --build
 node scripts/e2e-cli.ts && node scripts/e2e-queue.ts && node scripts/e2e-sse.ts && node scripts/e2e-mtls.ts \
-  && node scripts/e2e-limits.ts
+  && node scripts/e2e-limits.ts \
+  && node scripts/e2e-reattach.ts http://localhost:3000 cli-hello -- \
+       docker compose -f deploy/compose.dev.yaml up -d --force-recreate --no-deps gateway
 docker compose -f deploy/compose.dev.yaml down -v
 # Production layout (deploy/node + deploy/control-plane); defaults to strict + gVisor.
 # Docker Desktop: NODE_PROFILE=dev HOST_ADDR=host.docker.internal BIND_ADDR=127.0.0.1 CHOWN_CMD=: DOCKER_GID=0

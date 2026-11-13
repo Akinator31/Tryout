@@ -53,7 +53,6 @@ closing (see [Done](#done)). Its other findings are M2 items.
 | A minimal visual pass on the current embed page | Only so the first visitors do not see raw HTML; the real design is M3 |
 | Public repository: private vulnerability reporting enabled, security policy checked | |
 | Versioned releases: semantic version tags, changelog, images tagged per release | First release `v0.1.0` |
-| The agent reattaches the gateway to every live session network | Today it attaches the gateway only when it creates a session: a recreated gateway (an upgrade) leaves running sessions unreachable while the control plane still counts them as active |
 | Optional: GitHub Milestones and one issue per roadmap item | This page stays the source of truth |
 
 **Exit criteria:** a portfolio embeds Tryout in production; the repository is public; `v0.1.0`
@@ -154,3 +153,7 @@ and session metrics.
 - **M2:** `scripts/e2e-mtls.ts` checks any agent, local or remote, with the operator's
   `tryout-certs` directory; CI runs it against the production layout's published agent port.
   See [Production deployment](deployment.md#5-check-and-embed).
+- **M2:** the agent's reconcile loop attaches a recreated gateway again to every running session
+  network, so sessions survive a node upgrade with an interruption of about one reconcile
+  period (10 s). `scripts/e2e-reattach.ts` recreates the gateway during a session in CI: alone
+  on the dev layout, with the agent on the production layout, as an upgrade does. See [Production deployment](deployment.md#upgrade).
