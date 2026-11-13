@@ -41,6 +41,7 @@ nav = [
     "decisions/0013-published-images.md",
     "decisions/0014-yaml-configuration-json-schema.md",
     "decisions/0015-mutual-tls-control-plane-agent.md",
+    "decisions/0016-per-ip-limits.md",
   ] },
   { "Project" = [
     "roadmap.md",

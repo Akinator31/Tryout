@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createQueue, UnknownProjectError, type QueueConfig, type TicketView } from "../src/queue.ts";
+import { createQueue, RateLimitedError, UnknownProjectError, type QueueConfig, type TicketView } from "../src/queue.ts";
 import { eventually, fakeClock, fakeRuntime, freshDb } from "./support.ts";
 
 const config: QueueConfig = {
@@ -11,11 +11,11 @@ const config: QueueConfig = {
   },
 };
 
-async function setup(opts: { manual?: boolean } = {}) {
+async function setup(opts: { manual?: boolean; config?: QueueConfig } = {}) {
   const db = await freshDb();
   const clock = fakeClock();
   const fake = fakeRuntime(opts);
-  const queue = await createQueue({ db, config, runtime: fake.runtime, now: clock.now });
+  const queue = await createQueue({ db, config: opts.config ?? config, runtime: fake.runtime, now: clock.now });
   const active = (t: string) => eventually(() => queue.poll(t), (v) => v?.state === "active");
   return { db, clock, fake, queue, active, [Symbol.asyncDispose]: () => db.close() };
 }
@@ -272,4 +272,76 @@ test("a ticket released on another instance reaches its watcher, which then stop
   await s.queue.tick();
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(rec.views.length, count, "no view after the ended one");
+});
+
+// Per-client limits (ADR 0016). The client key is the visitor's IP address
+// (or IPv6 /64), resolved by the HTTP layer.
+
+const limited = (live: number, max: number, windowMs = 60_000): QueueConfig => ({
+  ...config,
+  limits: { liveTicketsPerClient: live, newTicketsPerClient: { max, windowMs } },
+});
+
+async function refused(p: Promise<unknown>): Promise<RateLimitedError> {
+  try {
+    await p;
+  } catch (e) {
+    assert.ok(e instanceof RateLimitedError, String(e));
+    return e;
+  }
+  assert.fail("join was accepted");
+}
+
+test("a client cannot hold more live tickets than the limit; leaving frees one", async () => {
+  await using s = await setup({ config: limited(3, 100) });
+  const mine = [await s.queue.join("cli", "1.2.3.4"), await s.queue.join("gui", "1.2.3.4"), await s.queue.join("cli", "1.2.3.4")];
+  const e = await refused(s.queue.join("cli", "1.2.3.4"));
+  assert.equal(e.limit, "live_tickets");
+  assert.equal(e.retryAfterS, 30);
+
+  await s.queue.join("cli", "5.6.7.8"); // other clients are not affected
+  await s.queue.release(mine[0].ticket);
+  await s.queue.join("cli", "1.2.3.4");
+});
+
+test("tickets lost to a missing heartbeat no longer count as live", async () => {
+  await using s = await setup({ config: limited(1, 100) });
+  await s.queue.join("cli", "1.2.3.4");
+  await refused(s.queue.join("cli", "1.2.3.4"));
+  s.clock.advance(31_000);
+  await s.queue.tick();
+  await s.queue.join("cli", "1.2.3.4");
+});
+
+test("a client cannot create more tickets than the limit within the window", async () => {
+  await using s = await setup({ config: limited(100, 3) });
+  for (let i = 0; i < 3; i++) {
+    const v = await s.queue.join("cli", "1.2.3.4");
+    await s.queue.release(v.ticket); // released tickets still count towards the rate
+    s.clock.advance(10_000);
+  }
+  const e = await refused(s.queue.join("cli", "1.2.3.4"));
+  assert.equal(e.limit, "new_tickets");
+  assert.equal(e.retryAfterS, 30, "the first ticket leaves the window 30 s from now");
+
+  s.clock.advance(30_000);
+  await s.queue.join("cli", "1.2.3.4");
+  await refused(s.queue.join("cli", "1.2.3.4"));
+});
+
+test("zero disables a limit, and a join without a client key is never limited", async () => {
+  await using s = await setup({ config: limited(0, 0) });
+  for (let i = 0; i < 6; i++) await s.queue.join("cli", "1.2.3.4");
+  await using t = await setup({ config: limited(1, 1) });
+  for (let i = 0; i < 3; i++) await t.queue.join("cli");
+});
+
+test("limits hold across control plane instances under concurrent joins", async () => {
+  await using s = await setup({ config: limited(2, 100) });
+  const other = await createQueue({ db: s.db, config: limited(2, 100), runtime: s.fake.runtime, now: s.clock.now });
+  const results = await Promise.allSettled(
+    Array.from({ length: 8 }, (_, i) => (i % 2 ? other : s.queue).join("cli", "1.2.3.4")),
+  );
+  assert.equal(results.filter((r) => r.status === "fulfilled").length, 2);
+  for (const r of results) if (r.status === "rejected") assert.ok(r.reason instanceof RateLimitedError);
 });

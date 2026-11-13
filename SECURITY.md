@@ -67,6 +67,7 @@ can turn them off.
 | Lifetime | Maximum session age. A session ends about 30 s after its heartbeat is lost (the event stream closes or polling stops). A peer that vanishes without closing its connection is only detected when the TCP connection or the proxy times out (about 11 minutes with Linux TCP keepalive defaults on a direct connection). The maximum age bounds an active session; a waiting ticket keeps its place until then. The agent keeps a safety net: it removes expired containers and orphan networks even if the control plane is gone. |
 | Session requests | The agent validates every session request against the JSON Schema shared with the control plane: unknown fields are refused, and so are environment variables the agent sets itself. |
 | Call direction | The control plane calls the agent, never the reverse, over mutual TLS 1.3 with a private CA. The agent accepts only a client certificate with the `clientAuth` usage; the control plane accepts only an agent certificate with the `serverAuth` usage that names the node it called. A node's certificate cannot impersonate the control plane or another node. The node holds no credential towards the rest of the infrastructure. |
+| Per-IP limits | An IP address (an IPv6 /64) may hold 4 live tickets, create 10 tickets a minute and keep 8 event streams open, by default. Beyond that the control plane answers `429`. A single client cannot monopolise a queue. The address comes from the connection, or from forwarding headers only when the connection comes from a configured trusted proxy. It is stored with the ticket and deleted 5 minutes after the ticket ends; it is never logged. |
 | State store | PostgreSQL is reachable by the control plane only: the dev compose file puts it on an internal network that no node component joins. |
 | Prerequisites | The agent **refuses to start** if the declared profile is not met (see below). |
 
@@ -131,12 +132,18 @@ Internet.
   `docs/certificates.md`).
 - **Keep the agent API off the Internet** even with mutual TLS: a private network, a VPN or a
   tunnel that carries TLS end to end.
+- **Declare your reverse proxies in `client_ip.trusted_proxies`**, and only them. Without it,
+  every visitor behind the proxy shares its address and its limits; with a block that is too
+  broad, a visitor can claim any address in `X-Forwarded-For`. Rate limiting raw requests at the
+  proxy is a useful complement.
 - **Keep PostgreSQL private to the control plane.** Never expose it on a network that nodes or
   the Internet can reach, and use a strong password. It holds the ids of live sessions.
 
 ## Known limitations
 
-- **Pre-release**: there is no rate limiting on ticket creation or open event streams yet.
+- **Per-IP limits** count visitors by IP address (IPv6: by /64). Visitors behind one shared
+  address share one budget, and an attacker with many addresses gets many budgets. Each control
+  plane instance counts open event streams on its own.
 - **A session URL can be shared** by the visitor who received it. This is by design: it only
   grants access to that session, for its lifetime.
 - **Resource-exhaustion denial of service** remains possible within the configured limits.

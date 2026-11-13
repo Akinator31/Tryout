@@ -32,7 +32,7 @@ const queue = await createQueue({ db, config: queueConfig(cfg), runtime: agentRu
 
 setInterval(() => queue.tick().catch((e) => log("tick failed", { err: String(e) })), 2000);
 
-const handle = createHandler(cfg, queue);
+const handle = createHandler(cfg, queue, (warning) => log("client address warning", { warning }));
 createServer((req, res) => {
   handle(req, res).catch((e) => {
     log("handler error", { err: String(e) });

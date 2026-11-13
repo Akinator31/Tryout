@@ -1,16 +1,23 @@
 // Queue: the control plane's deep module.
 //
 // Interface: join / poll / watch / release / tick. Behind it: per-project
-// and per-node caps, FIFO promotion, session start and readiness, heartbeat
+// and per-node caps, per-client limits, FIFO promotion, session start and readiness, heartbeat
 // loss, maximum age, change notifications. State lives in Postgres (ADR 0007)
 // so several control plane instances can share it; time comes from an
 // injected clock.
 import { randomBytes } from "node:crypto";
-import type { Db } from "./db.ts";
+import type { Db, Query } from "./db.ts";
 
 export interface QueueConfig {
   nodes: Record<string, { maxSessions: number }>;
   projects: Record<string, { node: string; maxSessions: number; maxAgeS: number }>;
+  /** Per-client limits on join (ADR 0016); 0 disables a limit. */
+  limits?: {
+    /** Tickets not yet ended (waiting, starting, active). */
+    liveTicketsPerClient: number;
+    /** Tickets created within a sliding window, ended ones included. At most 5 minutes. */
+    newTicketsPerClient: { max: number; windowMs: number };
+  };
 }
 
 export interface SessionRef {
@@ -42,8 +49,12 @@ export interface TicketView {
 }
 
 export interface Queue {
-  /** Joins a project's queue. Throws UnknownProjectError. */
-  join(project: string): Promise<TicketView>;
+  /**
+   * Joins a project's queue. `client` identifies the visitor (an IP address
+   * or an IPv6 /64); without it, no per-client limit applies. Throws
+   * UnknownProjectError or RateLimitedError.
+   */
+  join(project: string, client?: string): Promise<TicketView>;
   /** Current state of a ticket; also counts as a heartbeat. Null if unknown. */
   poll(ticket: string): Promise<TicketView | null>;
   /**
@@ -61,6 +72,20 @@ export interface Queue {
 
 export class UnknownProjectError extends Error {}
 
+/** Names of the per-client limits, as reported to the visitor; "streams" is enforced by the HTTP layer. */
+export type LimitName = "live_tickets" | "new_tickets" | "streams";
+
+/** A per-client limit refused the join; the visitor may retry after `retryAfterS`. */
+export class RateLimitedError extends Error {
+  readonly limit: Exclude<LimitName, "streams">;
+  readonly retryAfterS: number;
+  constructor(limit: Exclude<LimitName, "streams">, retryAfterS: number) {
+    super(`rate limited: ${limit}`);
+    this.limit = limit;
+    this.retryAfterS = retryAfterS;
+  }
+}
+
 const HEARTBEAT_LOST_MS = 30_000;
 // Image pulls on a fresh node can be slow; an agent call or a control plane
 // restart must not hold a slot forever. The runtime gets an AbortSignal that
@@ -71,11 +96,15 @@ export const START_TIMEOUT_MS = 180_000;
 const RESYNC_MS = 10_000;
 const CHANNEL = "tryout_tickets";
 // Ended tickets stay readable for a while so the page can show why it ended.
-const FORGET_ENDED_MS = 5 * 60_000;
+// The new-ticket window counts ended tickets too, so it must not outlast them.
+export const FORGET_ENDED_MS = 5 * 60_000;
+// A live ticket ends within this delay once its page is gone (heartbeat loss).
+const LIVE_RETRY_AFTER_S = HEARTBEAT_LOST_MS / 1000;
 const START_FAILED = "Could not start the session.";
 // Advisory lock keys (arbitrary constants private to this module).
 const SCHEDULER_LOCK = 0x7472796f; // "tryo"
 const SCHEMA_LOCK = 0x74727973; // "trys"
+const CLIENT_LOCK = 0x7472796c; // "tryl", paired with a hash of the client key
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS tickets (
@@ -94,6 +123,9 @@ const SCHEMA = [
   ended_at    double precision
 )`,
   `CREATE INDEX IF NOT EXISTS tickets_project_state ON tickets (project, state, seq)`,
+  // Per-client limits (ADR 0016). Added after the table's first release.
+  `ALTER TABLE tickets ADD COLUMN IF NOT EXISTS client_key text`,
+  `CREATE INDEX IF NOT EXISTS tickets_client ON tickets (client_key, created_at)`,
   // Any state change may move every waiting ticket of the project, so the
   // payload is the project. NOTIFY is sent on commit and deduplicated per
   // transaction; heartbeats (last_seen) do not notify.
@@ -297,15 +329,48 @@ export async function createQueue(deps: {
     if (row.session_id) await stopSession(ref(row));
   }
 
+  /**
+   * Throws RateLimitedError if `client` is over a limit. Joins of the same
+   * client are serialized by an advisory lock until the transaction commits,
+   * so concurrent joins, from any instance, cannot overshoot.
+   */
+  async function checkLimits(q: Query, client: string, t: number, limits: NonNullable<QueueConfig["limits"]>) {
+    await q(`SELECT pg_advisory_xact_lock(${CLIENT_LOCK}, hashtext($1))`, [client]);
+    const { liveTicketsPerClient: live, newTicketsPerClient: rate } = limits;
+    if (live > 0) {
+      const [{ n }] = await q<{ n: number }>(
+        `SELECT count(*)::int AS n FROM tickets WHERE client_key = $1 AND state <> 'ended'`,
+        [client],
+      );
+      if (n >= live) throw new RateLimitedError("live_tickets", LIVE_RETRY_AFTER_S);
+    }
+    if (rate.max > 0) {
+      const recent = await q<{ created_at: number }>(
+        `SELECT created_at FROM tickets WHERE client_key = $1 AND created_at > $2 ORDER BY created_at`,
+        [client, t - rate.windowMs],
+      );
+      if (recent.length >= rate.max) {
+        // A slot frees up when enough of the oldest tickets leave the window.
+        const freesAt = recent[recent.length - rate.max].created_at + rate.windowMs;
+        throw new RateLimitedError("new_tickets", Math.max(1, Math.ceil((freesAt - t) / 1000)));
+      }
+    }
+  }
+
   const queue: Queue = {
-    async join(project) {
+    async join(project, client) {
       const p = config.projects[project];
       if (!p) throw new UnknownProjectError(project);
-      const [row] = await db.query<Row>(
-        `INSERT INTO tickets (id, project, node, state, created_at, last_seen)
-         VALUES ($1, $2, $3, 'waiting', $4, $4) RETURNING *`,
-        [randomId(), project, p.node, now()],
-      );
+      const row = await db.tx(async (q) => {
+        const t = now();
+        if (client !== undefined && config.limits) await checkLimits(q, client, t, config.limits);
+        const [inserted] = await q<Row>(
+          `INSERT INTO tickets (id, project, node, state, created_at, last_seen, client_key)
+           VALUES ($1, $2, $3, 'waiting', $4, $4, $5) RETURNING *`,
+          [randomId(), project, p.node, t, client ?? null],
+        );
+        return inserted;
+      });
       await schedule();
       const [current] = await db.query<Row>(SELECT_WITH_POSITION, [[row.id]]);
       return view(current);

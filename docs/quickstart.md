@@ -41,6 +41,7 @@ node scripts/e2e-cli.ts      # queue → gateway → ttyd WebSocket → commands
 node scripts/e2e-queue.ts    # session cap, promotion, heartbeat loss
 node scripts/e2e-sse.ts      # pushed promotion, stream as heartbeat, stream end
 node scripts/e2e-mtls.ts     # the agent refuses every client but the control plane
+node scripts/e2e-limits.ts   # per-IP limits on tickets and event streams
 (cd apps/node && go test ./...)
 (cd apps/control-plane && npm ci && npm run typecheck && npm test)
 ```

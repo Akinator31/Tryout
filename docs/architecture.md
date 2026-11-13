@@ -20,9 +20,10 @@ for graphical ones. Each project is assigned to a node.
 
 | Module | Role |
 |---|---|
-| `queue.ts` | **The core.** Interface: `join`, `poll`, `watch`, `release`, `tick`. Behind it: per-project and per-node caps, FIFO promotion, session start, heartbeat loss, maximum age, start timeout, change notifications (`LISTEN/NOTIFY`). State lives in Postgres. |
+| `queue.ts` | **The core.** Interface: `join`, `poll`, `watch`, `release`, `tick`. Behind it: per-project and per-node caps, per-IP ticket limits, FIFO promotion, session start, heartbeat loss, maximum age, start timeout, change notifications (`LISTEN/NOTIFY`). State lives in Postgres. |
 | `runtime.ts` | `SessionRuntime` adapter for real nodes: agent API over mutual TLS + readiness probe through the gateway. Tests use an in-memory adapter. |
 | `db.ts` | Database port (queries, transactions, `LISTEN`); adapters for node-postgres and, in tests, PGlite. |
+| `client.ts` | The visitor's IP address, read through trusted proxies only, and the cap on open event streams per IP. |
 | `http.ts` | Embed page, demo page, queue API and its SSE stream. Thin. |
 | `config.ts`, `server.ts` | Configuration loading (YAML, validated against the shared JSON Schema) and wiring. |
 
@@ -32,6 +33,8 @@ What it does:
   refuses to start on any error.
 - Manages **tickets**: a visitor joins a project's queue and waits for a free slot.
 - Enforces two caps: sessions per project and sessions per node.
+- Limits what one IP address can hold: live tickets, tickets created per minute and open event
+  streams ([ADR 0016](decisions/0016-per-ip-limits.md)).
 - Starts a session through the agent, checks that it answers through the gateway, then hands
   the URL to the browser.
 - Ends a session when the visitor leaves, when the heartbeat is lost (~30 s), when the
