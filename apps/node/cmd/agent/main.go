@@ -146,17 +146,14 @@ func (a *agent) checkProfile(ctx context.Context) error {
 		return fmt.Errorf("unknown NODE_PROFILE %q", a.cfg.profile)
 	}
 	if a.cfg.allowRunc && a.cfg.profile != "dev" {
-		slog.Warn("ALLOW_RUNC=true: sessions may share the host kernel without gVisor")
+		slog.Warn("ALLOW_RUNC=true: sessions may use runtimes other than gVisor, such as runc on the host kernel")
+	}
+	if !a.runtimes[a.cfg.defaultRuntime] && (a.cfg.profile == "dev" || a.cfg.allowRunc) {
+		slog.Warn("default runtime missing, falling back to runc", "wanted", a.cfg.defaultRuntime)
+		a.cfg.defaultRuntime = "runc"
 	}
 	if !a.runtimes[a.cfg.defaultRuntime] {
-		if a.cfg.profile == "dev" {
-			slog.Warn("default runtime missing, falling back to runc", "wanted", a.cfg.defaultRuntime)
-			a.cfg.defaultRuntime = "runc"
-		} else if !a.cfg.allowRunc {
-			return fmt.Errorf("DEFAULT_RUNTIME %q not available", a.cfg.defaultRuntime)
-		} else {
-			a.cfg.defaultRuntime = "runc"
-		}
+		return fmt.Errorf("DEFAULT_RUNTIME %q not available on this daemon", a.cfg.defaultRuntime)
 	}
 	// Otherwise the agent would start, then refuse every session that uses the default.
 	if !a.runtimeAllowed(a.cfg.defaultRuntime) {

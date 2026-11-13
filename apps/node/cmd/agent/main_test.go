@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -275,7 +276,9 @@ func fakeDocker(t *testing.T, runtimes ...string) *dockerapi.Client {
 			http.NotFound(w, r)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"Architecture": "x86_64", "Runtimes": rts, "CgroupVersion": "2"})
+		if err := json.NewEncoder(w).Encode(map[string]any{"Architecture": "x86_64", "Runtimes": rts, "CgroupVersion": "2"}); err != nil {
+			t.Error(err)
+		}
 	}))
 	t.Cleanup(srv.Close)
 	c, err := dockerapi.New("tcp://" + srv.Listener.Addr().String())
@@ -285,27 +288,39 @@ func fakeDocker(t *testing.T, runtimes ...string) *dockerapi.Client {
 	return c
 }
 
-func TestCheckProfileRefusesADefaultRuntimeTheProfileRefuses(t *testing.T) {
-	installed := []string{"io.containerd.runc.v2", "runc", "runsc"}
+func TestCheckProfileDefaultRuntime(t *testing.T) {
+	all := []string{"io.containerd.runc.v2", "runc", "runsc"}
+	noGVisor := []string{"io.containerd.runc.v2", "runc"}
+	onlyShim := []string{"io.containerd.runc.v2"}
 	cases := []struct {
 		profile, def string
 		allowRunc    bool
-		ok           bool
+		installed    []string
+		wantErr      string // "" = starts
 	}{
-		{"strict", "runsc", false, true},
-		{"strict", "runc", false, false},
-		{"strict", "io.containerd.runc.v2", false, false},
-		{"strict", "runc", true, true},
-		{"dev", "runc", false, true},
+		{"strict", "runsc", false, all, ""},
+		{"strict", "runc", false, all, `DEFAULT_RUNTIME "runc" is refused`},
+		{"strict", "io.containerd.runc.v2", false, all, `DEFAULT_RUNTIME "io.containerd.runc.v2" is refused`},
+		{"strict", "runc", true, all, ""},
+		{"strict", "runsc", false, noGVisor, "runsc (gVisor) not installed"},
+		{"strict", "runsc", true, noGVisor, ""}, // falls back to runc
+		{"strict", "runsc", true, onlyShim, "not available"},
+		{"dev", "runc", false, all, ""},
+		{"dev", "runsc", false, noGVisor, ""}, // falls back to runc
+		{"dev", "runsc", false, onlyShim, "not available"},
 	}
 	for _, c := range cases {
 		a := &agent{
 			cfg:    config{profile: c.profile, defaultRuntime: c.def, allowRunc: c.allowRunc},
-			docker: fakeDocker(t, installed...),
+			docker: fakeDocker(t, c.installed...),
 		}
 		err := a.checkProfile(context.Background())
-		if (err == nil) != c.ok {
-			t.Errorf("profile %s, DEFAULT_RUNTIME %s, ALLOW_RUNC %v: err = %v, want ok = %v", c.profile, c.def, c.allowRunc, err, c.ok)
+		name := fmt.Sprintf("profile %s, DEFAULT_RUNTIME %s, ALLOW_RUNC %v, runtimes %v", c.profile, c.def, c.allowRunc, c.installed)
+		switch {
+		case c.wantErr == "" && err != nil:
+			t.Errorf("%s: want start, got %v", name, err)
+		case c.wantErr != "" && (err == nil || !strings.Contains(err.Error(), c.wantErr)):
+			t.Errorf("%s: want error containing %q, got %v", name, c.wantErr, err)
 		}
 	}
 }
