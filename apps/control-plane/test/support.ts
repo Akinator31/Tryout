@@ -4,7 +4,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { pgDb, type Db, type Query } from "../src/db.ts";
 import type { SessionRef, SessionRuntime } from "../src/queue.ts";
 
-/** PGlite by default; a real Postgres when TEST_DATABASE_URL is set (CI). */
+/** PGlite by default; a real Postgres when TEST_DATABASE_URL is set (CI), with an emptied public schema. */
 export async function freshDb(): Promise<Db> {
   const url = process.env.TEST_DATABASE_URL;
   if (url) {
@@ -13,11 +13,18 @@ export async function freshDb(): Promise<Db> {
     await db.query("CREATE SCHEMA public");
     return db;
   }
-  const lite = new PGlite();
-  const q: Query = async (text, params) => (await lite.query(text, params)).rows as never;
+
+  return pgliteDb(new PGlite());
+}
+
+/** The Db port over PGlite. Its LISTEN cannot drop, so onConnect runs once. */
+function pgliteDb(lite: PGlite): Db {
+  const query: Query = async (text, params) => (await lite.query(text, params)).rows as never;
+
   return {
-    query: q,
-    tx: (fn) => lite.transaction((tx) => fn(async (text, params) => (await tx.query(text, params)).rows as never)),
+    query,
+    tx: (fn) =>
+      lite.transaction((tx) => fn(async (text, params) => (await tx.query(text, params)).rows as never)),
     async listen(channel, onNotify, onConnect) {
       await lite.listen(channel, onNotify);
       onConnect();
@@ -26,9 +33,15 @@ export async function freshDb(): Promise<Db> {
   };
 }
 
+/** A clock that only moves when the test advances it. */
 export function fakeClock(start = 1_000_000) {
   let t = start;
-  return { now: () => t, advance: (ms: number) => { t += ms; } };
+  return {
+    now: () => t,
+    advance: (ms: number) => {
+      t += ms;
+    },
+  };
 }
 
 type Pending = { req: SessionRef; resolve: (url: string) => void; reject: (e: Error) => void };
@@ -38,28 +51,39 @@ type Pending = { req: SessionRef; resolve: (url: string) => void; reject: (e: Er
  * With manual=true a start stays pending until the test settles it, and, like
  * the real agent, the container only exists once the start settles: a stop
  * that arrives earlier finds nothing to delete (HTTP 404) and is a no-op.
+ * A rejected start models a container that was created, then failed to get
+ * ready: it is running until stopped.
  */
 export function fakeRuntime({ manual = false } = {}) {
   const running = new Set<string>();
   const pending: Pending[] = [];
+
   const runtime: SessionRuntime = {
     start(req) {
       if (!manual) {
         running.add(req.sessionId);
         return Promise.resolve({ url: `https://${req.node}.test/s/${req.sessionId}/` });
       }
-      return new Promise((resolve, reject) =>
+
+      return new Promise((resolve, reject) => {
         pending.push({
           req,
-          resolve: (url) => { running.add(req.sessionId); resolve({ url }); },
-          reject: (e) => { running.add(req.sessionId); reject(e); }, // created, then failed to get ready
-        }),
-      );
+          resolve: (url) => {
+            running.add(req.sessionId);
+            resolve({ url });
+          },
+          reject: (e) => {
+            running.add(req.sessionId);
+            reject(e);
+          },
+        });
+      });
     },
     async stop(req) {
       running.delete(req.sessionId);
     },
   };
+
   return { runtime, running, pending };
 }
 

@@ -8,16 +8,25 @@
 <p>Each block is an iframe pointing at <code>/embed/&lt;project&gt;</code>, as a real portfolio would embed it.</p>
 <div id="list"></div>
 <script>
-for (const p of __PROJECTS__) {
-  const d = document.createElement("div"); d.className = "p";
-  d.innerHTML = `<h2>${p}</h2><button>Try it</button>`;
-  d.querySelector("button").onclick = (e) => {
-    const f = document.createElement("iframe");
-    f.src = `/embed/${p}`;
-    f.allow = "clipboard-read; clipboard-write; autoplay; fullscreen; keyboard-map";
-    e.target.replaceWith(f);
+const FRAME_ALLOW = "clipboard-read; clipboard-write; autoplay; fullscreen; keyboard-map";
+
+/** A block with a "Try it" button that turns into the project's embed iframe. */
+function projectBlock(project) {
+  const block = document.createElement("div");
+  block.className = "p";
+  block.innerHTML = `<h2>${project}</h2><button>Try it</button>`;
+
+  block.querySelector("button").onclick = (e) => {
+    const frame = document.createElement("iframe");
+    frame.src = `/embed/${project}`;
+    frame.allow = FRAME_ALLOW;
+    e.target.replaceWith(frame);
   };
-  document.getElementById("list").appendChild(d);
+  return block;
+}
+
+for (const project of __PROJECTS__) {
+  document.getElementById("list").appendChild(projectBlock(project));
 }
 </script>
 </body>

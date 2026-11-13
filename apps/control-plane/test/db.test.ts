@@ -13,7 +13,6 @@ const url = process.env.TEST_DATABASE_URL;
 const skip = url ? false : "needs TEST_DATABASE_URL";
 const DELAY_MS = 20;
 const TIMEOUT_MS = 100;
-
 const TRIES = 400; // eventually() polls every 5 ms: about 2 s
 
 type Mode = "forward" | "refuse" | "hold" | "drop-query";
@@ -30,32 +29,49 @@ async function dbProxy(target: string) {
   let mode: Mode = "forward";
   let accepted = 0;
 
+  const track = (socket: net.Socket) => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+  };
+
+  /** Forwards `client` to the database, cutting both ends on a simple query in drop-query mode. */
   const pipe = (client: net.Socket) => {
     const upstream = net.connect(Number(port || 5432), hostname);
-    sockets.add(upstream);
-    upstream.on("close", () => sockets.delete(upstream));
+    track(upstream);
     client.on("error", () => upstream.destroy());
     upstream.on("error", () => client.destroy());
+
     client.on("data", (chunk) => {
-      if (mode === "drop-query" && chunk[0] === 0x51 /* 'Q' */) {
+      const isSimpleQuery = chunk[0] === 0x51; // 'Q'
+      if (mode === "drop-query" && isSimpleQuery) {
         client.destroy();
         upstream.destroy();
-      } else upstream.write(chunk);
+      } else {
+        upstream.write(chunk);
+      }
     });
     client.on("end", () => upstream.end());
     upstream.pipe(client);
   };
+
+  const hold = (client: net.Socket) => {
+    client.pause();
+    held.push(() => {
+      if (client.destroyed) return;
+      client.resume();
+      pipe(client);
+    });
+  };
+
   const server = net.createServer((client) => {
     accepted++;
-    sockets.add(client);
-    client.on("close", () => sockets.delete(client));
+    track(client);
     if (mode === "refuse") client.destroy();
-    else if (mode === "hold") {
-      client.pause();
-      held.push(() => client.destroyed || (client.resume(), pipe(client)));
-    } else pipe(client);
+    else if (mode === "hold") hold(client);
+    else pipe(client);
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+
   const proxied = new URL(target);
   proxied.hostname = "127.0.0.1";
   proxied.port = String((server.address() as net.AddressInfo).port);
@@ -68,7 +84,9 @@ async function dbProxy(target: string) {
       if (m === "forward") held.splice(0).forEach((go) => go());
     },
     /** Drops every open connection, as a network failure would. */
-    cut() { for (const s of sockets) s.destroy(); },
+    cut() {
+      for (const s of sockets) s.destroy();
+    },
     async [Symbol.asyncDispose]() {
       this.cut();
       await new Promise((r) => server.close(r));
@@ -76,6 +94,7 @@ async function dbProxy(target: string) {
   };
 }
 
+/** Sends a notification on a direct connection. */
 const notify = (channel: string, payload: string) =>
   direct("SELECT pg_notify($1, $2)", [channel, payload]);
 
@@ -102,9 +121,11 @@ async function subscribe(proxyUrl: string, listenTimeoutMs = TIMEOUT_MS) {
   const db = pgDb(proxyUrl, { relistenDelayMs: DELAY_MS, listenTimeoutMs });
   let closing: Promise<void> | undefined;
   const close = () => (closing ??= db.close());
+
   const got: string[] = [];
   let connects = 0;
   await db.listen(channel, (p) => got.push(p), () => connects++);
+
   return {
     close,
     [Symbol.asyncDispose]: close, // also on a failed assertion: stops the reconnect loop
@@ -114,12 +135,13 @@ async function subscribe(proxyUrl: string, listenTimeoutMs = TIMEOUT_MS) {
     /** Sends payloads until one arrives: proves the subscription is live. */
     async live(tag: string) {
       let n = 0;
-      const seen = await eventually(
-        async () => { await notify(channel, `${tag}-${++n}`); return got; },
-        (g) => g.some((p) => p.startsWith(`${tag}-`)),
-        TRIES,
-      );
-      return seen.some((p) => p.startsWith(`${tag}-`));
+      const tagged = (g: string[]) => g.some((p) => p.startsWith(`${tag}-`));
+      const sendOne = async () => {
+        await notify(channel, `${tag}-${++n}`);
+        return got;
+      };
+
+      return tagged(await eventually(sendOne, tagged, TRIES));
     },
   };
 }
@@ -130,6 +152,7 @@ test("the first LISTEN connection failing fails listen()", { skip }, async () =>
   await using proxy = await dbProxy(url!);
   proxy.setMode("refuse");
   const db = pgDb(proxy.url, { relistenDelayMs: DELAY_MS });
+
   await assert.rejects(db.listen("test_first", () => {}, () => {}));
   await sleep(DELAY_MS * 5);
   assert.equal(proxy.accepted, 1, "no retry for the initial connection");
@@ -200,9 +223,11 @@ test("close() stops the reconnect loop", { skip }, async () => {
   proxy.setMode("refuse");
   proxy.cut();
   await eventually(async () => proxy.accepted, (n) => n >= 2, TRIES);
+
   await s.close();
   await sleep(DELAY_MS * 2);
   const after = proxy.accepted;
+
   proxy.setMode("forward");
   await sleep(DELAY_MS * 10);
   assert.equal(proxy.accepted, after, "no attempt after close()");
@@ -216,9 +241,11 @@ test("close() during a reconnect attempt leaves no LISTEN session behind", { ski
   proxy.setMode("hold");
   proxy.cut();
   await eventually(async () => proxy.accepted, (n) => n >= 2, TRIES); // an attempt is pending
+
   const closing = s.close();
   proxy.setMode("forward"); // the pending attempt now completes
   await closing; // waits for the attempt to settle
+
   assert.equal(s.connects, 1, "no subscription after close()");
   const left = await eventually(() => listening(s.channel), (b) => b.length === 0, TRIES);
   assert.deepEqual(left, [], "no backend still listens");

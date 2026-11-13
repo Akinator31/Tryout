@@ -16,18 +16,18 @@ after(() => servers.forEach((s) => s.close()));
 
 /** An agent-like server: TLS 1.3, client certificate required. Answers with the client's CN. */
 async function agent(leaf: Leaf): Promise<number> {
-  const server = createServer(
-    { cert: leaf.cert, key: leaf.key, ca: pki.ca, requestCert: true, rejectUnauthorized: true, minVersion: "TLSv1.3" },
-    (req, res) => {
-      const peer = (req.socket as TLSSocket).getPeerCertificate();
-      res.end(peer.subject?.CN ?? "");
-    },
-  );
+  const options = { cert: leaf.cert, key: leaf.key, ca: pki.ca, requestCert: true, rejectUnauthorized: true, minVersion: "TLSv1.3" } as const;
+  const server = createServer(options, (req, res) => {
+    const peer = (req.socket as TLSSocket).getPeerCertificate();
+    res.end(peer.subject?.CN ?? "");
+  });
   servers.push(server);
+
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   return (server.address() as AddressInfo).port;
 }
 
+/** Calls the agent at `url` with agentClient; resolves with the CN the agent saw. */
 async function call(agentTls: AgentTls, url: string, server_name?: string) {
   const c = agentClient(agentTls, { agent_url: url, server_name });
   try {
@@ -76,6 +76,8 @@ test("an agent signed by another CA is refused", async () => {
 test("the agent refuses a client certificate from another CA", async () => {
   const port = await agent(pki.leaf("srv-strict", { usage: "serverAuth", san: ["DNS:localhost"] }));
   const foreign = pki.leaf("cp-foreign", { usage: "clientAuth", ca: "other" });
+  const foreignTls = { ...tls, cert: foreign.cert, key: foreign.key };
+
   // TLS 1.3: the server checks the client after the handshake and closes the connection.
-  await rejects(call({ ...tls, cert: foreign.cert, key: foreign.key }, `https://localhost:${port}`), /other side closed|ECONNRESET|alert/);
+  await rejects(call(foreignTls, `https://localhost:${port}`), /other side closed|ECONNRESET|alert/);
 });

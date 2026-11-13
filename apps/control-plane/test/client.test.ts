@@ -1,3 +1,5 @@
+// The client key behind the per-IP limits (ADR 0016) and the cap on open
+// event streams.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { clientKeyResolver, parseCidr, StreamLimiter } from "../src/client.ts";
@@ -47,9 +49,11 @@ test("ports written by proxies are ignored", () => {
 test("a trusted proxy that sends no client address is reported once", () => {
   const warnings: string[] = [];
   const key = clientKeyResolver({ trusted_proxies: ["10.0.0.0/8"], header: "X-Real-IP" }, (w) => warnings.push(w));
+
   assert.equal(key("10.0.0.2", {}), "10.0.0.2");
   assert.equal(key("10.0.0.3", { "x-real-ip": "a, b" }), "10.0.0.3");
   assert.equal(key("10.0.0.2", { "x-real-ip": "198.51.100.1" }), "198.51.100.1");
+
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /X-Real-IP.*share the limits of 10\.0\.0\.2/);
 });
@@ -58,7 +62,9 @@ test("trusted proxy blocks: addresses or CIDR blocks, IPv4 written as IPv4", () 
   assert.deepEqual(parseCidr("10.0.0.0/8"), { address: "10.0.0.0", prefix: 8, family: "ipv4" });
   assert.deepEqual(parseCidr("fd00::/8"), { address: "fd00::", prefix: 8, family: "ipv6" });
   assert.deepEqual(parseCidr("192.0.2.1"), { address: "192.0.2.1", prefix: 32, family: "ipv4" });
-  for (const bad of ["10.0.0.0/33", "fd00::/129", "10.0.0/8", "10.0.0.0/8/1", "::ffff:10.0.0.0/104", "10.0.0.0/x"]) {
+
+  const invalid = ["10.0.0.0/33", "fd00::/129", "10.0.0/8", "10.0.0.0/8/1", "::ffff:10.0.0.0/104", "10.0.0.0/x"];
+  for (const bad of invalid) {
     assert.equal(parseCidr(bad), undefined, bad);
   }
 });
@@ -81,8 +87,10 @@ test("the stream limiter caps open streams per key and frees a slot on release",
   const a = streams.acquire("k");
   const b = streams.acquire("k");
   assert.ok(a && b);
+
   assert.equal(streams.acquire("k"), null);
   assert.ok(streams.acquire("other"));
+
   a();
   a(); // releasing twice frees one slot only
   assert.ok(streams.acquire("k"));

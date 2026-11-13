@@ -17,25 +17,40 @@
 <div id="bar" hidden></div>
 <script>
 const project = "__PROJECT__";
+const FRAME_ALLOW = "clipboard-read; clipboard-write; autoplay; fullscreen; keyboard-map";
 const statusEl = document.getElementById("status");
 const bar = document.getElementById("bar");
-let ticket = null, frame = null, events = null, retry = null, countdown = null, endsAt = 0;
 
-function show(html) { statusEl.innerHTML = html; statusEl.hidden = false; }
+let ticket = null;
+let frame = null;
+let events = null;
+let retry = null;
+let countdown = null;
+let endsAt = 0;
 
+/** Shows a message (HTML) over the page. */
+function show(html) {
+  statusEl.innerHTML = html;
+  statusEl.hidden = false;
+}
+
+/** Takes a ticket for the project, then follows it. */
 async function join() {
   clearTimeout(retry);
   show("Connecting…");
+
   const r = await fetch(`/api/projects/${project}/tickets`, { method: "POST" });
   if (r.status === 429) return limited(Number(r.headers.get("retry-after")) || 30);
   if (!r.ok) return show("Project unavailable.");
+
   ticket = (await r.json()).ticket;
   listen();
 }
 
-// Per-IP limit reached (ADR 0016): wait, then try again on our own.
+/** Per-IP limit reached (ADR 0016): counts down, then tries again on its own. */
 function limited(seconds) {
   let left = seconds;
+
   const tick = () => {
     if (left <= 0) return join();
     show(`Too many sessions from your network.<br><small>Trying again in ${left} s.</small>`);
@@ -45,64 +60,94 @@ function limited(seconds) {
   tick();
 }
 
-// Server-sent events: the server pushes every change and a fresh view every
-// 10 s. The open stream is also the heartbeat (ADR 0012).
+/**
+ * Follows the ticket over server-sent events: the server pushes every change
+ * and a fresh view every 10 s. The open stream is also the heartbeat (ADR 0012).
+ */
 function listen() {
   clearTimeout(retry);
   events = new EventSource(`/api/tickets/${ticket}/events`);
   events.addEventListener("ticket", (e) => render(JSON.parse(e.data)));
-  events.onerror = async () => {
-    if (events.readyState !== EventSource.CLOSED) return; // the browser reconnects by itself
-    // Refused (unknown ticket, too many streams from this IP) or closed after
-    // the end: check by polling, which also keeps the ticket alive, then retry.
-    const current = ticket;
-    try {
-      const r = await fetch(`/api/tickets/${current}`);
-      if (current !== ticket) return;
-      if (r.status === 404) return ended("Session expired.");
-      const v = await r.json();
-      render(v);
-      if (v.state === "ended") return;
-    } catch {}
-    if (current === ticket) retry = setTimeout(listen, 3000);
-  };
+  events.onerror = onStreamError;
+}
+
+/**
+ * The browser reconnects a dropped stream by itself. A closed one was refused
+ * (unknown ticket, too many streams from this IP) or ended: checks by polling,
+ * which also keeps the ticket alive, then listens again unless the ticket
+ * ended or was replaced meanwhile.
+ */
+async function onStreamError() {
+  if (events.readyState !== EventSource.CLOSED) return;
+
+  const current = ticket;
+  try {
+    const r = await fetch(`/api/tickets/${current}`);
+    if (current !== ticket) return;
+    if (r.status === 404) return ended("Session expired.");
+
+    const v = await r.json();
+    render(v);
+    if (v.state === "ended") return;
+  } catch {}
+
+  if (current === ticket) retry = setTimeout(listen, 3000);
 }
 
 function render(v) {
-  if (v.state === "waiting") show(`Queue position: <b>${v.position}</b><br><small>Your session will start automatically.</small>`);
-  if (v.state === "starting") show("Starting the environment…");
-  if (v.state === "active") {
-    if (!frame) {
-      frame = document.createElement("iframe");
-      frame.allow = "clipboard-read; clipboard-write; autoplay; fullscreen; keyboard-map";
-      frame.src = v.url;
-      document.body.appendChild(frame);
-      statusEl.hidden = true;
-    }
-    endsAt = Date.now() + v.ends_in_s * 1000; // re-synced by every message
-    if (!countdown) countdown = setInterval(tickDown, 1000);
-    tickDown();
-    bar.hidden = false;
+  if (v.state === "waiting") {
+    show(`Queue position: <b>${v.position}</b><br><small>Your session will start automatically.</small>`);
   }
+  if (v.state === "starting") show("Starting the environment…");
+  if (v.state === "active") renderActive(v);
   if (v.state === "ended") ended(v.error || "Session ended.");
+}
+
+/** Opens the session frame once, and re-syncs the countdown with every message. */
+function renderActive(v) {
+  if (!frame) {
+    frame = document.createElement("iframe");
+    frame.allow = FRAME_ALLOW;
+    frame.src = v.url;
+    document.body.appendChild(frame);
+    statusEl.hidden = true;
+  }
+
+  endsAt = Date.now() + v.ends_in_s * 1000;
+  if (!countdown) countdown = setInterval(tickDown, 1000);
+  tickDown();
+  bar.hidden = false;
 }
 
 function tickDown() {
   const left = Math.max(0, Math.round((endsAt - Date.now()) / 1000));
-  bar.textContent = `ends in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+  const seconds = String(left % 60).padStart(2, "0");
+  bar.textContent = `ends in ${Math.floor(left / 60)}:${seconds}`;
 }
 
+/** Tears the session down and offers to start again. */
 function ended(msg) {
-  if (events) { events.close(); events = null; }
+  if (events) {
+    events.close();
+    events = null;
+  }
   clearTimeout(retry);
-  clearInterval(countdown); countdown = null;
-  if (frame) { frame.remove(); frame = null; }
+  clearInterval(countdown);
+  countdown = null;
+  if (frame) {
+    frame.remove();
+    frame = null;
+  }
   bar.hidden = true;
   ticket = null;
+
   show(`${msg}<br><button onclick="join()">Start again</button>`);
 }
 
-addEventListener("pagehide", () => { if (ticket) navigator.sendBeacon(`/api/tickets/${ticket}/release`); });
+addEventListener("pagehide", () => {
+  if (ticket) navigator.sendBeacon(`/api/tickets/${ticket}/release`);
+});
+
 join();
 </script>
 </body>

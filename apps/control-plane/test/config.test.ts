@@ -1,10 +1,22 @@
+// Configuration loading (ADR 0014): the schema copy, the shipped example
+// files, every pass of parseConfig and its error locations, client_ip and
+// limits (ADR 0016), agent_tls (ADR 0015).
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
-import { copyFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ConfigError, DEFAULT_LIMITS, frameAncestors, loadConfig, parseConfig, parseDuration, queueConfig, schema, validateSessionRequest } from "../src/config.ts";
+import {
+  ConfigError,
+  DEFAULT_LIMITS,
+  frameAncestors,
+  loadConfig,
+  parseConfig,
+  parseDuration,
+  queueConfig,
+  schema,
+  validateSessionRequest,
+} from "../src/config.ts";
 import { makePki, TEST_DAYS } from "./pki.ts";
 
 const root = new URL("../../../", import.meta.url);
@@ -38,6 +50,7 @@ agent_tls:
   key: cp.key
 `;
 
+/** Asserts that `text` is refused; returns the problems reported. */
 function problems(text: string, e: NodeJS.ProcessEnv = env, now = new Date()): string[] {
   try {
     parseConfig(text, { env: e, baseDir: pki.dir, now });
@@ -55,29 +68,30 @@ test("the schema copy shipped with the control plane is in sync", () => {
   );
 });
 
-test("the dev configuration is valid", () => {
-  // Same layout as in the dev compose file: pki/ next to the configuration.
-  const dir = mkdtempSync(join(tmpdir(), "tryout-dev-"));
+/**
+ * Copies a configuration file of the repository into a temporary directory,
+ * with the test PKI in pki/ next to it (the layout of the compose files), and
+ * returns the copy's path.
+ */
+function stageConfig(file: string, prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
   mkdirSync(join(dir, "pki"));
-  copyFileSync(new URL("deploy/tryout.dev.yaml", root), join(dir, "tryout.yaml"));
+  copyFileSync(new URL(file, root), join(dir, "tryout.yaml"));
   copyFileSync(pki.caFile, join(dir, "pki/ca.crt"));
   copyFileSync(join(pki.dir, "cp.crt"), join(dir, "pki/tls.crt"));
   copyFileSync(join(pki.dir, "cp.key"), join(dir, "pki/tls.key"));
-  const { config, warnings } = loadConfig(join(dir, "tryout.yaml"), {});
+  return join(dir, "tryout.yaml");
+}
+
+test("the dev configuration is valid", () => {
+  const { config, warnings } = loadConfig(stageConfig("deploy/tryout.dev.yaml", "tryout-dev-"), {});
   assert.equal(config.projects["cli-hello"].max_age_s, 600);
   assert.equal(config.agent_tls.ca, pki.ca);
   assert.deepEqual(warnings, []);
 });
 
 test("the production example configuration is valid", () => {
-  // Same layout as deploy/control-plane/compose.yaml: pki/ next to the configuration.
-  const dir = mkdtempSync(join(tmpdir(), "tryout-prod-"));
-  mkdirSync(join(dir, "pki"));
-  copyFileSync(new URL("deploy/control-plane/tryout.yaml", root), join(dir, "tryout.yaml"));
-  copyFileSync(pki.caFile, join(dir, "pki/ca.crt"));
-  copyFileSync(join(pki.dir, "cp.crt"), join(dir, "pki/tls.crt"));
-  copyFileSync(join(pki.dir, "cp.key"), join(dir, "pki/tls.key"));
-  const { config, warnings } = loadConfig(join(dir, "tryout.yaml"), {});
+  const { config, warnings } = loadConfig(stageConfig("deploy/control-plane/tryout.yaml", "tryout-prod-"), {});
   assert.equal(config.projects["cli-hello"].node, "cli");
   assert.deepEqual(warnings, []);
 });
@@ -87,6 +101,7 @@ test("shared session request fixtures: ajv agrees with the agent", () => {
     const dir = new URL(`schema/testdata/session_request/${want}/`, root);
     const files = readdirSync(dir);
     assert.ok(files.length > 0);
+
     for (const f of files) {
       const ok = validateSessionRequest(JSON.parse(readFileSync(new URL(f, dir), "utf8")));
       assert.equal(ok, want === "valid", `${want}/${f}: ${JSON.stringify(validateSessionRequest.errors)}`);
@@ -135,10 +150,8 @@ limits:
 
 test("the schema's default annotations match the limits applied", () => {
   const props = schema.properties.limits.properties;
-  assert.deepEqual(
-    Object.fromEntries(Object.entries(props).map(([k, p]) => [k, (p as { default: unknown }).default])),
-    DEFAULT_LIMITS,
-  );
+  const defaults = Object.entries(props).map(([k, p]) => [k, (p as { default: unknown }).default]);
+  assert.deepEqual(Object.fromEntries(defaults), DEFAULT_LIMITS);
 });
 
 test("trusted proxies must be IP addresses or CIDR blocks", () => {
@@ -146,6 +159,7 @@ test("trusted proxies must be IP addresses or CIDR blocks", () => {
 client_ip:
   trusted_proxies: ["${cidr}"]
 `);
+
   for (const c of ["10.0.0.0/33", "fd00::/129", "10.0.0.300/8", "10.0.0/8", "::g/64"]) {
     assert.match(bad(c)[0] ?? "", /^\/client_ip\/trusted_proxies\/0 \(line \d+\): /, c);
   }
@@ -159,12 +173,13 @@ limits:
 `);
   assert.match(per("6m")[0], /^\/limits\/new_tickets_per_ip\/per \(line \d+\): must be greater than zero and at most 5m/);
   assert.equal(per("0s").length, 1);
-  assert.match(problems(`${base}
+
+  const negative = problems(`${base}
 limits:
   streams_per_ip: -1
-`)[0], /^\/limits\/streams_per_ip/);
+`);
+  assert.match(negative[0], /^\/limits\/streams_per_ip/);
 });
-
 
 test("listen accepts a host", () => {
   assert.deepEqual(parseConfig(`listen: "127.0.0.1:8000"\n${base}`, opts).config.listen, { host: "127.0.0.1", port: 8000 });
@@ -176,6 +191,7 @@ test("listen accepts a host", () => {
 test("durations", () => {
   assert.equal(parseDuration("1h30m"), 5400);
   assert.equal(parseDuration("90s"), 90);
+
   assert.match(problems(base.replace("15m", "0s"))[0], /\/projects\/cli\/max_age \(line \d+\): must be greater than zero and at most 24h/);
   assert.equal(problems(base.replace("15m", "25h")).length, 1);
   parseConfig(base.replace("15m", "24h"), opts);
@@ -193,6 +209,7 @@ test("interpolation applies to values only and cannot inject structure", () => {
     env: { ...env, TAG: "2" },
   });
   assert.equal(config.projects.cli.image, "ghcr.io/me/cli:2");
+
   const injected = problems(base.replace("ghcr.io/me/cli:1", "${IMG}"), { ...env, IMG: "x\nprivileged: true" });
   assert.match(injected[0], /\/projects\/cli\/image .*must match pattern/);
 });
@@ -212,7 +229,8 @@ test("a field error is not doubled by an unknown-field report", () => {
 });
 
 test("reserved environment variables are refused", () => {
-  const p = problems(base.replace("    max_age: 15m", "    max_age: 15m\n    env:\n      SUBFOLDER: /\n      TRYOUT_X: y\n      OK: z"));
+  const withEnv = base.replace("    max_age: 15m", "    max_age: 15m\n    env:\n      SUBFOLDER: /\n      TRYOUT_X: y\n      OK: z");
+  const p = problems(withEnv);
   assert.deepEqual(p, [
     "/projects/cli/env/SUBFOLDER (line 18): this name is reserved",
     "/projects/cli/env/TRYOUT_X (line 19): this name is reserved",
@@ -220,7 +238,11 @@ test("reserved environment variables are refused", () => {
 });
 
 test("all problems are reported at once, across every pass", () => {
-  const p = problems(base.replace("port: 7681", "port: 0").replace("node: n1", "node: nope").replace("https://portfolio", "portfolio"));
+  const threeMistakes = base
+    .replace("port: 7681", "port: 0")
+    .replace("node: n1", "node: nope")
+    .replace("https://portfolio", "portfolio");
+  const p = problems(threeMistakes);
   assert.equal(p.length, 3, p.join("\n"));
   assert.ok(p.some((l) => l.startsWith("/projects/cli/port (line 14)")));
   assert.ok(p.some((l) => l.startsWith("/embed_frame_ancestors/0 (line 2)")));
@@ -243,7 +265,10 @@ test("an unknown field is reported beside a sibling's error", () => {
 test("an error in one project does not hide an unknown field in a project with a longer name", () => {
   const cli = base.slice(base.indexOf("  cli:"), base.indexOf("agent_tls:"));
   const two = base.replace("agent_tls:", cli.replace("  cli:", "  cli2:") + "agent_tls:");
-  const p = problems(two.replace("max_age: 15m", "max_age: 15m\n    bogus: 1").replace(/port: 7681(?![\s\S]*port: 7681)/, "port: 0"));
+  const bogusInCli = two.replace("max_age: 15m", "max_age: 15m\n    bogus: 1");
+  const badPortInCli2 = bogusInCli.replace(/port: 7681(?![\s\S]*port: 7681)/, "port: 0");
+
+  const p = problems(badPortInCli2);
   assert.ok(p.includes("/projects/cli/bogus (line 17): unknown field"), p.join("\n"));
   assert.ok(p.some((l) => l.startsWith("/projects/cli2/port")), p.join("\n"));
 });
@@ -285,6 +310,7 @@ test("agent_tls paths are relative to the configuration file and loaded as PEM",
   assert.equal(config.agent_tls.ca, pki.ca);
   assert.match(config.agent_tls.cert, /BEGIN CERTIFICATE/);
   assert.match(config.agent_tls.key, /PRIVATE KEY/);
+
   const abs = base
     .replace("ca: ca.crt", `ca: ${JSON.stringify(pki.caFile)}`)
     .replace("cert: cp.crt", `cert: ${JSON.stringify(join(pki.dir, "cp.crt"))}`)
@@ -310,10 +336,13 @@ test("agent_tls: the certificate must be a client certificate matching its key, 
 test("agent_tls: expiry is an error, its approach a warning", () => {
   const day = 24 * 3600 * 1000;
   const soon = new Date(Date.now() + (TEST_DAYS - 10) * day);
+  const expired = new Date(Date.now() + (TEST_DAYS + 1) * day);
+
   const { warnings } = parseConfig(base, { ...opts, now: soon });
   assert.equal(warnings.length, 2, warnings.join("\n")); // CA and client certificate
   assert.match(warnings[0], /^agent_tls\.ca: the certificate expires on .* \(in 9 days\)$/);
-  const p = problems(base, env, new Date(Date.now() + (TEST_DAYS + 1) * day));
+
+  const p = problems(base, env, expired);
   assert.equal(p.length, 2, p.join("\n"));
   assert.match(p[0], /^\/agent_tls\/ca \(line 18\): the certificate expired on /);
 });
