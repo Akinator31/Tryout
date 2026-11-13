@@ -193,6 +193,8 @@ jobs:
           node-version: 24
       - name: Build the example project image
         run: docker build -t tryout-example/cli-hello:dev examples/cli-hello
+      - name: Example image meets the project contract
+        run: scripts/check-image.sh tryout-example/cli-hello:dev
       - name: Start the stack
         run: |
           cp deploy/.env.example deploy/.env
