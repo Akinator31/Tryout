@@ -80,7 +80,8 @@ runs sessions.
 
 - **Assumes**: a host or VM running nothing else, ideally on an isolated network (VLAN), with no
   secrets towards the rest of the infrastructure.
-- **The agent requires** gVisor (`runsc`). `runc` is accepted only with `ALLOW_RUNC=true`.
+- **The agent requires** gVisor (`runsc`). Any other runtime (`runc`, `io.containerd.runc.v2`,
+  Kata…) is accepted only with `ALLOW_RUNC=true`, for the default runtime and for each session.
 - **If a session escapes**, the attacker gets a disposable machine. Reinstall it.
 - **Residual risk**: lateral movement if the network is not segmented; resource exhaustion.
 
@@ -90,7 +91,8 @@ runs sessions.
 - **The agent requires**:
   - a **dedicated rootless Docker daemon**, never the main root socket;
   - **cgroup v2**, otherwise resource limits are silently ignored in rootless mode;
-  - **gVisor**, unless `ALLOW_RUNC=true`, a documented weaker opt-out.
+  - **gVisor**, unless `ALLOW_RUNC=true`, a documented weaker opt-out. Without it, the agent
+    accepts no runtime but `runsc`, for the default runtime and for each session.
 - **If a session escapes**, the attacker must get through gVisor, then exploit a kernel flaw to
   get past the unprivileged user of the rootless daemon.
 - **Residual risk**: a flaw in the shared kernel. With `ALLOW_RUNC=true`, a single kernel flaw
