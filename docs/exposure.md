@@ -22,6 +22,22 @@ The embed page receives queue updates over server-sent events
 - The server sends a message every 10 s, which keeps the stream alive under the idle timeouts
   of common proxies and tunnels (often about 100 s).
 
+## Client address
+
+The control plane limits tickets and event streams per visitor IP address
+([Configuration](configuration.md#per-ip-limits)). Behind a proxy or a tunnel, the connection
+comes from the proxy, so tell the control plane which proxies to believe:
+
+- list their addresses in `client_ip.trusted_proxies`. Only a listed peer's `X-Forwarded-For`
+  is read, from the right, skipping the other listed proxies;
+- if your proxy puts the client's address in a header of its own, name it in `client_ip.header`
+  (`CF-Connecting-IP` for Cloudflare, `X-Real-IP` for many nginx setups);
+- make sure the control plane is reachable **only** through those proxies. Otherwise a client
+  that connects from an address inside a trusted block could set the header itself.
+
+Rate limiting raw requests at the proxy remains a useful complement, against floods that never
+reach a limit counted by tickets.
+
 ## Path routing (default)
 
 A session is served under `https://<node-host>/s/<id>/`. You need **one hostname and one
@@ -47,6 +63,9 @@ your name and cookies being set on your main domain.
 - Run one `cloudflared` per node, **on the host**, never inside a session. It only makes outbound
   connections, so no port needs to be opened.
 - Map one public hostname per node to `http://localhost:8080` (the gateway).
+- For the control plane, set `client_ip.header: CF-Connecting-IP` and list the address
+  `cloudflared` connects from (often `127.0.0.1` or its container network) in
+  `client_ip.trusted_proxies`.
 - WebSockets work out of the box.
 - Check your plan's terms regarding continuous video streaming (desktop sessions).
 

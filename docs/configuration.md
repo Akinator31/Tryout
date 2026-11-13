@@ -73,9 +73,47 @@ be written.
 |---|---|
 | `listen` | Optional: `[host]:port` to listen on. Default `:3000` (every interface). |
 | `agent_tls` | Mutual TLS towards the agents: `ca` (the CA that signs the agents' certificates), `cert` and `key` (the control plane's client certificate, with the `clientAuth` usage). Paths of PEM files, relative to the configuration file. See [Certificates](certificates.md). |
+| `client_ip` | Optional: how to find a visitor's IP address behind proxies. See [Per-IP limits](#per-ip-limits). |
+| `limits` | Optional: per-IP limits on tickets and event streams. See [Per-IP limits](#per-ip-limits). |
 | `embed_frame_ancestors` | Origins allowed to embed `/embed/<project>` in an iframe: `https://example.org`, `https://*.example.org`, `http://localhost:3000`. `'self'` is always allowed. |
 | `nodes` | Nodes by name (lower-case letters, digits, `-`). |
 | `projects` | Projects by name (same rule); the name appears in `/embed/<project>`. |
+
+### Per-IP limits
+
+The control plane limits what one visitor IP address can hold, to keep a single client from
+filling a queue ([ADR 0016](decisions/0016-per-ip-limits.md)). IPv6 addresses count per /64.
+The limits apply across all projects and are on by default:
+
+```yaml
+client_ip:
+  trusted_proxies: [10.0.0.0/8, "fd00::/8"]   # default: none
+  header: CF-Connecting-IP                    # optional
+limits:
+  live_tickets_per_ip: 4                      # default 4
+  new_tickets_per_ip: { max: 10, per: 1m }    # default 10 per minute
+  streams_per_ip: 8                           # default 8
+```
+
+| Key | Role |
+|---|---|
+| `client_ip.trusted_proxies` | IP addresses or CIDR blocks of the reverse proxies and tunnels in front of the control plane. Without them, the address of the connection is the visitor's and forwarding headers are ignored. |
+| `client_ip.header` | Optional: a header in which your trusted proxy puts the visitor's address. Defaults to `X-Forwarded-For`, read from the right: the first address that is not a trusted proxy is the visitor's. |
+| `limits.live_tickets_per_ip` | Tickets an IP may hold at once: waiting, starting or active. |
+| `limits.new_tickets_per_ip` | Tickets an IP may create within a sliding window of `per` (at most `5m`), released ones included. |
+| `limits.streams_per_ip` | Event streams an IP may keep open at once, **on each instance** of the control plane. |
+
+`0` disables a limit. Beyond a limit, the API answers `429 Too Many Requests` with
+`{"error": …, "limit": "live_tickets" | "new_tickets" | "streams"}`. A refused ticket also carries
+`Retry-After`, and the embed page waits that long and tries again. A refused event stream makes
+the embed page poll instead, which keeps its place in line.
+
+- **Behind a proxy, set `trusted_proxies`.** Otherwise every visitor shares the proxy's address
+  and its limits.
+- **List only your own proxies**, and keep the control plane unreachable except through them: a
+  client connecting from a trusted address could write the header itself.
+- **Shared addresses** (a school, an office, a mobile carrier) share one budget. Raise the
+  limits if you expect groups of visitors behind one address.
 
 ### Nodes
 

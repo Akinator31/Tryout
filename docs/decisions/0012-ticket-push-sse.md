@@ -59,4 +59,5 @@ and replaces the 2 s polling of [0011](0011-queue-implementation.md) in the embe
   connection is dropped after about 11 minutes. Behind a proxy, the proxy's own timeouts
   apply.
 - There is no cap on open streams per IP yet; it comes with the rate limiting on the
-  [Roadmap](../roadmap.md).
+  [Roadmap](../roadmap.md). Update: [ADR 0016](0016-per-ip-limits.md) adds it, together with
+  a limit on the tickets an IP holds, which bounds waiting tickets kept alive this way.

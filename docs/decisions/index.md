@@ -20,3 +20,4 @@ changes, a new record supersedes it.
 | [0013](0013-published-images.md) | Publish multi-architecture images on ghcr.io from CI | Accepted, implemented |
 | [0014](0014-yaml-configuration-json-schema.md) | YAML configuration validated by one JSON Schema | Accepted, implemented |
 | [0015](0015-mutual-tls-control-plane-agent.md) | Mutual TLS between the control plane and the agent | Accepted, implemented |
+| [0016](0016-per-ip-limits.md) | Per-IP limits on tickets and event streams | Accepted, implemented |
