@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"io"
 	"log"
 	"net/http"
@@ -14,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Akinator31/Tryout/apps/node/internal/dockerapi"
 	"github.com/Akinator31/Tryout/apps/node/internal/pki"
 	"github.com/Akinator31/Tryout/apps/node/internal/spec"
 )
@@ -58,6 +61,31 @@ func TestValidateDefaultsAndRuntimePolicy(t *testing.T) {
 	r.Runtime = "runc"
 	if err := r.validate(testAgent("strict", true)); err != nil {
 		t.Errorf("runc must be allowed with ALLOW_RUNC: %v", err)
+	}
+
+	// Outside dev, only gVisor passes without ALLOW_RUNC, whatever name the
+	// daemon gives its other runtimes (Docker lists runc as io.containerd.runc.v2 too).
+	for _, profile := range []string{"strict", "single-host"} {
+		for _, rt := range []string{"runc", "io.containerd.runc.v2", "kata"} {
+			a := testAgent(profile, false)
+			a.runtimes[rt] = true
+			r := validReq("terminal")
+			r.Runtime = rt
+			if err := r.validate(a); err == nil {
+				t.Errorf("profile %s must refuse runtime %s without ALLOW_RUNC", profile, rt)
+			}
+			a.cfg.allowRunc = true
+			if err := r.validate(a); err != nil {
+				t.Errorf("profile %s must allow runtime %s with ALLOW_RUNC: %v", profile, rt, err)
+			}
+		}
+	}
+	r = validReq("terminal")
+	r.Runtime = "io.containerd.runc.v2"
+	dev := testAgent("dev", false)
+	dev.runtimes["io.containerd.runc.v2"] = true
+	if err := r.validate(dev); err != nil {
+		t.Errorf("profile dev allows any installed runtime: %v", err)
 	}
 
 	for _, bad := range []func(*sessionReq){
@@ -232,5 +260,52 @@ func TestAPIOverMutualTLS(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status %d", resp.StatusCode)
+	}
+}
+
+// fakeDocker answers GET /info like a daemon with the given runtimes.
+func fakeDocker(t *testing.T, runtimes ...string) *dockerapi.Client {
+	t.Helper()
+	rts := map[string]any{}
+	for _, r := range runtimes {
+		rts[r] = map[string]any{"path": r}
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/info") {
+			http.NotFound(w, r)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"Architecture": "x86_64", "Runtimes": rts, "CgroupVersion": "2"})
+	}))
+	t.Cleanup(srv.Close)
+	c, err := dockerapi.New("tcp://" + srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func TestCheckProfileRefusesADefaultRuntimeTheProfileRefuses(t *testing.T) {
+	installed := []string{"io.containerd.runc.v2", "runc", "runsc"}
+	cases := []struct {
+		profile, def string
+		allowRunc    bool
+		ok           bool
+	}{
+		{"strict", "runsc", false, true},
+		{"strict", "runc", false, false},
+		{"strict", "io.containerd.runc.v2", false, false},
+		{"strict", "runc", true, true},
+		{"dev", "runc", false, true},
+	}
+	for _, c := range cases {
+		a := &agent{
+			cfg:    config{profile: c.profile, defaultRuntime: c.def, allowRunc: c.allowRunc},
+			docker: fakeDocker(t, installed...),
+		}
+		err := a.checkProfile(context.Background())
+		if (err == nil) != c.ok {
+			t.Errorf("profile %s, DEFAULT_RUNTIME %s, ALLOW_RUNC %v: err = %v, want ok = %v", c.profile, c.def, c.allowRunc, err, c.ok)
+		}
 	}
 }

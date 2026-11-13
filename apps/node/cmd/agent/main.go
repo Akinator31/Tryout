@@ -158,7 +158,19 @@ func (a *agent) checkProfile(ctx context.Context) error {
 			a.cfg.defaultRuntime = "runc"
 		}
 	}
+	// Otherwise the agent would start, then refuse every session that uses the default.
+	if !a.runtimeAllowed(a.cfg.defaultRuntime) {
+		return fmt.Errorf("profile %s: DEFAULT_RUNTIME %q is refused: use runsc, or set ALLOW_RUNC=true explicitly", a.cfg.profile, a.cfg.defaultRuntime)
+	}
 	return nil
+}
+
+// runtimeAllowed is the node profile's runtime rule. Outside dev, only gVisor
+// is accepted unless ALLOW_RUNC=true: an allowlist, because the daemon may
+// list runc under other names (io.containerd.runc.v2) and any other runtime's
+// isolation is unknown to the agent.
+func (a *agent) runtimeAllowed(rt string) bool {
+	return a.cfg.profile == "dev" || a.cfg.allowRunc || rt == "runsc"
 }
 
 func keys(m map[string]bool) []string {
@@ -224,8 +236,8 @@ func (r *sessionReq) validate(a *agent) error {
 	if !a.runtimes[r.Runtime] {
 		return fmt.Errorf("runtime %q not installed on this node", r.Runtime)
 	}
-	if r.Runtime == "runc" && a.cfg.profile != "dev" && !a.cfg.allowRunc {
-		return errors.New("runtime runc refused by node profile")
+	if !a.runtimeAllowed(r.Runtime) {
+		return fmt.Errorf("runtime %q refused by node profile %s: only runsc without ALLOW_RUNC", r.Runtime, a.cfg.profile)
 	}
 	for k := range r.Env {
 		if isReservedEnv(k) {
