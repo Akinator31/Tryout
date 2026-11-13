@@ -17,22 +17,36 @@ export interface Db {
   close(): Promise<void>;
 }
 
-const RELISTEN_DELAY_MS = 1000;
+export interface PgDbOptions {
+  /** Delay between attempts to re-establish a lost LISTEN session. */
+  relistenDelayMs?: number;
+  /** Limit for connecting and subscribing the LISTEN session, so a hung attempt is retried. */
+  listenTimeoutMs?: number;
+}
 
-export function pgDb(connectionString: string): Db {
+export function pgDb(
+  connectionString: string,
+  { relistenDelayMs = 1000, listenTimeoutMs = 10_000 }: PgDbOptions = {},
+): Db {
   const pool = new pg.Pool({ connectionString });
   // An idle client losing its connection (database restart) must not crash
   // the process; the pool replaces it on the next query.
   pool.on("error", () => {});
   // LISTEN needs a dedicated session, outside the pool.
-  const listeners = new Set<pg.Client>();
+  const listeners = new Set<pg.Client>(); // subscribed
+  const connecting = new Set<pg.Client>(); // attempts in flight
   let closed = false;
 
   // The first connection must succeed (startup fails otherwise); after
-  // that, a lost connection is re-established every second until close().
+  // that, a lost connection is re-established every relistenDelayMs until
+  // close().
   async function listen(channel: string, onNotify: (payload: string) => void, onConnect: () => void) {
     async function connect(): Promise<void> {
-      const client = new pg.Client({ connectionString });
+      const client = new pg.Client({
+        connectionString,
+        connectionTimeoutMillis: listenTimeoutMs,
+        query_timeout: listenTimeoutMs,
+      });
       let lost = false;
       const reconnect = () => {
         if (lost) return;
@@ -41,20 +55,24 @@ export function pgDb(connectionString: string): Db {
         client.end().catch(() => {});
         if (closed) return;
         const again = () => {
-          if (!closed) connect().catch(() => setTimeout(again, RELISTEN_DELAY_MS).unref());
+          if (!closed) connect().catch(() => setTimeout(again, relistenDelayMs).unref());
         };
-        setTimeout(again, RELISTEN_DELAY_MS).unref();
+        setTimeout(again, relistenDelayMs).unref();
       };
       client.on("notification", (msg) => {
         if (msg.channel === channel) onNotify(msg.payload ?? "");
       });
+      connecting.add(client);
       try {
         await client.connect();
         await client.query(`LISTEN ${pg.escapeIdentifier(channel)}`);
+        // close() ran meanwhile: this session must not outlive it.
+        if (closed) throw new Error("database closed");
       } catch (e) {
-        lost = true;
         client.end().catch(() => {});
         throw e;
+      } finally {
+        connecting.delete(client);
       }
       listeners.add(client);
       client.on("error", reconnect);
@@ -87,6 +105,9 @@ export function pgDb(connectionString: string): Db {
     },
     async close() {
       closed = true;
+      // An attempt in flight may wait on an unresponsive server: end it
+      // without waiting (listenTimeoutMs bounds it).
+      for (const c of connecting) c.end().catch(() => {});
       await Promise.all([...listeners].map((c) => c.end().catch(() => {})));
       await pool.end();
     },
