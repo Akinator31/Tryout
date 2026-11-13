@@ -30,6 +30,7 @@ bind_addr=${BIND_ADDR:-$host_addr}
 chown_cmd=${CHOWN_CMD:-sudo chown -R}
 profile=${NODE_PROFILE:-strict}
 
+# Images under test: build them unless TRYOUT_VERSION names published ones.
 if [ -z "${TRYOUT_VERSION:-}" ]; then
   docker build -q -t tryout-node:e2e "$root/apps/node" >/dev/null
   docker build -q -t tryout-control-plane:e2e "$root/apps/control-plane" >/dev/null
@@ -54,7 +55,12 @@ write_env() {
     if [ -n "${!image_var:-}" ]; then echo "$image_var=${!image_var}"; fi
   } >"$work/$dir/.env"
 }
+
+# compose <dir> <args...>: docker compose on one of the copied example directories.
 compose() { docker compose --project-directory "$work/$1" -f "$work/$1/compose.yaml" "${@:2}"; }
+
+# cleanup: on exit, print the logs if the test failed, then remove both stacks and
+# the work directory, unless KEEP=1.
 cleanup() {
   status=$?
   if [ "$status" -ne 0 ]; then
@@ -74,36 +80,43 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# 1. Copy the example directories, as an operator would.
-cp -r "$root/deploy/node" "$root/deploy/control-plane" "$work/"
-
-# 2. Certificates, on "the operator's machine" (docs/certificates.md).
+# certs <args...>: tryout-certs from the node image, on the work directory's pki/.
 certs() { docker run --rm -u "$(id -u):$(id -g)" -v "$work/pki:/pki" "$node_image" tryout-certs "$@" --dir /pki; }
-mkdir -p "$work/pki"
-certs init >/dev/null
-certs node cli --san "$host_addr" >/dev/null
-cp -r "$work/pki/nodes/cli" "$work/node/pki"
-cp -r "$work/pki/control-plane" "$work/control-plane/pki"
-$chown_cmd 65532:65532 "$work/node/pki"
-$chown_cmd 1000:1000 "$work/control-plane/pki"
 
-# 3. Node.
-docker_sock=${DOCKER_SOCKET:-/var/run/docker.sock}
-write_env node TRYOUT_NODE_IMAGE \
-  -e "s|^NODE_PROFILE=.*|NODE_PROFILE=$profile|" \
-  -e "s|^DOCKER_SOCKET=.*|DOCKER_SOCKET=$docker_sock|" \
-  -e "s|^DOCKER_GID=.*|DOCKER_GID=${DOCKER_GID:-$(stat -c %g "$docker_sock")}|" \
-  -e "s|^GATEWAY_TOKEN=.*|GATEWAY_TOKEN=$(openssl rand -hex 32)|" \
-  -e "s|^AGENT_PUBLISH=.*|AGENT_PUBLISH=$bind_addr:7000|" \
-  -e "s|^GATEWAY_PUBLISH=.*|GATEWAY_PUBLISH=$bind_addr:8080|" \
-  -e "s|^FRAME_ANCESTORS=.*|FRAME_ANCESTORS=http://$bind_addr:3000|"
-compose node up -d --quiet-pull
+# issue_certificates: the PKI, made on "the operator's machine" (docs/certificates.md),
+# then each machine's directory copied and given to the uid of its service.
+issue_certificates() {
+  mkdir -p "$work/pki"
+  certs init >/dev/null
+  certs node cli --san "$host_addr" >/dev/null
 
-# 4. Control plane: the operator writes their own tryout.yaml from the example.
-write_env control-plane TRYOUT_CONTROL_PLANE_IMAGE \
-  -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 32)|" \
-  -e "s|^CONTROL_PLANE_PUBLISH=.*|CONTROL_PLANE_PUBLISH=$bind_addr:3000|"
-cat >"$work/control-plane/tryout.yaml" <<EOF
+  cp -r "$work/pki/nodes/cli" "$work/node/pki"
+  cp -r "$work/pki/control-plane" "$work/control-plane/pki"
+  $chown_cmd 65532:65532 "$work/node/pki"
+  $chown_cmd 1000:1000 "$work/control-plane/pki"
+}
+
+# start_node: the node's .env from its example, then the node stack.
+start_node() {
+  local docker_sock=${DOCKER_SOCKET:-/var/run/docker.sock}
+  write_env node TRYOUT_NODE_IMAGE \
+    -e "s|^NODE_PROFILE=.*|NODE_PROFILE=$profile|" \
+    -e "s|^DOCKER_SOCKET=.*|DOCKER_SOCKET=$docker_sock|" \
+    -e "s|^DOCKER_GID=.*|DOCKER_GID=${DOCKER_GID:-$(stat -c %g "$docker_sock")}|" \
+    -e "s|^GATEWAY_TOKEN=.*|GATEWAY_TOKEN=$(openssl rand -hex 32)|" \
+    -e "s|^AGENT_PUBLISH=.*|AGENT_PUBLISH=$bind_addr:7000|" \
+    -e "s|^GATEWAY_PUBLISH=.*|GATEWAY_PUBLISH=$bind_addr:8080|" \
+    -e "s|^FRAME_ANCESTORS=.*|FRAME_ANCESTORS=http://$bind_addr:3000|"
+  compose node up -d --quiet-pull
+}
+
+# start_control_plane: the control plane's .env, and the tryout.yaml the operator
+# writes from the example, then the control plane stack.
+start_control_plane() {
+  write_env control-plane TRYOUT_CONTROL_PLANE_IMAGE \
+    -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 32)|" \
+    -e "s|^CONTROL_PLANE_PUBLISH=.*|CONTROL_PLANE_PUBLISH=$bind_addr:3000|"
+  cat >"$work/control-plane/tryout.yaml" <<EOF
 listen: ":3000"
 embed_frame_ancestors: ["http://$bind_addr:3000"]
 agent_tls: { ca: pki/ca.crt, cert: pki/tls.crt, key: pki/tls.key }
@@ -122,24 +135,39 @@ projects:
     max_sessions: 2
     max_age: 10m
 EOF
-compose control-plane up -d --quiet-pull
+  compose control-plane up -d --quiet-pull
+}
 
-# 5. Wait, then test through the published ports only.
-for _ in $(seq 90); do
-  curl -fs "http://$bind_addr:3000/healthz" >/dev/null && curl -fs "http://$bind_addr:8080/healthz" >/dev/null && break
-  sleep 1
-done
-curl -fsS "http://$bind_addr:3000/healthz" >/dev/null
-curl -fsS "http://$bind_addr:8080/healthz" >/dev/null
+# wait_until_healthy: up to 90 s for both published health checks, then a last,
+# failing, check.
+wait_until_healthy() {
+  for _ in $(seq 90); do
+    curl -fs "http://$bind_addr:3000/healthz" >/dev/null && curl -fs "http://$bind_addr:8080/healthz" >/dev/null && break
+    sleep 1
+  done
+  curl -fsS "http://$bind_addr:3000/healthz" >/dev/null
+  curl -fsS "http://$bind_addr:8080/healthz" >/dev/null
+}
 
-cp_url="http://$bind_addr:3000"
-node "$root/scripts/e2e-cli.ts" "$cp_url" cli-hello
-node "$root/scripts/e2e-queue.ts" "$cp_url"
-node "$root/scripts/e2e-sse.ts" "$cp_url" cli-hello
-# The agent's published port, from outside both stacks, with the operator's certificates;
-# the agent's certificate names HOST_ADDR, which may differ from BIND_ADDR (Docker Desktop).
-node "$root/scripts/e2e-mtls.ts" "$bind_addr:7000" --pki "$work/pki" --node cli --server-name "$host_addr"
-node "$root/scripts/e2e-reattach.ts" "$cp_url" cli-hello -- \
-  docker compose --project-directory "$work/node" -f "$work/node/compose.yaml" up -d --force-recreate
+# run_e2e_tests: the end-to-end tests, through the published ports only.
+run_e2e_tests() {
+  local cp_url="http://$bind_addr:3000"
+  node "$root/scripts/e2e-cli.ts" "$cp_url" cli-hello
+  node "$root/scripts/e2e-queue.ts" "$cp_url"
+  node "$root/scripts/e2e-sse.ts" "$cp_url" cli-hello
+  # The agent's published port, from outside both stacks, with the operator's certificates;
+  # the agent's certificate names HOST_ADDR, which may differ from BIND_ADDR (Docker Desktop).
+  node "$root/scripts/e2e-mtls.ts" "$bind_addr:7000" --pki "$work/pki" --node cli --server-name "$host_addr"
+  node "$root/scripts/e2e-reattach.ts" "$cp_url" cli-hello -- \
+    docker compose --project-directory "$work/node" -f "$work/node/compose.yaml" up -d --force-recreate
+}
+
+# Copy the example directories, as an operator would, then deploy and test.
+cp -r "$root/deploy/node" "$root/deploy/control-plane" "$work/"
+issue_certificates
+start_node
+start_control_plane
+wait_until_healthy
+run_e2e_tests
 
 echo "e2e-deploy: OK (profile $profile)"
