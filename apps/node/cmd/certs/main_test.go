@@ -14,6 +14,7 @@ import (
 
 var now = time.Now()
 
+// runOK runs the tool and fails the test on error; it returns the output.
 func runOK(t *testing.T, args ...string) string {
 	t.Helper()
 	var out bytes.Buffer
@@ -23,6 +24,7 @@ func runOK(t *testing.T, args ...string) string {
 	return out.String()
 }
 
+// mode returns the permission bits of path.
 func mode(t *testing.T, path string) os.FileMode {
 	t.Helper()
 	st, err := os.Stat(path)
@@ -32,6 +34,8 @@ func mode(t *testing.T, path string) os.FileMode {
 	return st.Mode().Perm()
 }
 
+// TestInitNodeAndInspect checks the whole layout: file modes, one usage per
+// leaf, certificates that verify against the CA, and the inspect output.
 func TestInitNodeAndInspect(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "pki")
 	runOK(t, "init", "--dir", dir)
@@ -59,6 +63,7 @@ func TestInitNodeAndInspect(t *testing.T) {
 	}
 	roots := x509.NewCertPool()
 	roots.AddCert(ca.Cert)
+
 	check := func(sub string, u x509.ExtKeyUsage, dns string) {
 		p, err := pki.LoadPair(filepath.Join(dir, sub, "tls.crt"), filepath.Join(dir, sub, "tls.key"))
 		if err != nil {
@@ -71,6 +76,7 @@ func TestInitNodeAndInspect(t *testing.T) {
 			t.Errorf("%s: usages %v", sub, p.Cert.ExtKeyUsage)
 		}
 	}
+
 	check("control-plane", x509.ExtKeyUsageClientAuth, "")
 	check("nodes/cli", x509.ExtKeyUsageServerAuth, "node.example")
 	check("nodes/cli", x509.ExtKeyUsageServerAuth, "10.0.0.5")
@@ -83,6 +89,8 @@ func TestInitNodeAndInspect(t *testing.T) {
 	}
 }
 
+// TestExistingFilesAreProtected checks that the CA is never replaced and that
+// a leaf is replaced only with --force.
 func TestExistingFilesAreProtected(t *testing.T) {
 	dir := t.TempDir()
 	runOK(t, "init", "--dir", dir)
@@ -93,6 +101,7 @@ func TestExistingFilesAreProtected(t *testing.T) {
 		t.Error("init over an existing CA must fail")
 	}
 	runOK(t, "init", "--dir", dir, "--if-missing")
+
 	if err := run([]string{"init", "--dir", dir, "--force"}, &out, now); err == nil {
 		t.Error("the CA must never be replaced, even with --force")
 	}
@@ -109,13 +118,17 @@ func TestExistingFilesAreProtected(t *testing.T) {
 	if after, _ := os.ReadFile(filepath.Join(dir, "nodes/n1/tls.crt")); !bytes.Equal(before, after) {
 		t.Error("--if-missing replaced the certificate")
 	}
+
 	runOK(t, "node", "n1", "--san", "a.example", "--dir", dir, "--force")
 	if after, _ := os.ReadFile(filepath.Join(dir, "nodes/n1/tls.crt")); bytes.Equal(before, after) {
 		t.Error("--force did not replace the certificate")
 	}
+
 	runOK(t, "client", "--dir", dir, "--force")
 }
 
+// TestInitIfMissingFinishesAnInterruptedInit checks that init --if-missing
+// issues the client certificate when only the CA exists.
 func TestInitIfMissingFinishesAnInterruptedInit(t *testing.T) {
 	dir := t.TempDir()
 	runOK(t, "init", "--dir", dir)
@@ -128,6 +141,7 @@ func TestInitIfMissingFinishesAnInterruptedInit(t *testing.T) {
 	}
 }
 
+// TestExistingDirectoryModeIsKept checks that an existing --dir keeps its mode.
 func TestExistingDirectoryModeIsKept(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "pki")
 	if err := os.Mkdir(dir, 0o700); err != nil {
@@ -139,6 +153,8 @@ func TestExistingDirectoryModeIsKept(t *testing.T) {
 	}
 }
 
+// TestUsageErrors checks that bad command lines are refused before anything
+// is written.
 func TestUsageErrors(t *testing.T) {
 	dir := t.TempDir()
 	for _, args := range [][]string{

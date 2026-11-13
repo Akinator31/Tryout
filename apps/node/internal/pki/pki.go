@@ -34,6 +34,10 @@ const (
 	ExpiryWarning = 30 * 24 * time.Hour
 )
 
+// clockSkew backdates NotBefore, so that a certificate is valid at once on a
+// machine whose clock is slightly behind.
+const clockSkew = 5 * time.Minute
+
 // Usage is the single extended key usage of a leaf certificate.
 type Usage int
 
@@ -42,6 +46,7 @@ const (
 	ClientAuth              // the control plane
 )
 
+// eku returns the X.509 extended key usage of u.
 func (u Usage) eku() x509.ExtKeyUsage {
 	if u == ClientAuth {
 		return x509.ExtKeyUsageClientAuth
@@ -64,7 +69,7 @@ type Pair struct {
 func NewCA(name string, now time.Time, validity time.Duration) (*Pair, error) {
 	tpl := &x509.Certificate{
 		Subject:               pkix.Name{CommonName: name},
-		NotBefore:             now.Add(-5 * time.Minute),
+		NotBefore:             now.Add(-clockSkew),
 		NotAfter:              now.Add(validity),
 		IsCA:                  true,
 		BasicConstraintsValid: true,
@@ -75,7 +80,8 @@ func NewCA(name string, now time.Time, validity time.Duration) (*Pair, error) {
 }
 
 // Issue signs a leaf certificate. SANs that parse as IP addresses become IP
-// SANs, the others DNS names. A server certificate needs at least one SAN.
+// SANs, the others DNS names. A server certificate needs at least one SAN,
+// and no leaf may outlive its CA.
 func (ca *Pair) Issue(u Usage, name string, sans []string, now time.Time, validity time.Duration) (*Pair, error) {
 	if !ca.Cert.IsCA {
 		return nil, errors.New("issuer is not a CA")
@@ -83,18 +89,27 @@ func (ca *Pair) Issue(u Usage, name string, sans []string, now time.Time, validi
 	if u == ServerAuth && len(sans) == 0 {
 		return nil, errors.New("a server certificate needs at least one subject alternative name")
 	}
+
 	notAfter := now.Add(validity)
 	if notAfter.After(ca.Cert.NotAfter) {
 		return nil, fmt.Errorf("the CA expires on %s, before the certificate would", ca.Cert.NotAfter.Format(time.DateOnly))
 	}
+
 	tpl := &x509.Certificate{
 		Subject:               pkix.Name{CommonName: name},
-		NotBefore:             now.Add(-5 * time.Minute),
+		NotBefore:             now.Add(-clockSkew),
 		NotAfter:              notAfter,
 		BasicConstraintsValid: true,
 		KeyUsage:              x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{u.eku()},
 	}
+	addSANs(tpl, sans)
+	return sign(tpl, ca)
+}
+
+// addSANs adds each SAN to tpl as an IP address or a DNS name; empty ones
+// are ignored.
+func addSANs(tpl *x509.Certificate, sans []string) {
 	for _, s := range sans {
 		if ip := net.ParseIP(s); ip != nil {
 			tpl.IPAddresses = append(tpl.IPAddresses, ip)
@@ -102,9 +117,10 @@ func (ca *Pair) Issue(u Usage, name string, sans []string, now time.Time, validi
 			tpl.DNSNames = append(tpl.DNSNames, s)
 		}
 	}
-	return sign(tpl, ca)
 }
 
+// sign generates a P-256 key and a random 128-bit serial for tpl, and signs
+// it with issuer, or self-signs it when issuer is nil.
 func sign(tpl *x509.Certificate, issuer *Pair) (*Pair, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -115,6 +131,7 @@ func sign(tpl *x509.Certificate, issuer *Pair) (*Pair, error) {
 		return nil, err
 	}
 	tpl.SerialNumber = serial
+
 	parent, signer := tpl, crypto.Signer(key)
 	if issuer != nil {
 		parent, signer = issuer.Cert, issuer.Key
@@ -123,6 +140,12 @@ func sign(tpl *x509.Certificate, issuer *Pair) (*Pair, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return newPair(der, key)
+}
+
+// newPair parses a freshly signed certificate and PEM-encodes it with its key.
+func newPair(der []byte, key *ecdsa.PrivateKey) (*Pair, error) {
 	cert, err := x509.ParseCertificate(der)
 	if err != nil {
 		return nil, err
@@ -131,6 +154,7 @@ func sign(tpl *x509.Certificate, issuer *Pair) (*Pair, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &Pair{
 		Cert:    cert,
 		Chain:   [][]byte{der},
@@ -150,6 +174,7 @@ func LoadPair(certFile, keyFile string) (*Pair, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	tc, err := tls.X509KeyPair(certPEM, keyPEM)
 	if err != nil {
 		return nil, fmt.Errorf("%s / %s: %w", certFile, keyFile, err)
@@ -158,15 +183,18 @@ func LoadPair(certFile, keyFile string) (*Pair, error) {
 	if !ok {
 		return nil, fmt.Errorf("%s: unsupported key type", keyFile)
 	}
+
 	return &Pair{Cert: tc.Leaf, Chain: tc.Certificate, Key: signer, CertPEM: certPEM, KeyPEM: keyPEM}, nil
 }
 
-// LoadCerts reads every certificate of a PEM file.
+// LoadCerts reads every certificate of a PEM file; other PEM blocks are
+// skipped. A file without any certificate is an error.
 func LoadCerts(file string) ([]*x509.Certificate, error) {
 	b, err := os.ReadFile(file)
 	if err != nil {
 		return nil, err
 	}
+
 	var out []*x509.Certificate
 	for {
 		var block *pem.Block
@@ -177,12 +205,14 @@ func LoadCerts(file string) ([]*x509.Certificate, error) {
 		if block.Type != "CERTIFICATE" {
 			continue
 		}
+
 		c, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", file, err)
 		}
 		out = append(out, c)
 	}
+
 	if len(out) == 0 {
 		return nil, fmt.Errorf("%s: no PEM certificate", file)
 	}
@@ -201,6 +231,7 @@ func ServerConfig(certFile, keyFile, clientCAFile string) (*tls.Config, []*x509.
 	if !hasUsage(pair.Cert, x509.ExtKeyUsageServerAuth) {
 		return nil, nil, fmt.Errorf("%s: the certificate does not allow server authentication", certFile)
 	}
+
 	cas, err := LoadCerts(clientCAFile)
 	if err != nil {
 		return nil, nil, err
@@ -209,29 +240,36 @@ func ServerConfig(certFile, keyFile, clientCAFile string) (*tls.Config, []*x509.
 	for _, c := range cas {
 		pool.AddCert(c)
 	}
+
 	cfg := &tls.Config{
-		MinVersion:   tls.VersionTLS13,
-		Certificates: []tls.Certificate{{Certificate: pair.Chain, PrivateKey: pair.Key, Leaf: pair.Cert}},
-		ClientAuth:   tls.RequireAndVerifyClientCert,
-		ClientCAs:    pool,
-		// Go accepts a certificate without an EKU extension (such as the CA
-		// itself) for any usage: require a leaf that states clientAuth.
-		VerifyConnection: func(cs tls.ConnectionState) error {
-			if len(cs.PeerCertificates) == 0 {
-				return errors.New("no client certificate")
-			}
-			leaf := cs.PeerCertificates[0]
-			if leaf.IsCA || !slices.Contains(leaf.ExtKeyUsage, x509.ExtKeyUsageClientAuth) {
-				return errors.New("the client certificate must be a leaf with the clientAuth extended key usage")
-			}
-			return nil
-		},
+		MinVersion:       tls.VersionTLS13,
+		Certificates:     []tls.Certificate{{Certificate: pair.Chain, PrivateKey: pair.Key, Leaf: pair.Cert}},
+		ClientAuth:       tls.RequireAndVerifyClientCert,
+		ClientCAs:        pool,
+		VerifyConnection: requireClientAuthLeaf,
 	}
 	return cfg, append([]*x509.Certificate{pair.Cert}, cas...), nil
 }
 
+// requireClientAuthLeaf refuses a client certificate that is a CA or does not
+// state the clientAuth usage. Go accepts a certificate without an EKU
+// extension (such as the CA itself) for any usage, so the chain verification
+// alone is not enough.
+func requireClientAuthLeaf(cs tls.ConnectionState) error {
+	if len(cs.PeerCertificates) == 0 {
+		return errors.New("no client certificate")
+	}
+
+	leaf := cs.PeerCertificates[0]
+	if leaf.IsCA || !slices.Contains(leaf.ExtKeyUsage, x509.ExtKeyUsageClientAuth) {
+		return errors.New("the client certificate must be a leaf with the clientAuth extended key usage")
+	}
+	return nil
+}
+
+// hasUsage reports whether c may be used for u. No EKU extension means any
+// usage, as does the "any" usage.
 func hasUsage(c *x509.Certificate, u x509.ExtKeyUsage) bool {
-	// No EKU extension means any usage.
 	return len(c.ExtKeyUsage) == 0 || slices.Contains(c.ExtKeyUsage, u) || slices.Contains(c.ExtKeyUsage, x509.ExtKeyUsageAny)
 }
 
@@ -239,42 +277,56 @@ func hasUsage(c *x509.Certificate, u x509.ExtKeyUsage) bool {
 // within warn, or returns "" when it is fine. The control plane makes the
 // same checks with the same 30-day warning (src/config.ts, loadAgentTls).
 func Expiry(c *x509.Certificate, now time.Time, warn time.Duration) string {
+	name := c.Subject.CommonName
 	left := c.NotAfter.Sub(now)
+
 	switch {
 	case now.Before(c.NotBefore):
-		return fmt.Sprintf("certificate %q is not valid before %s", c.Subject.CommonName, c.NotBefore.Format(time.RFC3339))
+		return fmt.Sprintf("certificate %q is not valid before %s", name, c.NotBefore.Format(time.RFC3339))
 	case left <= 0:
-		return fmt.Sprintf("certificate %q expired on %s", c.Subject.CommonName, c.NotAfter.Format(time.DateOnly))
+		return fmt.Sprintf("certificate %q expired on %s", name, c.NotAfter.Format(time.DateOnly))
 	case left <= warn:
-		return fmt.Sprintf("certificate %q expires on %s (in %d days)", c.Subject.CommonName, c.NotAfter.Format(time.DateOnly), int(left.Hours()/24))
+		return fmt.Sprintf("certificate %q expires on %s (in %d days)", name, c.NotAfter.Format(time.DateOnly), int(left.Hours()/24))
 	}
 	return ""
 }
 
-// Describe returns a one-line summary of a certificate, for the certs tool.
+// Describe returns a one-line summary of a certificate, for the certs tool:
+// common name, usage, expiry date and SANs.
 func Describe(c *x509.Certificate) string {
-	usage := "ca"
-	if !c.IsCA {
-		var us []string
-		for _, e := range c.ExtKeyUsage {
-			switch e {
-			case x509.ExtKeyUsageServerAuth:
-				us = append(us, "server")
-			case x509.ExtKeyUsageClientAuth:
-				us = append(us, "client")
-			default:
-				us = append(us, "other")
-			}
-		}
-		usage = strings.Join(us, "+")
+	s := fmt.Sprintf("%s (%s) not after %s", c.Subject.CommonName, usageLabel(c), c.NotAfter.Format(time.DateOnly))
+	if sans := subjectAltNames(c); len(sans) > 0 {
+		s += " san=" + strings.Join(sans, ",")
 	}
+	return s
+}
+
+// usageLabel is "ca" for a CA, otherwise its extended key usages joined by
+// "+" (server, client, other).
+func usageLabel(c *x509.Certificate) string {
+	if c.IsCA {
+		return "ca"
+	}
+
+	var us []string
+	for _, e := range c.ExtKeyUsage {
+		switch e {
+		case x509.ExtKeyUsageServerAuth:
+			us = append(us, "server")
+		case x509.ExtKeyUsageClientAuth:
+			us = append(us, "client")
+		default:
+			us = append(us, "other")
+		}
+	}
+	return strings.Join(us, "+")
+}
+
+// subjectAltNames lists the DNS names, then the IP addresses, of c.
+func subjectAltNames(c *x509.Certificate) []string {
 	sans := append([]string{}, c.DNSNames...)
 	for _, ip := range c.IPAddresses {
 		sans = append(sans, ip.String())
 	}
-	s := fmt.Sprintf("%s (%s) not after %s", c.Subject.CommonName, usage, c.NotAfter.Format(time.DateOnly))
-	if len(sans) > 0 {
-		s += " san=" + strings.Join(sans, ",")
-	}
-	return s
+	return sans
 }

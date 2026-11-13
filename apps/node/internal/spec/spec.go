@@ -22,13 +22,19 @@ import (
 	"golang.org/x/text/message"
 )
 
+// printer renders the library's error messages in English.
 var printer = message.NewPrinter(language.English)
 
+// schemaJSON is the embedded copy of schema/tryout.schema.json.
+//
 //go:embed tryout.schema.json
 var schemaJSON []byte
 
+// sessionRequest is the compiled schema of the POST /v1/sessions body.
 var sessionRequest = mustCompile("#/$defs/session_request")
 
+// mustCompile compiles the schema at ref in the embedded document. It panics
+// at startup on an invalid schema, which the tests would catch first.
 func mustCompile(ref string) *jsonschema.Schema {
 	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(schemaJSON))
 	if err != nil {
@@ -69,54 +75,81 @@ func ValidateSessionRequest(body []byte) error {
 // unevaluatedProperties as a "false schema"; that duplicate is dropped, and a
 // false schema on a field with no other error is reported as unknown.
 func describe(ve *jsonschema.ValidationError) string {
-	var errs, unknown []string
-	var errPaths []string
-	// name and at are set below a propertyNames error, whose leaves point at
-	// the document root instead of the object holding the name. The library
-	// fills that error's InstanceLocation from a reused buffer, so the field
-	// is taken from its schema location (".../properties/env/propertyNames").
-	var walk func(e *jsonschema.ValidationError, name, at string)
-	walk = func(e *jsonschema.ValidationError, name, at string) {
-		if pn, ok := e.ErrorKind.(*kind.PropertyNames); ok {
-			field := strings.TrimSuffix(e.SchemaURL, "/propertyNames")
-			name, at = pn.Property, "/"+field[strings.LastIndex(field, "/")+1:]
-		}
-		if len(e.Causes) > 0 {
-			for _, c := range e.Causes {
-				walk(c, name, at)
-			}
-			return
-		}
-		path := "/" + strings.Join(e.InstanceLocation, "/")
-		if at != "" {
-			path = at
-		}
-		switch e.ErrorKind.(type) {
-		case *kind.FalseSchema:
-			unknown = append(unknown, path)
-			return
-		case *kind.Not:
-			if name != "" {
-				errs = append(errs, fmt.Sprintf("%s: name %q is reserved", path, name))
-			} else {
-				errs = append(errs, path+": value is not allowed")
-			}
-		default:
-			msg := e.ErrorKind.LocalizedString(printer)
-			if name != "" {
-				msg = fmt.Sprintf("name %q: %s", name, msg)
-			}
-			errs = append(errs, path+": "+msg)
-		}
-		errPaths = append(errPaths, path)
+	var c errorCollector
+	c.walk(ve, "", "")
+	return strings.Join(c.messages(), "; ")
+}
+
+// errorCollector gathers the leaves of a validation error tree.
+type errorCollector struct {
+	errs     []string // "path: message" of the real errors
+	errPaths []string // their paths
+	unknown  []string // paths of the false-schema leaves
+}
+
+// walk visits the error tree down to its leaves. name and at are set below a
+// propertyNames error, whose leaves point at the document root instead of the
+// object holding the name. The library fills that error's InstanceLocation
+// from a reused buffer, so the field is taken from its schema location
+// (".../properties/env/propertyNames").
+func (c *errorCollector) walk(e *jsonschema.ValidationError, name, at string) {
+	if pn, ok := e.ErrorKind.(*kind.PropertyNames); ok {
+		field := strings.TrimSuffix(e.SchemaURL, "/propertyNames")
+		name, at = pn.Property, "/"+field[strings.LastIndex(field, "/")+1:]
 	}
-	walk(ve, "", "")
-	for _, u := range unknown {
-		if !slices.ContainsFunc(errPaths, func(p string) bool { return p == u || strings.HasPrefix(p, u+"/") }) {
-			errs = append(errs, u+": unknown field")
+
+	if len(e.Causes) > 0 {
+		for _, cause := range e.Causes {
+			c.walk(cause, name, at)
+		}
+		return
+	}
+
+	path := "/" + strings.Join(e.InstanceLocation, "/")
+	if at != "" {
+		path = at
+	}
+	c.addLeaf(e, path, name)
+}
+
+// addLeaf records one leaf error at path; name is the offending property
+// name below a propertyNames error, if any.
+func (c *errorCollector) addLeaf(e *jsonschema.ValidationError, path, name string) {
+	switch e.ErrorKind.(type) {
+	case *kind.FalseSchema:
+		c.unknown = append(c.unknown, path)
+		return
+
+	case *kind.Not:
+		if name != "" {
+			c.errs = append(c.errs, fmt.Sprintf("%s: name %q is reserved", path, name))
+		} else {
+			c.errs = append(c.errs, path+": value is not allowed")
+		}
+
+	default:
+		msg := e.ErrorKind.LocalizedString(printer)
+		if name != "" {
+			msg = fmt.Sprintf("name %q: %s", name, msg)
+		}
+		c.errs = append(c.errs, path+": "+msg)
+	}
+	c.errPaths = append(c.errPaths, path)
+}
+
+// messages returns the real errors, then an "unknown field" error for each
+// false-schema path that has no real error at or below it.
+func (c *errorCollector) messages() []string {
+	out := c.errs
+	for _, u := range c.unknown {
+		hasError := slices.ContainsFunc(c.errPaths, func(p string) bool {
+			return p == u || strings.HasPrefix(p, u+"/")
+		})
+		if !hasError {
+			out = append(out, u+": unknown field")
 		}
 	}
-	return strings.Join(errs, "; ")
+	return out
 }
 
 // ReservedEnv returns the literal names and prefixes of $defs/reserved_env,
