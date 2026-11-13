@@ -1,6 +1,8 @@
 # Project images
 
-A project image is a regular Docker image that follows a small contract.
+A project image is a regular Docker image that follows a small contract. This page is the
+reference; [Packaging a project](packaging.md) walks through a terminal and a desktop example,
+and `scripts/check-image.sh` checks an image against the contract before it goes to production.
 
 ## Common contract
 

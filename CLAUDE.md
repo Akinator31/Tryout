@@ -78,7 +78,8 @@ deploy/               compose.dev.yaml, tryout.dev.yaml, .env.example (dev); nod
                       examples from published images, docs/deployment.md)
 schema/               tryout.schema.json (source of truth) + testdata/ fixtures shared by TS and Go
 examples/cli-hello/   sample terminal project (ttyd)
-scripts/              e2e-*.ts (cli, queue, sse, mtls, limits, reattach), e2e-deploy.sh, feasibility-node.sh
+scripts/              e2e-*.ts (cli, queue, sse, mtls, limits, reattach), e2e-deploy.sh, check-image.sh,
+                      feasibility-node.sh
 docs/                 Zensical documentation (English); decisions/ holds the ADRs
 SECURITY.md           threat model and profiles (included in the docs site)
 ```
@@ -102,12 +103,16 @@ vault with the original stack study (in French) and its sources.
   - Selkies under gVisor on a Raspberry Pi 5 (arm64), behind a base path.
 - The roadmap is organised in milestones (`docs/roadmap.md`): M1 Deployable is done
   (ghcr.io images, ADR 0013; YAML config + JSON Schema, ADR 0014; mTLS, ADR 0015; per-IP limits,
-  ADR 0016; exit criteria checked on fresh VMs). M2 Live in progress (registry credentials for
-  private project images, ADR 0017; production deployment guide and example compose files,
-  `docs/deployment.md`, tested in CI by `scripts/e2e-deploy.sh` with gVisor; `scripts/e2e-mtls.ts`
-  checks any agent with `--pki`; the reconcile loop reattaches a recreated gateway to running
-  session networks, checked by `scripts/e2e-reattach.ts`). Then M3 Design
-  (theme, Figma, React embed; the UI kit is chosen there), M4 Operate, M5 Hosting options.
+  ADR 0016; exit criteria checked on fresh VMs). M2 Live in progress:
+  - registry credentials for private project images (ADR 0017);
+  - production deployment guide and example compose files (`docs/deployment.md`), tested in CI
+    by `scripts/e2e-deploy.sh` with gVisor; `scripts/e2e-mtls.ts` checks any agent with `--pki`;
+  - the reconcile loop reattaches a recreated gateway (`scripts/e2e-reattach.ts`) and reaps
+    containers stuck in `created`;
+  - packaging guide (`docs/packaging.md`) and `scripts/check-image.sh`.
+
+  Then M3 Design (theme, Figma, React embed; the UI kit is chosen there), M4 Operate, M5
+  Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module

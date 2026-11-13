@@ -49,7 +49,6 @@ closing (see [Done](#done)). Its other findings are M2 items.
 
 | Item | Notes |
 |---|---|
-| Guide for packaging a project for Tryout | Extends [Project images](project-images.md) with a step-by-step walkthrough |
 | A minimal visual pass on the current embed page | Only so the first visitors do not see raw HTML; the real design is M3 |
 | Public repository: private vulnerability reporting enabled, security policy checked | |
 | Versioned releases: semantic version tags, changelog, images tagged per release | First release `v0.1.0` |
@@ -161,3 +160,7 @@ and session metrics.
   measured with the agent's `tryout.created` label. A create aborted by the control plane (the
   visitor left while the session was starting) could leave one behind, holding a slot until its
   maximum age and eventually filling the node; now the slot is free again after about a minute.
+- **M2:** [Packaging a project](packaging.md), a step-by-step guide for a terminal project (a
+  Python tool behind ttyd) and a desktop project (an application on a LinuxServer Selkies
+  image), and `scripts/check-image.sh`, which runs an image with the session constraints and
+  probes its base path. CI checks the example image with it.
