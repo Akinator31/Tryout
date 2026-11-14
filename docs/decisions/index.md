@@ -22,3 +22,4 @@ changes, a new record supersedes it.
 | [0015](0015-mutual-tls-control-plane-agent.md) | Mutual TLS between the control plane and the agent | Accepted, implemented |
 | [0016](0016-per-ip-limits.md) | Per-IP limits on tickets and event streams | Accepted, implemented |
 | [0017](0017-registry-credentials.md) | Registry credentials for private project images | Accepted, implemented |
+| [0018](0018-ui-kit.md) | UI kit: Chakra UI for the admin, a framework-free embed, one set of tokens | Accepted |

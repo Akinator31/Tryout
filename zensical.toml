@@ -45,6 +45,7 @@ nav = [
     "decisions/0015-mutual-tls-control-plane-agent.md",
     "decisions/0016-per-ip-limits.md",
     "decisions/0017-registry-credentials.md",
+    "decisions/0018-ui-kit.md",
   ] },
   { "Project" = [
     "roadmap.md",

@@ -70,15 +70,14 @@ Design steps, in order:
    ended, error, unavailable project. One direction is chosen.
 3. **Figma mock-ups** of the chosen direction: design tokens, components, every embed state,
    and the admin screens of M4. Figma becomes the reference for the UI.
-4. **UI kit choice**, recorded in an ADR. Chakra UI is the current candidate
-   ([ADR 0008](decisions/0008-stack-and-license.md)); another kit may replace it if it fits the
-   design better.
+4. **UI kit choice**, recorded in [ADR 0018](decisions/0018-ui-kit.md): Chakra UI for the
+   admin, a framework-free embed, and one set of design tokens shared by both.
 
 Build:
 
 | Item | Replaces | Notes |
 |---|---|---|
-| Embed page in React, from the Figma mock-ups | Plain HTML embed page | Same queue API and event stream |
+| Embed page from the Figma mock-ups, built from the shared tokens ([ADR 0018](decisions/0018-ui-kit.md)) | Plain HTML embed page | Same queue API and event stream |
 | Theming by configuration: accent colour, logo, texts | One built-in look | A dark default theme; the embedding site can adapt it |
 | Internationalisation: English and French to start | English only | Language from the browser or a parameter |
 | Accessibility: keyboard use, contrast, reduced motion, screen reader labels | | |
