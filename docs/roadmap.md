@@ -102,12 +102,11 @@ can act on it. Released as `v0.2.0`.
 
 | Item | Notes |
 |---|---|
-| Configuration stored in Postgres, with revisions validated by the JSON Schema | Replaces editing `tryout.yaml` and restarting; YAML import and export stay |
-| Admin authentication | Design first, agreed with the maintainer: the admin API must not weaken the security invariants |
-| Admin API in the control plane | Projects, nodes, embedding and limits, sessions, revisions |
-| Node health from the agent's `/healthz`, called by the control plane | Nodes still never call the control plane |
-| Admin UI (React, Chakra UI): project setup, nodes, embedding and limits, running sessions, forced stop | Screens from the M3 Figma file |
-| Metrics (Prometheus): sessions, queue length, start time, failures | Control plane and agent |
+| Configuration stored in Postgres, with revisions validated by the JSON Schema | Nodes, projects, limits, embedding and theme; each revision is a full snapshot, applied to every instance without a restart. Listen address, agent TLS files and trusted proxies stay in `tryout.yaml`. A file with nodes and projects seeds an empty database; YAML import and export stay |
+| Admin authentication | Local accounts with scrypt passwords and server-side sessions; the first account is made from the command line, with no open sign-up |
+| Admin API and UI on their own listener (`admin_listen`) | Off by default, so the admin can stay off the Internet. Projects (with a pause switch), nodes, embedding and limits, theme, revisions and rollback, running sessions and forced stop. React and Chakra UI, screens from the M3 Figma file |
+| Node health from the agent's `/healthz`, called by the control plane | Nodes still never call the control plane. No session starts on a node that does not answer |
+| Metrics (Prometheus): sessions, queue length, start time, failures | On the admin listener. The control plane relays each agent's metrics over mutual TLS, so nodes open no new port |
 
 **Exit criteria:** an operator can set up a project from scratch, find and stop any session from
 the admin UI, and graph queue and session metrics.
