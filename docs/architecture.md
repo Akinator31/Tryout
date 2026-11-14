@@ -25,7 +25,8 @@ for graphical ones. Each project is assigned to a node.
 | `runtime.ts` | `SessionRuntime` adapter for real nodes: agent API over mutual TLS + readiness probe through the gateway. Tests use an in-memory adapter. |
 | `db.ts`, `db-listen.ts` | Database port (queries, transactions, `LISTEN`); adapters for node-postgres and, in tests, PGlite; the reconnecting `LISTEN` session. |
 | `client.ts` | The visitor's IP address, read through trusted proxies only, and the cap on open event streams per IP. |
-| `http.ts` | Embed page, demo page, queue API and its SSE stream. Thin. |
+| `http.ts` | Embed page and its assets, demo page, queue API and its SSE stream. Thin. |
+| `embed.ts` | The built embed page (`apps/embed/dist`), read once at start: its template, its hashed assets and its Content-Security-Policy. |
 | `config.ts`, `config-*.ts` | Configuration loading: YAML validated against the shared JSON Schema, then semantic checks; values (`config-values`), error reporting (`config-report`), agent TLS files (`config-tls`). |
 | `server.ts` | Wiring. |
 
@@ -46,7 +47,35 @@ What it does:
   lock, so caps hold even with concurrent instances.
 - Pushes every ticket change to the visitor over server-sent events. A trigger on the tickets
   table sends a Postgres `NOTIFY`, so a change made by any instance reaches every instance.
-- Serves the `/embed/<project>` page that portfolios embed in an iframe.
+- Serves the `/embed/<project>` page that portfolios embed in an iframe, and its files under
+  `/assets/`. An unknown project gets the same page with a `404` status, which tells the
+  visitor that the project is unavailable inside the portfolio's frame.
+
+### Embed page — `apps/embed`, `packages/tokens`
+
+The page a visitor sees inside the portfolio's iframe, built from the Figma mock-ups in
+TypeScript without a UI framework, then bundled by Vite into `apps/embed/dist`. The control
+plane's image builds it and serves it; nothing loads from a CDN.
+
+| Module | Role |
+|---|---|
+| `visit.ts` | **The core.** One visit: takes a ticket, follows it over the event stream, falls back to polling, retries joining with backoff, and ends cleanly (End, Leave the queue, page closed, session overdue). No DOM. |
+| `screens.ts` | What each phase shows, as plain data: the status card (spinner or number, title, detail, actions) and the bar under the session (live, ending, reconnecting). |
+| `page.ts` | Renders a phase into `index.html`'s markup, text only; screen reader announcements; the session iframe. |
+| `api.ts`, `strings.ts`, `main.ts` | The queue API, every visible text, and the wiring. |
+| `packages/tokens` | Design tokens kept in step with the Figma variables (colours, spacing, radii, text styles) and IBM Plex fonts cut to Latin by `scripts/subset-fonts.sh`. The embed turns the tokens into CSS custom properties at build time; the admin UI will use them too. |
+
+What it does:
+
+- Shows one card per phase: connecting, position in the queue, starting, ended, start failed,
+  left the queue, per-IP limit countdown, unavailable project. Once active, the session fills the
+  frame above a 36 px bar with the time left, full screen and End; under a minute the bar turns
+  amber.
+- Keeps the visit alive through network trouble: a stream down for more than 5 s dims the
+  session and shows "Connection lost"; the page polls when its stream is refused and joins again
+  with a growing delay (3 s up to 30 s) when the control plane is unreachable.
+- Weighs about 6 KB of script and style (gzip) and 60 KB of fonts; CI fails the build above
+  25 KB and 100 KB.
 
 ### Agent — `apps/node/cmd/agent`
 
@@ -201,8 +230,13 @@ transaction commits.
   nodes, and a standard-library reverse proxy with WebSocket support.
 - **TypeScript on Node.js ≥ 24 for the control plane**, run directly thanks to native type
   stripping. The admin UI will use React with Chakra UI. The embed page stays framework-free
-  and small, because it loads for every portfolio visitor; both will share one module of
-  design tokens.
+  and small, because it loads for every portfolio visitor; both share one module of design
+  tokens (`packages/tokens`).
+- **The embed page as hashed static files.** Vite names each script, style and font after its
+  content, so browsers cache them for good and every project's page shares them; only the small
+  HTML is filled per project and revalidated. With no inline script or style, the page's
+  Content-Security-Policy allows only its own files, its own API, and frames from the nodes'
+  public URLs.
 - **A minimal Docker client.** The agent needs about a dozen Engine API endpoints. The Go SDK is
   moving to new modules whose API is not yet stable, while the versioned REST API is, so the
   agent uses a small hand-written client pinned to API `v1.47`. The node has few third-party
@@ -214,6 +248,8 @@ transaction commits.
 
 ```
 apps/control-plane/   control plane (TypeScript, Node ≥ 24, Postgres via node-postgres)
+apps/embed/           embed page (TypeScript, no UI framework, built by Vite)
+packages/tokens/      design tokens and bundled IBM Plex fonts, shared by the UIs
 apps/node/            agent + gateway (Go), one binary each, one image
 deploy/               dev compose file and its configuration; node/ and control-plane/: production examples
 schema/               JSON Schema of the configuration and the agent API, shared fixtures

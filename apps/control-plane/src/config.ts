@@ -143,6 +143,7 @@ export function parseConfig(
   if (problems.list.length) throw new ConfigError(source, problems.list);
 
   warnings.push(...overbookingWarnings(config));
+  warnings.push(...sessionUrlWarnings(config));
   return { config, warnings };
 }
 
@@ -252,6 +253,28 @@ function checkProjects(v: unknown, nodes: Record<string, NodeConfig>, report: Re
 }
 
 /** A node whose projects together allow more sessions than the node does: legal, but worth a warning. */
+/**
+ * The embed page may frame sessions only from the nodes' public URLs. A CSP source can
+ * wildcard the first label of a host only, so `{session}` deeper in the host widens it to
+ * every https origin.
+ */
+function sessionUrlWarnings(config: Config): string[] {
+  const warnings: string[] = [];
+
+  for (const [name, n] of Object.entries(config.nodes)) {
+    const host = n.public_url.split("://")[1].split("/")[0];
+    const firstLabel = host.split(".")[0];
+
+    if (host.includes("{session}") && (!firstLabel.includes("{session}") || !host.includes("."))) {
+      warnings.push(
+        `node ${name}: put {session} in the path or the first label of public_url's host, ` +
+          "or the embed page must allow session frames from any origin",
+      );
+    }
+  }
+  return warnings;
+}
+
 function overbookingWarnings(config: Config): string[] {
   const warnings: string[] = [];
 

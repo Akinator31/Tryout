@@ -8,6 +8,7 @@ deploy/node/registry/
 # dependencies / build output
 node_modules/
 site/
+dist/
 .cache/
 /bin/
 *.test

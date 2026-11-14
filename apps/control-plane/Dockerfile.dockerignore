@@ -1,0 +1,9 @@
+# The build context is the repository root: send only what the image needs.
+*
+!apps/control-plane/package.json
+!apps/control-plane/package-lock.json
+!apps/control-plane/src
+!apps/embed
+!packages/tokens
+**/node_modules
+**/dist

@@ -9,7 +9,7 @@ updates:
     schedule: { interval: weekly }
     commit-message: { prefix: build }
   - package-ecosystem: npm
-    directory: /apps/control-plane
+    directories: [/apps/control-plane, /apps/embed]
     schedule: { interval: weekly }
     commit-message: { prefix: build }
     ignore:

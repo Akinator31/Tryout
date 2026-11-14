@@ -132,7 +132,7 @@ the embed page poll instead, which keeps its place in line.
 |---|---|
 | `agent_url` | URL of the agent's private API: `https://host[:port]`, without a path. The agent's certificate must name the host. |
 | `server_name` | Optional: DNS name expected in the agent's certificate when it differs from the host of `agent_url` (a tunnel, a port forward). |
-| `public_url` | URL template loaded by the **browser**; must contain `{session}`, replaced by the session id. |
+| `public_url` | URL template loaded by the **browser**; must contain `{session}`, replaced by the session id, in the path (`https://sbx.example.org/s/{session}/`) or in the first label of the host (`https://{session}.sbx.example.org/`). The embed page allows session frames from these URLs only; with `{session}` elsewhere in the host it must allow any origin of that scheme, and the control plane warns at startup. |
 | `probe_url` | Optional: URL template reachable **from the control plane**, to check that a session answers. Defaults to `public_url`. |
 | `max_sessions` | Cap on concurrent sessions on the node, all projects combined. |
 

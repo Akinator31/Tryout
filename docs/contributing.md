@@ -21,6 +21,7 @@ The same checks run in CI:
 ```bash
 (cd apps/node && test -z "$(gofmt -l .)" && go vet ./... && go test -race ./...)
 (cd apps/control-plane && npm ci && npm run typecheck && npm test)
+(cd apps/embed && npm ci && npm run typecheck && npm test && npm run build && npm run size)
 shellcheck scripts/*.sh examples/*/*.sh
 zensical build --strict
 ```
@@ -28,6 +29,11 @@ zensical build --strict
 `npm test` runs the queue tests against PGlite, an in-process Postgres. Set
 `TEST_DATABASE_URL` to run them against a real PostgreSQL, as CI does; the `LISTEN` reconnect
 tests (`test/db.test.ts`) need it and are skipped otherwise.
+
+The control plane serves the embed page from `apps/embed/dist`: build it once before running
+the control plane outside Docker. `npm run dev` in `apps/embed` serves the page with live reload
+and forwards `/api` to a control plane on `localhost:3000`; open
+`http://localhost:5173/?project=<name>`.
 
 End-to-end tests: see [Local quickstart](quickstart.md).
 
