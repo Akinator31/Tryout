@@ -222,6 +222,33 @@ first 6 characters (`k2m7qa…`), wherever they appear, error messages included.
 addresses are never logged; the gateway writes `<client>` in their place in the HTTP server's
 error lines.
 
+## Health and metrics
+
+Each agent serves two read-only endpoints on its mutual TLS API, so only a client with the
+control plane's certificate can call them:
+
+- `GET /healthz` answers `200` with the node's version, profile, architecture, default
+  runtime, installed runtimes, session count and `MAX_SESSIONS`, or `503` when the agent cannot
+  reach its Docker daemon.
+- `GET /metrics` answers in the Prometheus text format:
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `tryout_agent_info` | gauge | `version`, `profile`, `default_runtime`, `arch` | Always 1; describes the agent. |
+| `tryout_node_sessions` | gauge | `project`, `state` | Session containers on the node, by Docker state (`running`, `created`…). |
+| `tryout_node_sessions_max` | gauge | | `MAX_SESSIONS`. |
+| `tryout_session_starts_total` | counter | `project`, `result` | Session creations: `ok`, `full` (the node was at `MAX_SESSIONS`) or `error`. |
+| `tryout_session_start_seconds` | histogram | `project` | Time to start a session, image pull included, for successful starts. |
+| `tryout_sessions_reaped_total` | counter | `reason` | Sessions the reconcile loop removed: `expired`, `dead` or `stuck`. |
+
+Counters restart from zero when the agent restarts. To check a node by hand, with the control
+plane's certificate:
+
+```bash
+cd pki/control-plane
+curl --cacert ca.crt --cert tls.crt --key tls.key https://10.0.50.10:7000/metrics
+```
+
 ## Upgrade
 
 Change `TRYOUT_VERSION` in each `.env`, then on each machine:

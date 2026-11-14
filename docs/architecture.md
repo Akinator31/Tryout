@@ -108,6 +108,9 @@ What it does:
 - Pulls a missing project image, with the registry credentials of `REGISTRY_AUTH_FILE` when
   the registry has an entry.
 - Checks that the image architecture matches the node.
+- Reports its health on `/healthz` (version, profile, default runtime, session count and cap;
+  503 when its Docker daemon does not answer) and Prometheus metrics on `/metrics`, both on the
+  same mutual TLS API: the node opens no other port.
 
 ### Gateway — `apps/node/cmd/gateway`
 

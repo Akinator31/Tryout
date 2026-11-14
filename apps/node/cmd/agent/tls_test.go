@@ -50,7 +50,9 @@ func TestAPIOverMutualTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ts := httptest.NewUnstartedServer(testAgent("dev", false).apiHandler())
+	a := testAgent("dev", false)
+	a.docker = fakeDockerClient(t, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("[]")) })
+	ts := httptest.NewUnstartedServer(a.apiHandler())
 	ts.TLS = cfg
 	ts.Config.ErrorLog = log.New(io.Discard, "", 0)
 	ts.StartTLS()

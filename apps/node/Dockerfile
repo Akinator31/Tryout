@@ -4,12 +4,16 @@
 # The build stage runs natively and cross-compiles, so multi-arch builds are fast.
 FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 ARG TARGETOS TARGETARCH
+# Release version reported by /healthz, /metrics and the logs; CI passes the image tag.
+ARG VERSION=dev
 WORKDIR /src
 COPY go.mod ./
 COPY . .
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/tryout-agent ./cmd/agent \
- && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/tryout-gateway ./cmd/gateway \
- && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/tryout-certs ./cmd/certs \
+RUN export CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+ LDFLAGS="-s -w -X github.com/Akinator31/Tryout/apps/node/internal/version.Version=$VERSION" \
+ && go build -trimpath -ldflags="$LDFLAGS" -o /out/tryout-agent ./cmd/agent \
+ && go build -trimpath -ldflags="$LDFLAGS" -o /out/tryout-gateway ./cmd/gateway \
+ && go build -trimpath -ldflags="$LDFLAGS" -o /out/tryout-certs ./cmd/certs \
  && mkdir -p /run-tryout
 
 FROM gcr.io/distroless/static-debian12:nonroot

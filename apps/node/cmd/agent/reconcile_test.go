@@ -81,6 +81,7 @@ func TestReconcileReattachesGateway(t *testing.T) {
 		creating:    map[string]bool{creating: true},
 		destroying:  map[string]bool{},
 		gatewayHTTP: &http.Client{Transport: &http.Transport{Proxy: toGateway}},
+		metrics:     newAgentMetrics(),
 	}
 	a.reconcile(context.Background())
 
@@ -144,6 +145,7 @@ func TestReconcileReapsStuckCreatedContainers(t *testing.T) {
 		creating:    map[string]bool{creating: true},
 		destroying:  map[string]bool{},
 		gatewayHTTP: &http.Client{Transport: &http.Transport{Proxy: toGateway}},
+		metrics:     newAgentMetrics(),
 	}
 	a.reconcile(context.Background())
 

@@ -22,6 +22,9 @@ const (
 	namePrefix   = "tryout-s-"
 )
 
+// errNodeFull refuses a session when the node runs MAX_SESSIONS already.
+var errNodeFull = errors.New("node full")
+
 // create starts a session: it pulls the image if needed, creates the
 // session's --internal network and its hardened container, attaches the
 // gateway to the network, starts the container and pushes the new route
@@ -68,7 +71,7 @@ func (a *agent) reserveSlot(ctx context.Context, id string) error {
 		return err
 	}
 	if n+len(a.creating) >= a.cfg.maxSessions {
-		return errors.New("node full")
+		return errNodeFull
 	}
 
 	a.creating[id] = true

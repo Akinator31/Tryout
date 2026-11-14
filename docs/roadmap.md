@@ -193,3 +193,6 @@ the admin UI, and graph queue and session metrics.
 - **M4:** the agent and the gateway log JSON lines in the control plane's format; every
   component keeps only a 6-character prefix of session and ticket ids in its logs. See
   [Production deployment](deployment.md#logs).
+- **M4:** the agent reports its version, policy and load on `/healthz` (503 when Docker does not
+  answer) and Prometheus metrics on `/metrics`, on its mutual TLS API. See
+  [Health and metrics](deployment.md#health-and-metrics).

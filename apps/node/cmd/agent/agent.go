@@ -19,6 +19,7 @@ type agent struct {
 	registry *registryauth.Store // nil: anonymous pulls
 
 	gatewayHTTP *http.Client // over the shared unix socket
+	metrics     *agentMetrics
 
 	mu         sync.Mutex
 	creating   map[string]bool // ids being created: reconciler must not touch them
@@ -32,6 +33,7 @@ func newAgent(cfg config, docker *dockerapi.Client, registry *registryauth.Store
 		docker:      docker,
 		registry:    registry,
 		gatewayHTTP: gatewayHTTP,
+		metrics:     newAgentMetrics(),
 		creating:    map[string]bool{},
 		destroying:  map[string]bool{},
 	}

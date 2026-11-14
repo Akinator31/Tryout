@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/Akinator31/Tryout/apps/node/internal/logging"
+	"github.com/Akinator31/Tryout/apps/node/internal/version"
 )
 
 func main() {
@@ -49,7 +50,7 @@ func main() {
 		ErrorLog:          logging.HTTPErrorLog(slog.Default()),
 		// no Read/WriteTimeout: WebSocket streams live for the whole session
 	}
-	slog.Info("gateway listening", "public", srv.Addr, "frame_ancestors", g.frameAncestors)
+	slog.Info("gateway listening", "public", srv.Addr, "version", version.Version, "frame_ancestors", g.frameAncestors)
 	fatal("public server", "err", srv.ListenAndServe())
 }
 

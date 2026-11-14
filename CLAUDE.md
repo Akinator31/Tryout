@@ -116,7 +116,8 @@ vault with the original stack study (in French) and its sources.
     site and embed favicon.
 
   In progress: M4 Operate (plan in `docs/roadmap.md`), released as `v0.2.0`. Done so far: JSON logs on every component, ids shortened to a
-  6-character prefix. Then M5 Hosting options.
+  6-character prefix; agent `/metrics` (hand-written Prometheus format, `internal/metrics`) and
+  a richer `/healthz`, version injected at build time (`internal/version`). Then M5 Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module

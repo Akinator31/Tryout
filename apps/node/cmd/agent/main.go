@@ -17,6 +17,7 @@
 //	reconcile.go  the reconcile loop and gateway reattachment
 //	routes.go     the route table pushed to the gateway
 //	api.go        HTTP handlers
+//	metrics.go    Prometheus metrics
 //	tls.go        the API's mutual TLS configuration
 package main
 
@@ -31,6 +32,7 @@ import (
 	"github.com/Akinator31/Tryout/apps/node/internal/dockerapi"
 	"github.com/Akinator31/Tryout/apps/node/internal/logging"
 	"github.com/Akinator31/Tryout/apps/node/internal/registryauth"
+	"github.com/Akinator31/Tryout/apps/node/internal/version"
 )
 
 func main() {
@@ -66,7 +68,7 @@ func main() {
 	go warnExpiryForever(certs)
 
 	srv := &http.Server{Addr: cfg.listen, Handler: a.apiHandler(), TLSConfig: tlsCfg, ReadHeaderTimeout: 10 * time.Second}
-	slog.Info("agent listening (mutual TLS)", "addr", cfg.listen, "profile", cfg.profile, "default_runtime", a.cfg.defaultRuntime)
+	slog.Info("agent listening (mutual TLS)", "addr", cfg.listen, "version", version.Version, "profile", cfg.profile, "default_runtime", a.cfg.defaultRuntime)
 	if err := srv.ListenAndServeTLS("", ""); err != nil {
 		fatal("server", "err", err)
 	}
