@@ -81,7 +81,7 @@ func (a *agent) countSessions(ctx context.Context) (int, error) {
 }
 
 // ensureImage pulls ref when it is missing, with the credentials of its
-// registry if any (ADR 0017), and refuses an image built for another
+// registry if any, and refuses an image built for another
 // architecture than the node's.
 func (a *agent) ensureImage(ctx context.Context, ref string) error {
 	img, err := a.docker.ImageInspect(ctx, ref)

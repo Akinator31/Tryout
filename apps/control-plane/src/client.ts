@@ -1,4 +1,4 @@
-// Who is the visitor? The client key used by the per-client limits (ADR 0016):
+// Who is the visitor? The client key used by the per-client limits:
 // the IP address of the visitor, read through trusted proxies only, with IPv6
 // addresses grouped by /64. Also the per-instance cap on open event streams.
 import type { IncomingHttpHeaders } from "node:http";

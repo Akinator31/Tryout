@@ -1,4 +1,4 @@
-// The queue's Postgres storage (ADR 0007): the tickets table, its change
+// The queue's Postgres storage: the tickets table, its change
 // notifications, and the queries shared by the queue modules.
 import type { Db } from "./db.ts";
 import type { TicketState } from "./queue.ts";
@@ -15,7 +15,7 @@ export const CLIENT_LOCK = 0x7472796c; // "tryl", paired with a hash of the clie
  * Applied in order at every startup, so each statement must be idempotent.
  *
  * - `client_key` and its index were added after the table's first release, for
- *   the per-client limits (ADR 0016).
+ *   the per-client limits.
  * - The trigger notifies on state changes only: any of them may move every
  *   waiting ticket of the project, so the payload is the project. NOTIFY is
  *   sent on commit and deduplicated per transaction; heartbeats (`last_seen`)

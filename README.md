@@ -56,7 +56,6 @@ docker compose -f deploy/compose.dev.yaml up -d --build
 | [Published images](docs/published-images.md) | Tryout's multi-arch images on `ghcr.io` |
 | [Public exposure](docs/exposure.md) | tunnels, reverse proxies, iframes |
 | [Performance](docs/performance.md) | measured costs and node sizing |
-| [Decisions](docs/decisions/index.md) | architecture decision records |
 | [Contributing](docs/contributing.md) | conventions and local checks |
 
 The documentation site is built with [Zensical](https://zensical.org) (`zensical serve`).

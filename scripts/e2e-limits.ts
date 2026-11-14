@@ -1,4 +1,4 @@
-// Per-IP limits (ADR 0016), with the dev configuration: live_tickets_per_ip 8,
+// Per-IP limits, with the dev configuration: live_tickets_per_ip 8,
 // new_tickets_per_ip 30 per minute, streams_per_ip 8, and private networks as
 // trusted proxies so that X-Forwarded-For picks the client. Each run uses
 // random client addresses, so it does not share a budget with other runs.

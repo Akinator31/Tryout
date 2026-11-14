@@ -34,7 +34,7 @@ browser ─► control plane (TypeScript)   queue, tickets, /embed/<project>; ca
 
 Key facts that are easy to forget:
 
-- **Control plane → agent** is mutual TLS 1.3 only (ADR 0015): private CA from `tryout-certs`,
+- **Control plane → agent** is mutual TLS 1.3 only: private CA from `tryout-certs`,
   `serverAuth` leaves for agents, a `clientAuth` leaf for the control plane, no token, no
   plain-HTTP mode. The dev compose file creates the PKI in a volume (`pki-ca`, `pki-node`).
 - **Agent ↔ gateway** talk over a **unix socket in a shared volume**, never TCP: the gateway joins
@@ -80,7 +80,7 @@ schema/               tryout.schema.json (source of truth) + testdata/ fixtures 
 examples/cli-hello/   sample terminal project (ttyd)
 scripts/              e2e-*.ts (cli, queue, sse, mtls, limits, reattach), e2e-deploy.sh, check-image.sh,
                       feasibility-node.sh
-docs/                 Zensical documentation (English); decisions/ holds the ADRs
+docs/                 Zensical documentation (English)
 SECURITY.md           threat model and profiles (included in the docs site)
 ```
 
@@ -89,7 +89,6 @@ SECURITY.md           threat model and profiles (included in the docs site)
 Read these regularly to keep the project's behaviour in mind:
 
 - before any change: `docs/architecture.md` and `SECURITY.md`;
-- before touching a topic: the related `docs/decisions/*.md`;
 - `docs/roadmap.md` for the milestones (M1–M5), what is provisional and what comes next.
 
 Background research (not part of the repository) lives in `../Tryout-research/`: a hyperresearch
@@ -102,9 +101,9 @@ vault with the original stack study (in French) and its sources.
     refusal;
   - Selkies under gVisor on a Raspberry Pi 5 (arm64), behind a base path.
 - The roadmap is organised in milestones (`docs/roadmap.md`): M1 Deployable is done
-  (ghcr.io images, ADR 0013; YAML config + JSON Schema, ADR 0014; mTLS, ADR 0015; per-IP limits,
-  ADR 0016; exit criteria checked on fresh VMs). M2 Live in progress:
-  - registry credentials for private project images (ADR 0017);
+  (ghcr.io images; YAML config + JSON Schema; mTLS; per-IP limits; exit criteria checked on
+  fresh VMs). M2 Live in progress:
+  - registry credentials for private project images;
   - production deployment guide and example compose files (`docs/deployment.md`), tested in CI
     by `scripts/e2e-deploy.sh` with gVisor; `scripts/e2e-mtls.ts` checks any agent with `--pki`;
   - the reconcile loop reattaches a recreated gateway (`scripts/e2e-reattach.ts`) and reaps
@@ -112,18 +111,19 @@ vault with the original stack study (in French) and its sources.
   - packaging guide (`docs/packaging.md`) and `scripts/check-image.sh`;
   - a minimal dark embed page (`apps/control-plane/src/embed.html`), until the M3 design.
 
-  Then M3 Design (theme, Figma, React embed; the UI kit is chosen there), M4 Operate, M5
-  Hosting options.
+  Then M3 Design: the Figma mock-ups are settled and the UI kit is chosen (Chakra UI for the
+  admin, a framework-free embed, shared design tokens); the embed build comes next. Then M4
+  Operate, M5 Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module
   `github.com/Akinator31/Tryout/apps/node`, docs at <https://akinator31.github.io/Tryout/>).
-- Queue state is in Postgres (`apps/control-plane/src/queue.ts`, ADRs 0007 and 0011), tested through its
+- Queue state is in Postgres (`apps/control-plane/src/queue.ts`), tested through its
   interface with PGlite locally and PostgreSQL in CI.
 - Ticket changes are pushed over SSE (`GET /api/tickets/<id>/events`), with Postgres
-  `LISTEN/NOTIFY` across instances; the open stream is the heartbeat (ADR 0012). Polling remains
+  `LISTEN/NOTIFY` across instances; the open stream is the heartbeat. Polling remains
   for scripts.
-- UI work (React embed page, admin) starts from the maintainer's **Figma** designs, following the
+- UI work (embed page, admin) starts from the maintainer's **Figma** designs, following the
   M3 design steps in `docs/roadmap.md`. The Figma file's location is in the persistent memory.
 
 ## Workflow skills
@@ -135,15 +135,15 @@ The `mattpocock-skills:*` skills are available. Use them at these moments:
 | Before a large piece of work (queue model, mTLS, config format…) | `grilling`, to stress-test the design with the maintainer |
 | Before restructuring a component or adding a module | `codebase-design` |
 | Implementing behaviour with clear rules (queue, leases, agent policy) | `tdd` |
-| Naming and domain vocabulary | `domain-modeling`; ADRs stay in `docs/decisions/` |
+| Naming and domain vocabulary | `domain-modeling` |
 | Exploring a UI from the Figma designs | `prototype` |
 | Steps only a human can do (rootless daemon, gVisor, KVM VM, tunnels) | `wizard` |
 | A real bug or a regression | `diagnosing-bugs` |
 | Before opening or merging a PR | `code-review`, including the security invariants below |
 | Editing this file | `writing-for-agents` |
 
-The rules below take precedence over any skill convention: commit format, no AI mentions, ADR
-location, English only.
+The rules below take precedence over any skill convention: commit format, no AI mentions, no
+decision records, English only.
 
 ## Commands
 
@@ -184,9 +184,11 @@ CI (`.github/workflows/ci.yml`) runs all of the above, plus multi-arch image bui
 - **No mention of AI** (Claude, assistant, generated by…) in commits, PRs, issues, review comments,
   release notes or any other GitHub content.
 - **Always update the documentation** when a change affects behaviour, configuration, security or
-  operations, in the same change: the relevant `docs/` page, `SECURITY.md`, and a new ADR in
-  `docs/decisions/` for lasting architecture choices. Keep the "Current status" section above up to
-  date.
+  operations, in the same change: the relevant `docs/` page and `SECURITY.md`. Lasting choices
+  are discussed with the maintainer, then explained in the relevant page (usually
+  `docs/architecture.md`). Keep the "Current status" section above up to date.
+- **No ADRs or decision records**: design choices are discussed with the maintainer and
+  implemented; the docs describe the project as it is.
 - **Keep the docs in mind**: re-read the relevant pages (see above) before designing or changing
   something, rather than relying on memory.
 - **Pull requests**: open one when a feature is finished, after running `code-review` and fixing
@@ -195,7 +197,7 @@ CI (`.github/workflows/ci.yml`) runs all of the above, plus multi-arch image bui
 - **Remember across sessions**: save anything worth keeping between sessions in the persistent
   memory: decisions, the maintainer's preferences, environment facts that must not go into this
   public repository. Update this file when the project's state or rules change.
-- **Security invariants** (do not weaken without an ADR and a `SECURITY.md` update):
+- **Security invariants** (do not weaken without the maintainer's agreement and a `SECURITY.md` update):
   - only the agent has a Docker socket;
   - PostgreSQL is reachable by the control plane only;
   - the hardening is hard-coded in the agent, not configurable;

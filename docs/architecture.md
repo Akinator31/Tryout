@@ -36,7 +36,7 @@ What it does:
 - Manages **tickets**: a visitor joins a project's queue and waits for a free slot.
 - Enforces two caps: sessions per project and sessions per node.
 - Limits what one IP address can hold: live tickets, tickets created per minute and open event
-  streams ([ADR 0016](decisions/0016-per-ip-limits.md)).
+  streams ([Configuration](configuration.md#per-ip-limits)).
 - Starts a session through the agent, checks that it answers through the gateway, then hands
   the URL to the browser.
 - Ends a session when the visitor leaves, when the heartbeat is lost (~30 s), when the
@@ -52,7 +52,7 @@ What it does:
 
 - Serves its private API over **mutual TLS 1.3** only: the control plane presents a client
   certificate from the deployment's private CA, made with `tryout-certs`
-  ([ADR 0015](decisions/0015-mutual-tls-control-plane-agent.md), [Certificates](certificates.md)).
+  ([Certificates](certificates.md)).
 - The only component that talks to Docker, through a configurable endpoint (`DOCKER_HOST`).
 - Checks at startup that the node **profile** is met (gVisor, rootless, cgroup v2), and refuses
   to start otherwise.
@@ -87,8 +87,7 @@ What it does:
 1. The portfolio shows `/embed/my-project` in an iframe.
 2. The page creates a ticket (`POST /api/projects/my-project/tickets`) and opens the stream
    `GET /api/tickets/<ticket>/events`. The server pushes the ticket's view on every change and
-   every 10 s. The open stream doubles as the heartbeat
-   ([ADR 0012](decisions/0012-ticket-push-sse.md)). `GET /api/tickets/<ticket>` remains for
+   every 10 s. The open stream doubles as the heartbeat. `GET /api/tickets/<ticket>` remains for
    polling clients.
 3. When a slot is free, the control plane generates a 130-bit session id and calls
    `POST /v1/sessions` on the agent.
@@ -99,6 +98,117 @@ What it does:
 6. The page shows the session URL in a nested iframe.
 7. At the end, the control plane calls `DELETE /v1/sessions/<id>`, and the agent removes
    everything.
+
+## Why it works this way
+
+### A thin orchestrator
+
+Existing tools did not fit an anonymous, queued sandbox: Kasm Workspaces Community Edition caps
+concurrent sessions and is limited to non-commercial use, neko-rooms only orchestrates Neko,
+SealSkin is built around users rather than anonymous queues, and JupyterHub's DockerSpawner is
+tied to the JupyterHub model. Tryout is therefore a small agent with a hard-coded container
+specification and a control plane that owns the queue. This keeps full control of the security
+posture and the queue semantics, at the cost of building features such as the admin UI and
+metrics.
+
+### Agent and gateway are separate
+
+Access to the Docker socket is equivalent to root on the host, and socket proxies filter by API
+path and method, not by request body, so they cannot forbid `Privileged: true` on a container
+create. The component that receives Internet traffic is also the most exposed one. Splitting the
+node means that compromising the gateway does not give control of Docker. The gateway reaches
+sessions from inside their networks rather than from the host, which also works with rootless
+daemons, whose container addresses are not routable from the host.
+
+### The control plane calls nodes
+
+Nodes run hostile code: any credential a node held towards the control plane or the operator's
+infrastructure would be exposed by an escape. So the control plane calls the agent, nodes never
+open connections back (the firewall should enforce it), and readiness is checked through the
+gateway. The link uses mutual TLS rather than a shared token because it may cross networks the
+operator does not fully control, on the way to a remote node: session ids are encrypted, the
+control plane only talks to the node it meant to reach, and a compromised node holds only its
+own server certificate, which no other component accepts as a client. Tryout only reads PEM
+files, so it does not depend on a particular PKI, tunnel or provider.
+
+### Session URLs are capabilities
+
+Sessions are served under one path per session on one hostname per node. Free certificates
+often cover a single subdomain level, sessions run in a cross-site iframe where third-party
+cookies are blocked or partitioned, and per-session reverse proxy labels would add a refresh
+delay and tie Tryout to one proxy. Path routing works behind any tunnel or proxy, and the
+`public_url` template leaves room for subdomain routing later. Because every session of a node
+shares a browser origin, the gateway strips cookies and service worker headers (see
+[Security](security.md)).
+
+### A fresh container per session
+
+A clean environment per visitor is a requirement, and building images on a sandbox node would
+expose it to builder flaws (for example the BuildKit issues known as Leaky Vessels). Images are
+built elsewhere and pinned by digest; each session gets a new container and network, removed at
+the end, so no state leaks between visitors. A warm pool will only be considered if cold starts
+exceed about 10 s: the proof of concept measured about 0.5 s for a terminal and about 4 s for a
+desktop on a Raspberry Pi 5. The first session of a new image pays the pull time.
+
+### Selkies over WebSocket
+
+Selkies also supports WebRTC, but WebRTC uses UDP, which bypasses HTTP proxies and tunnels and
+needs a TURN server. WebSocket mode keeps a single HTTP path through the gateway. The locked
+settings (see [Configuration](configuration.md#desktop-session-defaults)) rely on Selkies'
+`|locked` suffix, which the client cannot change: they keep the CPU per session predictable and
+the attack surface small. Projects that need audio or a higher resolution opt in through `env`.
+
+### The queue in Postgres
+
+Sessions are leases, not jobs: a ticket holds its slot from `starting` until it ends. Postgres
+keeps the state across restarts and lets several instances share one database, with no Redis
+(BullMQ's per-group concurrency, which the caps would need, is a paid feature).
+
+- **One global lock.** The node cap spans projects and several instances may promote at once,
+  so promotion runs in one transaction under a global advisory lock. At a few promotions per
+  minute, this is simpler than per-row locks. Schema creation also takes an advisory lock,
+  because concurrent `CREATE … IF NOT EXISTS` statements can race.
+- **Few states.** `waiting → starting → active → ended`. A `starting` ticket already holds its
+  slot, and ending is immediate since the agent removes the container synchronously.
+- **Conditional activation.** A ticket becomes `active` only if it is still `starting` when the
+  session is ready; otherwise the session is stopped, because the visitor may have left during
+  the start.
+- **One deadline.** A start is aborted after 180 s, or as soon as the ticket ends on the
+  instance. A ticket that was `starting` on an instance that died is not resumed: it keeps its
+  slot until that deadline, and the agent's reaper removes the container.
+- **Clocks.** Heartbeat and expiry compare timestamps written by different instances, so
+  instances need synchronized clocks (NTP). Times come from an injected clock, which keeps tests
+  deterministic.
+
+### Ticket changes over SSE
+
+Polling made a visitor learn of a promotion up to 2 s late and cost one request every 2 s per
+waiting visitor. Server-sent events need no browser library and reconnect on their own, and
+Postgres `LISTEN/NOTIFY` delivers a change made by one instance to every instance when the
+transaction commits.
+
+- The notification payload is the project, because one state change can move every waiting
+  ticket of that project; each instance then re-reads the views it streams for it in one query.
+  Heartbeat updates do not notify.
+- A fresh view every 10 s recovers lost notifications, keeps proxies from closing an idle
+  stream and resynchronises the page's countdown.
+- Each instance holds one extra Postgres connection for `LISTEN`. The trigger uses
+  `CREATE OR REPLACE TRIGGER`, hence PostgreSQL 14 or later.
+
+### Stack and license
+
+- **Go for the node**: static binaries, easy cross-compilation to arm64, low memory on small
+  nodes, and a standard-library reverse proxy with WebSocket support.
+- **TypeScript on Node.js ≥ 24 for the control plane**, run directly thanks to native type
+  stripping. The admin UI will use React with Chakra UI. The embed page stays framework-free
+  and small, because it loads for every portfolio visitor; both will share one module of
+  design tokens.
+- **A minimal Docker client.** The agent needs about a dozen Engine API endpoints. The Go SDK is
+  moving to new modules whose API is not yet stable, while the versioned REST API is, so the
+  agent uses a small hand-written client pinned to API `v1.47`. The node has few third-party
+  dependencies; new Docker features are added to the client by hand.
+- **AGPL-3.0-or-later**: operators who run a modified version as a service must publish their
+  changes.
 
 ## Repository layout
 

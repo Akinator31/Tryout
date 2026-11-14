@@ -2,7 +2,7 @@
 //
 // Interface: join / poll / watch / release / tick. Behind it: per-project
 // and per-node caps, per-client limits, FIFO promotion, session start and readiness, heartbeat
-// loss, maximum age, change notifications. State lives in Postgres (ADR 0007)
+// loss, maximum age, change notifications. State lives in Postgres
 // so several control plane instances can share it; time comes from an
 // injected clock. The storage, the limits and the watchers live in the
 // sibling queue-*.ts modules.
@@ -19,7 +19,7 @@ export { FORGET_ENDED_MS, START_TIMEOUT_MS } from "./queue-timing.ts";
 export interface QueueConfig {
   nodes: Record<string, { maxSessions: number }>;
   projects: Record<string, { node: string; maxSessions: number; maxAgeS: number }>;
-  /** Per-client limits on join (ADR 0016); 0 disables a limit. */
+  /** Per-client limits on join; 0 disables a limit. */
   limits?: {
     /** Tickets not yet ended (waiting, starting, active). */
     liveTicketsPerClient: number;
@@ -409,7 +409,7 @@ class PgQueue implements Queue {
     await this.#runtime.stop(session).catch((e) => this.#log("stop failed", { session: session.sessionId, err: String(e) }));
   }
 
-  /** Watched tickets need no polling: their open stream is the heartbeat (ADR 0012). */
+  /** Watched tickets need no polling: their open stream is the heartbeat. */
   async #keepWatchedAlive(t: number): Promise<void> {
     if (this.#watchers.size === 0) return;
 

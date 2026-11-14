@@ -15,7 +15,7 @@ import (
 
 // serverTLS loads the listener's mutual TLS configuration and refuses an
 // expired certificate. There is no plain-HTTP mode: the TLS handshake is the
-// API's only authentication (ADR 0015).
+// API's only authentication.
 func serverTLS(cfg config, now time.Time) (*tls.Config, []*x509.Certificate, error) {
 	if missing := missingTLSVars(cfg); len(missing) > 0 {
 		return nil, nil, fmt.Errorf("%s required (mutual TLS, see docs/certificates.md)", strings.Join(missing, ", "))
@@ -53,7 +53,7 @@ func missingTLSVars(cfg config) []string {
 }
 
 // warnExpiry logs certificates that are expired or close to expiry. Rotation
-// is a restart with new files (ADR 0015).
+// is a restart with new files.
 func warnExpiry(certs []*x509.Certificate, now time.Time) {
 	for _, c := range certs {
 		if w := pki.Expiry(c, now, pki.ExpiryWarning); w != "" {

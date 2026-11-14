@@ -1,4 +1,4 @@
-// The control plane's client towards agents (ADR 0015), against a local HTTPS
+// The control plane's client towards agents, against a local HTTPS
 // server that requires a client certificate, like the agent.
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:https";

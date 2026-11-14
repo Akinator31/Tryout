@@ -1,4 +1,4 @@
-// Per-client limits on joining the queue (ADR 0016).
+// Per-client limits on joining the queue.
 import type { Query } from "./db.ts";
 import type { QueueConfig } from "./queue.ts";
 import { CLIENT_LOCK } from "./queue-schema.ts";

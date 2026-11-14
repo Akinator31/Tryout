@@ -1,5 +1,5 @@
 // Package pki issues and loads the certificates of the mutual TLS link
-// between the control plane and the agent (ADR 0015).
+// between the control plane and the agent.
 //
 // One private CA per deployment signs two kinds of leaf certificates, each
 // with a single extended key usage: agents get serverAuth only, the control

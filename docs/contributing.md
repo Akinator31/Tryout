@@ -7,7 +7,12 @@
   `docs: describe single-host profile`, `ci: build docs with zensical`.
 - **Documentation**: any change in behaviour, configuration or security updates the relevant
   page in `docs/` (and `SECURITY.md` when needed) in the same change.
-- **Decisions**: lasting architecture choices are recorded in `docs/decisions/`.
+- **Design choices** are discussed with the maintainer first, then explained in the page that
+  covers the topic, usually [Architecture](architecture.md). There are no decision records: the
+  documentation describes the project as it is.
+- **Schema**: edit only `schema/tryout.schema.json`, then run `scripts/sync-schema.sh`. `go:embed`
+  and the Docker build contexts cannot reach outside their directory, so the agent, the control
+  plane and the docs site each keep a copy; tests and CI fail on a stale one.
 
 ## Local checks
 

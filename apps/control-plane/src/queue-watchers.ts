@@ -1,5 +1,5 @@
 // The watchers registered on this control plane instance: the push channel
-// behind the SSE stream (ADR 0012).
+// behind the SSE stream.
 import type { Db } from "./db.ts";
 import type { TicketView } from "./queue.ts";
 import { SELECT_WITH_POSITION, type Row } from "./queue-schema.ts";

@@ -35,12 +35,12 @@ const limited = (res: ServerResponse, error: string, limit: LimitName, headers: 
  * - `GET /embed/:project`: the page portfolios put in their iframe;
  * - `GET /demo`: a simulated portfolio embedding every project;
  * - `POST /api/projects/:project/tickets`: join the queue;
- * - `GET /api/tickets/:id/events`: SSE stream of the ticket's view (ADR 0012);
+ * - `GET /api/tickets/:id/events`: SSE stream of the ticket's view;
  * - `GET /api/tickets/:id`: poll, which doubles as a heartbeat;
  * - `POST /api/tickets/:id/release`: the tab was closed (sendBeacon);
  * - `GET /healthz`.
  *
- * Per-IP limits (ADR 0016): tickets are limited by the queue, across
+ * Per-IP limits: tickets are limited by the queue, across
  * instances; open streams by this instance, which holds the connections.
  */
 export function createHandler(cfg: Config, queue: Queue, log: (msg: string) => void = () => {}) {

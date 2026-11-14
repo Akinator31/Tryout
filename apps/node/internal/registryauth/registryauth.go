@@ -1,5 +1,5 @@
 // Package registryauth gives the agent credentials for pulling private
-// project images (ADR 0017).
+// project images.
 //
 // It reads a file in the Docker CLI's config.json format and uses only its
 // static "auths" entries. Credential helpers ("credsStore", "credHelpers") are

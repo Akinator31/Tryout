@@ -55,8 +55,13 @@ underline errors as you type.
 - A node whose projects allow more sessions than its own `max_sessions` gets a warning only:
   the node cap wins.
 
-The agent validates each session request against the same schema
-([ADR 0014](decisions/0014-yaml-configuration-json-schema.md)).
+The agent validates each session request against the same schema and rejects any field it does
+not know. A newer control plane that sends a new field to an older agent gets an error rather
+than a silently ignored setting: upgrade nodes and the control plane together. The agent also
+keeps its own checks of the fields the hardening depends on (session id, kind, port, reserved
+variables), as defence in depth.
+
+The file is read at startup only; a change needs a restart.
 
 ### Environment variables in values
 
@@ -82,7 +87,9 @@ be written.
 ### Per-IP limits
 
 The control plane limits what one visitor IP address can hold, to keep a single client from
-filling a queue ([ADR 0016](decisions/0016-per-ip-limits.md)). IPv6 addresses count per /64.
+filling a queue. A reverse proxy can limit request rates, but it cannot see how many tickets a
+client holds, so the limits live in the control plane. IPv6 addresses count per /64, since one
+client usually holds a whole /64.
 The limits apply across all projects and are on by default:
 
 ```yaml
