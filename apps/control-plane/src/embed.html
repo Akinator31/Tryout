@@ -3,23 +3,176 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <title>Tryout</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #111; color: #eee; font: 15px/1.5 system-ui, sans-serif; }
-  #status { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 16px; }
-  #bar { position: absolute; top: 0; right: 0; padding: 2px 8px; font-size: 12px; background: #000a; z-index: 2; }
-  iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-  button { font: inherit; padding: 6px 14px; margin-top: 8px; cursor: pointer; }
+  :root {
+    --bg: #0a0b0d;
+    --surface: #121418;
+    --border: #23262d;
+    --text: #e8eaed;
+    --muted: #8b919c;
+    --accent: #7c9cff;
+    --warn: #f5b454;
+    --bar-height: 28px;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  [hidden] { display: none !important; }
+
+  /* Waiting, starting, ended: one card in the middle of the frame. */
+  #status {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: radial-gradient(ellipse at 50% 35%, #161a22 0%, var(--bg) 70%);
+  }
+
+  .card {
+    width: 100%;
+    max-width: 340px;
+    padding: 28px 24px;
+    text-align: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: 0 12px 40px #0008;
+  }
+
+  .eyebrow {
+    margin: 0 0 18px;
+    color: var(--muted);
+    font: 12px/1 var(--mono);
+    letter-spacing: 0.04em;
+  }
+
+  .spinner {
+    width: 28px;
+    height: 28px;
+    margin: 0 auto 16px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spinner { animation: none; }
+  }
+
+  .position {
+    margin: 0 0 4px;
+    color: var(--accent);
+    font-size: 44px;
+    font-weight: 650;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 600;
+  }
+
+  .detail {
+    margin: 6px 0 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  button {
+    margin-top: 20px;
+    padding: 8px 18px;
+    color: #0a0b0d;
+    background: var(--accent);
+    border: 0;
+    border-radius: 8px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  button:hover { filter: brightness(1.1); }
+  button:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+
+  /* Active: the session fills the frame above a thin bar. */
+  iframe {
+    position: absolute;
+    inset: 0 0 var(--bar-height) 0;
+    width: 100%;
+    height: calc(100% - var(--bar-height));
+    border: 0;
+    background: #000;
+  }
+
+  #bar {
+    position: absolute;
+    inset: auto 0 0 0;
+    height: var(--bar-height);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    color: var(--muted);
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    font: 12px/1 var(--mono);
+  }
+
+  #bar .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #4ade80;
+  }
+
+  #timer { margin-left: auto; font-variant-numeric: tabular-nums; }
+  #timer.soon { color: var(--warn); }
 </style>
 </head>
 <body>
-<div id="status">Connecting…</div>
-<div id="bar" hidden></div>
+<main id="status">
+  <div class="card">
+    <p class="eyebrow" id="project"></p>
+    <div class="spinner" id="spinner"></div>
+    <p class="position" id="position" hidden></p>
+    <h1 id="title" role="status" aria-live="polite"></h1>
+    <p class="detail" id="detail" hidden></p>
+    <button id="action" type="button" hidden>Start again</button>
+  </div>
+</main>
+<footer id="bar" hidden>
+  <span class="dot" aria-hidden="true"></span>
+  <span id="bar-project"></span>
+  <span id="timer"></span>
+</footer>
 <script>
 const project = "__PROJECT__";
 const FRAME_ALLOW = "clipboard-read; clipboard-write; autoplay; fullscreen; keyboard-map";
-const statusEl = document.getElementById("status");
-const bar = document.getElementById("bar");
+
+/** Below this many seconds left, the countdown turns amber. */
+const SOON_SECONDS = 60;
+
+const el = (id) => document.getElementById(id);
+const statusEl = el("status");
+const bar = el("bar");
+const timer = el("timer");
 
 let ticket = null;
 let frame = null;
@@ -28,22 +181,43 @@ let retry = null;
 let countdown = null;
 let endsAt = 0;
 
-/** Shows a message (HTML) over the page. */
-function show(html) {
-  statusEl.innerHTML = html;
+/**
+ * Shows the status card. Every text goes through textContent: errors come
+ * from the server and are never parsed as HTML. The title is the live region
+ * read by screen readers, so it is only rewritten when it changes.
+ *
+ * - `title`: the main line;
+ * - `detail`: an optional muted line under it;
+ * - `busy`: shows the spinner;
+ * - `position`: an optional queue position, shown large instead of the spinner;
+ * - `action`: shows the "Start again" button.
+ */
+function show({ title, detail = "", busy = false, position = null, action = false }) {
+  if (el("title").textContent !== title) el("title").textContent = title;
+  el("detail").textContent = detail;
+  el("detail").hidden = !detail;
+
+  el("spinner").hidden = !busy || position !== null;
+  el("position").textContent = position ?? "";
+  el("position").hidden = position === null;
+  el("action").hidden = !action;
+
   statusEl.hidden = false;
 }
 
 /** Takes a ticket for the project, then follows it. */
 async function join() {
   clearTimeout(retry);
-  show("Connecting…");
+  show({ title: "Connecting…", busy: true });
 
-  const r = await fetch(`/api/projects/${project}/tickets`, { method: "POST" });
-  if (r.status === 429) return limited(Number(r.headers.get("retry-after")) || 30);
-  if (!r.ok) return show("Project unavailable.");
+  const res = await fetch(`/api/projects/${project}/tickets`, { method: "POST" }).catch(() => null);
+  if (!res) return show({ title: "Cannot reach Tryout", detail: "Check your connection.", action: true });
+  if (res.status === 429) return limited(Number(res.headers.get("retry-after")) || 30);
 
-  ticket = (await r.json()).ticket;
+  const body = res.ok ? await res.json().catch(() => null) : null;
+  if (!body?.ticket) return show({ title: "Project unavailable", detail: "Try again in a moment.", action: true });
+
+  ticket = body.ticket;
   listen();
 }
 
@@ -53,7 +227,7 @@ function limited(seconds) {
 
   const tick = () => {
     if (left <= 0) return join();
-    show(`Too many sessions from your network.<br><small>Trying again in ${left} s.</small>`);
+    show({ title: "Too many sessions from your network", detail: `Trying again in ${left} s.`, busy: true });
     left--;
     retry = setTimeout(tick, 1000);
   };
@@ -82,53 +256,67 @@ async function onStreamError() {
 
   const current = ticket;
   try {
-    const r = await fetch(`/api/tickets/${current}`);
+    const res = await fetch(`/api/tickets/${current}`);
     if (current !== ticket) return;
-    if (r.status === 404) return ended("Session expired.");
+    if (res.status === 404) return ended("Session expired");
 
-    const v = await r.json();
-    render(v);
-    if (v.state === "ended") return;
+    const view = await res.json();
+    if (current !== ticket) return;
+
+    render(view);
+    if (view.state === "ended") return;
   } catch {}
 
   if (current === ticket) retry = setTimeout(listen, 3000);
 }
 
 /** Shows a ticket's view, pushed or polled, whatever its state. */
-function render(v) {
-  if (v.state === "waiting") {
-    show(`Queue position: <b>${v.position}</b><br><small>Your session will start automatically.</small>`);
-  }
-  if (v.state === "starting") show("Starting the environment…");
-  if (v.state === "active") renderActive(v);
-  if (v.state === "ended") ended(v.error || "Session ended.");
+function render(view) {
+  if (view.state === "waiting") renderWaiting(view);
+  if (view.state === "starting") show({ title: "Starting the environment…", busy: true });
+  if (view.state === "active") renderActive(view);
+  if (view.state === "ended") ended(view.error || "Session ended");
+}
+
+/** The queue position, or a spinner while the server has not computed it yet. */
+function renderWaiting(view) {
+  const detail = "Your session will start automatically.";
+  show({ title: "In the queue", detail, busy: true, position: view.position ?? null });
 }
 
 /** Opens the session frame once, and re-syncs the countdown with every message. */
-function renderActive(v) {
+function renderActive(view) {
   if (!frame) {
     frame = document.createElement("iframe");
     frame.allow = FRAME_ALLOW;
-    frame.src = v.url;
+    frame.src = view.url;
     document.body.appendChild(frame);
     statusEl.hidden = true;
   }
 
-  endsAt = Date.now() + v.ends_in_s * 1000;
+  endsAt = Date.now() + view.ends_in_s * 1000;
   if (!countdown) countdown = setInterval(tickDown, 1000);
   tickDown();
   bar.hidden = false;
 }
 
-/** Updates the remaining time shown under the session. */
+/** Updates the remaining time shown in the bar under the session. */
 function tickDown() {
   const left = Math.max(0, Math.round((endsAt - Date.now()) / 1000));
   const seconds = String(left % 60).padStart(2, "0");
-  bar.textContent = `ends in ${Math.floor(left / 60)}:${seconds}`;
+
+  timer.textContent = `ends in ${Math.floor(left / 60)}:${seconds}`;
+  timer.classList.toggle("soon", left <= SOON_SECONDS);
 }
 
-/** Tears the session down and offers to start again. */
-function ended(msg) {
+/** Ends the session on this page and offers to start again. */
+function ended(message) {
+  teardown();
+  show({ title: message, detail: "Each visit gets a fresh environment.", action: true });
+}
+
+/** Closes the stream, stops the timers and removes the session frame. */
+function teardown() {
   if (events) {
     events.close();
     events = null;
@@ -142,9 +330,11 @@ function ended(msg) {
   }
   bar.hidden = true;
   ticket = null;
-
-  show(`${msg}<br><button onclick="join()">Start again</button>`);
 }
+
+el("project").textContent = project;
+el("bar-project").textContent = project;
+el("action").addEventListener("click", join);
 
 addEventListener("pagehide", () => {
   if (ticket) navigator.sendBeacon(`/api/tickets/${ticket}/release`);

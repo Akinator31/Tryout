@@ -198,6 +198,10 @@ Then embed a project in your portfolio:
         style="width: 100%; aspect-ratio: 16 / 10; border: 0"></iframe>
 ```
 
+The embed page shows the visitor's place in the queue while they wait, then the session above a
+thin bar with the project's key (`cli-hello` here) and the time left; the session area is the
+iframe minus that bar. When the session ends, it offers to start a new one.
+
 ## Upgrade
 
 Change `TRYOUT_VERSION` in each `.env`, then on each machine:

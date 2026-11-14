@@ -49,7 +49,6 @@ closing (see [Done](#done)). Its other findings are M2 items.
 
 | Item | Notes |
 |---|---|
-| A minimal visual pass on the current embed page | Only so the first visitors do not see raw HTML; the real design is M3 |
 | Public repository: private vulnerability reporting enabled, security policy checked | |
 | Versioned releases: semantic version tags, changelog, images tagged per release | First release `v0.1.0` |
 | Optional: GitHub Milestones and one issue per roadmap item | This page stays the source of truth |
@@ -164,3 +163,6 @@ and session metrics.
   Python tool behind ttyd) and a desktop project (an application on a LinuxServer Selkies
   image), and `scripts/check-image.sh`, which runs an image with the session constraints and
   probes its base path. CI checks the example image with it.
+- **M2:** a minimal visual pass on the embed page, so the first visitors do not see raw HTML:
+  a dark status card (queue position, spinner, "Start again"), a bar under the session with the
+  time left, and server messages shown as text only. The real design is M3.
