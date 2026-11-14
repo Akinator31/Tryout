@@ -203,6 +203,11 @@ The embed page shows the visitor's place in the queue while they wait, then the 
 End; the session area is the iframe minus that bar. When the session ends, it offers to start a
 new one. Keep `fullscreen` in the `allow` attribute, or the full-screen button stays hidden.
 
+The page speaks English and French, in the visitor's browser language by default. A portfolio
+that shows one language can set the page's to match with `lang`:
+`src="https://tryout.example.org/embed/cli-hello?lang=fr"`. A language the page does not speak
+falls back to the browser's, then to English.
+
 ## Upgrade
 
 Change `TRYOUT_VERSION` in each `.env`, then on each machine:

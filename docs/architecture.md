@@ -62,7 +62,8 @@ plane's image builds it and serves it; nothing loads from a CDN.
 | `visit.ts` | **The core.** One visit: takes a ticket, follows it over the event stream, falls back to polling, retries joining with backoff, and ends cleanly (End, Leave the queue, page closed, session overdue). No DOM. |
 | `screens.ts` | What each phase shows, as plain data: the status card (spinner or number, title, detail, actions) and the bar under the session (live, ending, reconnecting). |
 | `page.ts` | Renders a phase into `index.html`'s markup, text only; screen reader announcements; the session iframe. |
-| `api.ts`, `strings.ts`, `main.ts` | The queue API, every visible text, and the wiring. |
+| `strings.ts` | Every visible text, one catalogue per language (English, French), and the choice of language. |
+| `api.ts`, `main.ts` | The queue API, and the wiring. |
 | `packages/tokens` | Design tokens kept in step with the Figma variables (colours, spacing, radii, text styles) and IBM Plex fonts cut to Latin by `scripts/subset-fonts.sh`. The embed turns the tokens into CSS custom properties at build time; the admin UI will use them too. |
 
 What it does:
@@ -71,6 +72,9 @@ What it does:
   left the queue, per-IP limit countdown, unavailable project. Once active, the session fills the
   frame above a 36 px bar with the time left, full screen and End; under a minute the bar turns
   amber.
+- Speaks English or French: the `lang` parameter of the iframe URL (`/embed/<project>?lang=fr`)
+  if the page speaks it, else the first of the browser's languages it speaks (`fr-CA` counts as
+  `fr`), else English. Both catalogues ship in the bundle, so no extra request is made.
 - Keeps the visit alive through network trouble: a stream down for more than 5 s dims the
   session and shows "Connection lost"; the page polls when its stream is refused and joins again
   with a growing delay (3 s up to 30 s) when the control plane is unreachable.
