@@ -34,6 +34,8 @@ nav = [
 
 [project.theme]
 language = "en"
+logo = "assets/favicon.svg"
+favicon = "assets/favicon.svg"
 features = [
   "content.code.copy",
   "content.tabs.link",
@@ -57,12 +59,16 @@ toggle.name = "Switch to light mode"
 [[project.theme.palette]]
 media = "(prefers-color-scheme: light)"
 scheme = "default"
+primary = "black"
+accent = "amber"
 toggle.icon = "lucide/sun"
 toggle.name = "Switch to dark mode"
 
 [[project.theme.palette]]
 media = "(prefers-color-scheme: dark)"
 scheme = "slate"
+primary = "black"
+accent = "amber"
 toggle.icon = "lucide/moon"
 toggle.name = "Switch to system preference"
 

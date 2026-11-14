@@ -1,4 +1,4 @@
-# Tryout
+<h1><img src="docs/assets/logo.svg" alt="Tryout" height="56"></h1>
 
 Let portfolio visitors **try your projects in their browser**, each in a disposable, isolated
 container.
