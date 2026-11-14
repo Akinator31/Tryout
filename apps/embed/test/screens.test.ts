@@ -4,7 +4,7 @@ import { barFor, cardFor, clock, SOON_SECONDS, type Phase } from "../src/screens
 import { en } from "../src/strings.ts";
 
 const NOW = 1_000_000;
-const card = (phase: Phase, kind: "terminal" | "desktop" = "terminal") => cardFor(phase, kind, NOW, en);
+const card = (phase: Phase, title = "Hello CLI") => cardFor(phase, title, NOW, en);
 
 test("clock: m:ss below an hour, h:mm:ss from an hour", () => {
   assert.equal(clock(0), "0:00");
@@ -38,9 +38,8 @@ test("waiting before the server computed a position: a spinner instead of a numb
   assert.deepEqual(card({ name: "waiting", position: null })!.visual, { type: "spinner" });
 });
 
-test("starting: names what starts, from the project kind", () => {
-  assert.equal(card({ name: "starting" }, "desktop")!.title, "Starting your desktop…");
-  assert.equal(card({ name: "starting" }, "terminal")!.title, "Starting your terminal…");
+test("starting: names the project being started", () => {
+  assert.equal(card({ name: "starting" })!.title, "Starting Hello CLI…");
 });
 
 test("active: no card, the session fills the frame", () => {

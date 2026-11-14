@@ -62,7 +62,7 @@ export function createHandler(cfg: Config, queue: Queue, embed: EmbedBundle, log
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
     });
-    res.end(embedPage(embed, project, known ? cfg.projects[project].kind : null));
+    res.end(embedPage(embed, project, known ? cfg.projects[project].title : null));
   }
 
   const clientKey = clientKeyResolver(cfg.client_ip, log);
@@ -118,7 +118,10 @@ export function createHandler(cfg: Config, queue: Queue, embed: EmbedBundle, log
   };
 }
 
-/** A file of the embed build. Its name carries a content hash, so it never changes. */
+/**
+ * A file of the embed build or of the theme. Its name carries a content hash, so it never
+ * changes. The CSP and sandbox keep an SVG logo opened on its own from running anything.
+ */
 function serveAsset(embed: EmbedBundle, res: ServerResponse, name: string): void {
   const asset = embed.assets.get(name);
   if (!asset) return json(res, 404, { error: "not found" });
@@ -127,15 +130,23 @@ function serveAsset(embed: EmbedBundle, res: ServerResponse, name: string): void
     "content-type": asset.type,
     "content-length": asset.body.length,
     "cache-control": "public, max-age=31536000, immutable",
+    "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
     "x-content-type-options": "nosniff",
   });
   res.end(asset.body);
 }
 
-/** The demo page, listing the configured projects. */
+/** The demo page, listing the configured projects with their titles. */
 function serveDemo(cfg: Config, res: ServerResponse): void {
+  const projects = Object.entries(cfg.projects).map(([name, p]) => ({ name, title: p.title }));
+
   res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-  res.end(demoHtml.replace("__PROJECTS__", JSON.stringify(Object.keys(cfg.projects))));
+  res.end(demoHtml.replace("__PROJECTS__", scriptJson(projects)));
+}
+
+/** JSON safe to place inside a `<script>` element: `<` cannot close it. */
+function scriptJson(value: unknown): string {
+  return JSON.stringify(value).replaceAll("<", "\\u003c");
 }
 
 /**

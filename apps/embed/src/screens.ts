@@ -3,8 +3,6 @@
 
 import type { Strings } from "./strings.ts";
 
-export type Kind = "terminal" | "desktop";
-
 /** Where the visit stands, as far as this page knows. */
 export type Phase =
   | { name: "connecting" }
@@ -61,14 +59,14 @@ export function clock(seconds: number): string {
 }
 
 /** The card for a phase; null while the session is active, since the session fills the frame. */
-export function cardFor(phase: Phase, kind: Kind, now: number, t: Strings): Card | null {
+export function cardFor(phase: Phase, title: string, now: number, t: Strings): Card | null {
   switch (phase.name) {
     case "connecting":
       return card(t.connecting, { visual: { type: "spinner" } });
     case "waiting":
       return waitingCard(phase.position, t);
     case "starting":
-      return card(t.startingTitle(kind), { visual: { type: "spinner" }, detail: t.startingDetail });
+      return card(t.startingTitle(title), { visual: { type: "spinner" }, detail: t.startingDetail });
     case "active":
       return null;
     case "ended":

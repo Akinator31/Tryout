@@ -11,16 +11,21 @@
 const FRAME_ALLOW = "clipboard-read; clipboard-write; autoplay; fullscreen; keyboard-map";
 
 /** A block with a "Try it" button that turns into the project's embed iframe. */
-function projectBlock(project) {
+function projectBlock({ name, title }) {
   const block = document.createElement("div");
-  block.className = "p";
-  block.innerHTML = `<h2>${project}</h2><button>Try it</button>`;
+  const heading = document.createElement("h2");
+  const button = document.createElement("button");
 
-  block.querySelector("button").onclick = (e) => {
+  block.className = "p";
+  heading.textContent = title;
+  button.textContent = "Try it";
+  block.append(heading, button);
+
+  button.onclick = () => {
     const frame = document.createElement("iframe");
-    frame.src = `/embed/${project}`;
+    frame.src = `/embed/${encodeURIComponent(name)}`;
     frame.allow = FRAME_ALLOW;
-    e.target.replaceWith(frame);
+    button.replaceWith(frame);
   };
   return block;
 }

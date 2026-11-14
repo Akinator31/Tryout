@@ -6,11 +6,10 @@ import "./styles.css";
 
 import * as api from "./api.ts";
 import { Page } from "./page.ts";
-import type { Kind } from "./screens.ts";
 import { catalogues, pickLanguage } from "./strings.ts";
 import { Visit } from "./visit.ts";
 
-/** The control plane fills these meta tags; under `vite dev` they keep their placeholders, so ?project= and ?kind= stand in. */
+/** The control plane fills these meta tags; under `vite dev` they keep their placeholders, so ?project= and ?title= stand in. */
 function meta(name: string, devParam: string): string {
   const value = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content ?? "";
   if (!import.meta.env.DEV) return value;
@@ -19,13 +18,14 @@ function meta(name: string, devParam: string): string {
 }
 
 const project = meta("tryout-project", "project");
-const kind: Kind = meta("tryout-kind", "kind") === "desktop" ? "desktop" : "terminal";
+const title = meta("tryout-title", "title") || project;
+if (import.meta.env.DEV) document.title = `${title} · Tryout`;
 
 const language = pickLanguage(new URLSearchParams(location.search).get("lang"), navigator.languages);
 document.documentElement.lang = language;
 
 const visit = new Visit(project, api, render);
-const page = new Page(project, kind, catalogues[language], {
+const page = new Page(title, catalogues[language], {
   join: () => void visit.join(),
   leave: () => void visit.leave(),
   end: () => void visit.end(),

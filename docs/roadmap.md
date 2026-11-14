@@ -3,15 +3,14 @@
 Tryout moves through ordered milestones. Each milestone has a goal and exit criteria; an item
 moves to [Done](#done) when it ships. There are no dates.
 
-Order from here: the M3 embed is built first, then `v0.1.0` is released and M2 closes; the admin
-UI of M4 follows, in `v0.2.0`.
+Order from here: `v0.1.0` is released and M2 closes; the admin UI of M4 follows, in `v0.2.0`.
 
 | Milestone | Goal | Status |
 |---|---|---|
 | [M0 — Proof of concept](#m0-proof-of-concept) | Show that the stack works end to end | Done |
 | [M1 — Deployable](#m1-deployable) | Run Tryout on real infrastructure without building anything on the node | Done |
 | [M2 — Live](#m2-live) | A first public deployment, a public repository and versioned releases | In progress |
-| [M3 — Design](#m3-design) | A dark, clear and robust visitor experience, designed before it is built | In progress |
+| [M3 — Design](#m3-design) | A dark, clear and robust visitor experience, designed before it is built | Done |
 | [M4 — Operate](#m4-operate) | Set up and control projects from an admin UI; metrics and logs | Planned |
 | [M5 — Hosting options](#m5-hosting-options) | More ways to run nodes safely | Planned |
 
@@ -52,7 +51,7 @@ closing (see [Done](#done)). Its other findings are M2 items.
 
 | Item | Notes |
 |---|---|
-| Versioned releases: semantic version tags, changelog, images tagged per release | First release `v0.1.0`, once the M3 embed is built |
+| Versioned releases: semantic version tags, changelog, images tagged per release | First release `v0.1.0` |
 | Optional: GitHub Milestones and one issue per roadmap item | This page stays the source of truth |
 
 **Exit criteria:** a portfolio embeds Tryout in production; the repository is public; `v0.1.0`
@@ -77,11 +76,8 @@ Design steps, in order:
    with the Figma variables, is shared by both. IBM Plex fonts are bundled and served by the
    control plane, with no CDN.
 
-Build:
-
-| Item | Replaces | Notes |
-|---|---|---|
-| Theming by configuration: accent colour, logo, texts | One built-in look | A dark default theme; the embedding site can adapt it |
+Built: the embed page from the mock-ups, in English and French, with theming by configuration
+(see [Done](#done)).
 
 **Exit criteria:** every embed state matches the Figma mock-ups, in English and French, and the
 end-to-end tests still pass.
@@ -174,3 +170,8 @@ the admin UI, and graph queue and session metrics.
 - **M3:** the embed page speaks English and French ("vous", French typography): `?lang=` on the
   iframe URL, else the browser's first language the page speaks, else English. See
   [Production deployment](deployment.md#5-check-and-embed).
+- **M3:** theming by configuration: `theme.accent` recolours the brand tokens (hover and text
+  colours derived, contrast of at least 3:1 checked at startup), `theme.logo` shows an SVG, PNG
+  or WebP logo at the top of every card, and each project's `title` replaces its key for
+  visitors. Served as hashed files from the control plane, so the CSP does not widen. See
+  [Theme](configuration.md#theme).

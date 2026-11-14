@@ -199,7 +199,7 @@ Then embed a project in your portfolio:
 ```
 
 The embed page shows the visitor's place in the queue while they wait, then the session above a
-36 px bar with the project's key (`cli-hello` here), the time left, a full-screen button and
+36 px bar with the project's `title` (or its key, `cli-hello` here), the time left, a full-screen button and
 End; the session area is the iframe minus that bar. When the session ends, it offers to start a
 new one. Keep `fullscreen` in the `allow` attribute, or the full-screen button stays hidden.
 
@@ -207,6 +207,9 @@ The page speaks English and French, in the visitor's browser language by default
 that shows one language can set the page's to match with `lang`:
 `src="https://tryout.example.org/embed/cli-hello?lang=fr"`. A language the page does not speak
 falls back to the browser's, then to English.
+
+To match the portfolio's colours and show your logo on the waiting card, set `theme` in
+`tryout.yaml` and mount the logo next to it; see [Theme](configuration.md#theme).
 
 ## Upgrade
 

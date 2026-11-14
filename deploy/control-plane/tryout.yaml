@@ -7,6 +7,13 @@ listen: ":3000"
 embed_frame_ancestors:
   - https://portfolio.example.org
 
+# Optional: the look of the embed page. The accent needs a contrast of at least 3:1
+# on the dark card; the logo (SVG, PNG or WebP, at most 64 KB) is relative to this
+# file, so mount it next to it.
+# theme:
+#   accent: "#ffb000"
+#   logo: { file: logo.svg, alt: Your name }
+
 # Your reverse proxy or tunnel, as the control plane sees it. Only these peers may
 # set X-Forwarded-For (or the header below). The block below covers a proxy on the
 # host that connects to the published port; narrow it to your proxy's address, since
@@ -35,6 +42,7 @@ nodes:
 
 projects:
   cli-hello:
+    title: Hello CLI   # shown to visitors; defaults to the key above
     node: cli
     # Pin by digest in production: ghcr.io/<owner>/<image>:<tag>@sha256:...
     image: ghcr.io/akinator31/tryout-example-cli-hello:edge
