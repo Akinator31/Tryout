@@ -16,9 +16,9 @@ Your portfolio only embeds an iframe:
         allow="clipboard-read; clipboard-write; autoplay; fullscreen; keyboard-map"></iframe>
 ```
 
-> **Status: pre-release.** The architecture has been validated by a proof of concept, including
-> desktop sessions under gVisor on a Raspberry Pi 5. Several components are still provisional;
-> see the [roadmap](docs/roadmap.md).
+> **Status: 0.x.** Released versions are listed on the
+> [releases page](https://github.com/Akinator31/Tryout/releases). Until 1.0, configuration and
+> APIs may change between minor versions; see the [roadmap](docs/roadmap.md).
 
 ## How it works
 

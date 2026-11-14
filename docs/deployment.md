@@ -41,8 +41,8 @@ other services, needs a dedicated rootless daemon and has its own guide on the
 | Network | the control plane reaches each agent's port 7000 over a private network, a VPN or a tunnel; your proxy reaches the control plane's port 3000 and each gateway's port 8080 |
 | DNS and TLS | one hostname for the control plane; one hostname per node, on a domain used for nothing but sessions ([Public exposure](exposure.md)) |
 
-The images are pulled from `ghcr.io/akinator31/`. If they are private (before the first release,
-or in a fork), run `docker login ghcr.io` on each machine first, with a read-only token.
+The images are pulled from `ghcr.io/akinator31/`. If they are private (in a fork),
+run `docker login ghcr.io` on each machine first, with a read-only token.
 
 ## 1. Create the certificates
 

@@ -14,7 +14,8 @@ send a first answer within 7 days.
 
 ## Supported versions
 
-The project is pre-release. Only the `main` branch receives fixes.
+Fixes land on `main` and ship in the next release. Until 1.0, only the latest release is
+supported: upgrade to it to get a fix.
 
 ## Threat model
 
