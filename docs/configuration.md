@@ -208,7 +208,7 @@ the embed page poll instead, which keeps its place in line.
 | `PUBLIC_LISTEN` | `:8080` | Public listener. |
 | `ADMIN_SOCKET` | `unix:///run/tryout/gateway.sock` | Admin API, shared with the agent only. |
 | `GATEWAY_TOKEN` | — | Required. |
-| `FRAME_ANCESTORS` | `'self'` | Origins allowed to embed sessions: the control plane's origin, since the session iframe lives inside the embed page. |
+| `FRAME_ANCESTORS` | `'self'` | Origins allowed to embed sessions, space-separated: the control plane's origin and every portfolio's origin. The session iframe lives inside the embed page, itself inside the portfolio, and browsers check every ancestor. |
 
 ## Desktop session defaults
 
