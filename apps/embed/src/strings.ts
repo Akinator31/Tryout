@@ -1,5 +1,6 @@
-// Every text the embed page shows or announces, in one catalogue so a second language only
-// adds a table. Copy follows the Figma mock-ups: sentence case, short, says what happens next.
+// Every text the embed page shows or announces, one catalogue per language, and the choice of
+// language. Copy follows the Figma mock-ups: sentence case, short, says what happens next.
+// French uses "vous" and a no-break space before ":".
 
 import type { Kind } from "./screens.ts";
 
@@ -12,7 +13,7 @@ export const en = {
   /** Announced to screen readers when the position changes. */
   positionAnnounce: (position: number) => `Your place in line: ${position}.`,
 
-  startingTitle: (kind: Kind) => (kind === "desktop" ? "Starting your desktop…" : "Starting your terminal…"),
+  startingTitle: (kind: Kind): string => (kind === "desktop" ? "Starting your desktop…" : "Starting your terminal…"),
   startingDetail: "This takes a few seconds.",
 
   endedTitle: "Session ended",
@@ -49,3 +50,63 @@ export const en = {
 };
 
 export type Strings = typeof en;
+
+export const fr: Strings = {
+  connecting: "Connexion…",
+
+  waitingTitle: "Votre place dans la file",
+  waitingDetail: "Gardez cet onglet ouvert. La session démarre automatiquement.",
+  leaveQueue: "Quitter la file",
+  positionAnnounce: (position) => `Votre place dans la file\u00a0: ${position}.`,
+
+  startingTitle: (kind) => (kind === "desktop" ? "Démarrage du bureau…" : "Démarrage du terminal…"),
+  startingDetail: "Quelques secondes.",
+
+  endedTitle: "Session terminée",
+  endedDetail: "Conteneur et fichiers supprimés.",
+  startAgain: "Recommencer",
+
+  leftTitle: "File quittée",
+  leftDetail: "Votre place est libérée.",
+  joinAgain: "Rejoindre la file",
+
+  failedTitle: "Échec du démarrage",
+  failedDetail: "Le serveur n’a pas répondu à temps.",
+  tryAgain: "Réessayer",
+
+  limitedTitle: "Trop de sessions depuis votre réseau",
+  limitedDetail: "Nouvel essai automatique.",
+
+  unavailableTitle: "Projet hors ligne",
+  unavailableDetail: "Serveur injoignable. Réessayez plus tard.",
+
+  lostWithSession: "Connexion perdue. Reconnexion… Session conservée.",
+  lostWithoutSession: "Connexion perdue. Reconnexion…",
+
+  sessionAnnounce: "Session prête.",
+  barReconnecting: "Reconnexion…",
+  barEnding: "Copiez ce que vous voulez garder.",
+  endingAnnounce: "Moins d’une minute restante. Copiez ce que vous voulez garder.",
+  timeLeft: (clock) => `Il reste ${clock}`,
+  fullScreen: "Plein écran",
+  end: "Terminer",
+  endLabel: "Terminer la session",
+};
+
+/** Every language the page speaks, by its primary subtag; the first one is the fallback. */
+export const catalogues = { en, fr } satisfies Record<string, Strings>;
+
+export type Language = keyof typeof catalogues;
+
+/**
+ * The page's language: the `?lang=` the portfolio asked for, else the first of the browser's
+ * preferred languages the page speaks, else English. Regional variants count as their base
+ * language (`fr-CA` is `fr`); an unknown request falls through to the browser's choice.
+ */
+export function pickLanguage(requested: string | null, preferred: readonly string[]): Language {
+  for (const tag of [requested ?? "", ...preferred]) {
+    const base = tag.split(/[-_]/)[0].toLowerCase();
+    if (Object.hasOwn(catalogues, base)) return base as Language;
+  }
+  return "en";
+}

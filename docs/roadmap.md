@@ -82,7 +82,6 @@ Build:
 | Item | Replaces | Notes |
 |---|---|---|
 | Theming by configuration: accent colour, logo, texts | One built-in look | A dark default theme; the embedding site can adapt it |
-| Internationalisation: English and French to start | English only | Language from the browser or a parameter |
 
 **Exit criteria:** every embed state matches the Figma mock-ups, in English and French, and the
 end-to-end tests still pass.
@@ -172,3 +171,6 @@ the admin UI, and graph queue and session metrics.
   locally); keyboard use, visible focus, reduced motion and screen reader announcements. The
   control plane serves it as hashed static files under a strict Content-Security-Policy; CI
   checks a size budget (25 KB of script and style gzipped, 100 KB of fonts).
+- **M3:** the embed page speaks English and French ("vous", French typography): `?lang=` on the
+  iframe URL, else the browser's first language the page speaks, else English. See
+  [Production deployment](deployment.md#5-check-and-embed).

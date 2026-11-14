@@ -116,7 +116,8 @@ vault with the original stack study (in French) and its sources.
   Then M3 Design: the Figma mock-ups are settled and the UI kit is chosen (Chakra UI for the
   admin, a framework-free embed, shared design tokens). The embed page is built from the Figma
   (`apps/embed`, `packages/tokens`; the control-plane image is built from the repository root).
-  Next: French (i18n), then theming by configuration, then the `v0.1.0` release that closes M2
+  The embed speaks English and French (`?lang=`, else the browser's language).
+  Next: theming by configuration, then the `v0.1.0` release that closes M2
   (the repository is already public). Then M4 Operate: the admin
   UI to set up projects (configuration in Postgres, admin authentication), released as `v0.2.0`;
   M5 Hosting options.
