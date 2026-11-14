@@ -2,7 +2,7 @@
 # tryout-gateway (public, no socket), run as two separate containers, and
 # tryout-certs, a one-shot tool that creates the mutual TLS certificates.
 # The build stage runs natively and cross-compiles, so multi-arch builds are fast.
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY go.mod ./
