@@ -5,15 +5,11 @@ import { ConfigError, loadConfig, queueConfig, type Config } from "./config.ts";
 import { pgDb } from "./db.ts";
 import { applyTheme, loadEmbed, type EmbedBundle } from "./embed.ts";
 import { createHandler, json } from "./http.ts";
+import { log } from "./log.ts";
 import { createQueue, type Queue } from "./queue.ts";
 import { agentRuntime } from "./runtime.ts";
 
 const TICK_INTERVAL_MS = 2000;
-
-/** Logs one JSON object per line. */
-function log(msg: string, extra: Record<string, unknown> = {}) {
-  console.log(JSON.stringify({ t: new Date().toISOString(), msg, ...extra }));
-}
 
 /** The Postgres connection string; the control plane refuses to start without it. */
 function requireDatabaseUrl(): string {

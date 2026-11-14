@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Akinator31/Tryout/apps/node/internal/dockerapi"
+	"github.com/Akinator31/Tryout/apps/node/internal/logging"
 )
 
 // reconcileInterval is the period of the reconcile loop.
@@ -58,7 +59,7 @@ func (a *agent) reapSessions(ctx context.Context, cs []dockerapi.ContainerSummar
 		}
 
 		if reason := shouldReap(c, now); reason != "" {
-			slog.Info("reaping", "id", id, "state", c.State, "reason", reason)
+			slog.Info("reaping", "id", logging.ID(id), "state", c.State, "reason", reason)
 			a.destroy(ctx, id)
 			continue
 		}
@@ -107,7 +108,7 @@ func (a *agent) removeOrphanNetworks(ctx context.Context, live, busy map[string]
 
 	for _, n := range nets {
 		if id := n.Labels[labelSession]; !live[id] && !busy[id] {
-			slog.Info("removing orphan network", "name", n.Name)
+			slog.Info("removing orphan network", "id", logging.ID(id))
 			a.destroy(ctx, id)
 		}
 	}
@@ -132,7 +133,7 @@ func (a *agent) reattachGateway(ctx context.Context, running []string) {
 			continue
 		}
 		if !sessionIDRe.MatchString(id) {
-			slog.Warn("reattach gateway: invalid session label", "id", id)
+			slog.Warn("reattach gateway: invalid session label", "id", logging.ID(id))
 			continue
 		}
 		a.connectGatewayUnlessBusy(ctx, id, name)
@@ -153,8 +154,8 @@ func (a *agent) connectGatewayUnlessBusy(ctx context.Context, id, name string) {
 	}
 
 	if err := a.docker.NetworkConnect(ctx, name, a.cfg.gatewayName); err != nil {
-		slog.Warn("reattach gateway", "id", id, "err", err)
+		slog.Warn("reattach gateway", "id", logging.ID(id), "err", err)
 		return
 	}
-	slog.Info("gateway reattached", "id", id)
+	slog.Info("gateway reattached", "id", logging.ID(id))
 }

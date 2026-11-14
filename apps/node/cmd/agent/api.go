@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/Akinator31/Tryout/apps/node/internal/logging"
 )
 
 const (
@@ -56,7 +58,7 @@ func (a *agent) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), createTimeout)
 	defer cancel()
 	if err := a.create(ctx, req); err != nil {
-		slog.Warn("create failed", "id", req.ID, "err", err)
+		slog.Warn("create failed", "id", logging.ID(req.ID), "err", err)
 		writeError(w, http.StatusConflict, err)
 		return
 	}

@@ -115,8 +115,8 @@ vault with the original stack study (in French) and its sources.
     YAML (`theme.accent`, `theme.logo`, per-project `title`); Tryout logo in the README, docs
     site and embed favicon.
 
-  Next: M4 Operate, the admin UI to set up projects (configuration in Postgres, admin
-  authentication), released as `v0.2.0`; then M5 Hosting options.
+  In progress: M4 Operate (plan in `docs/roadmap.md`), released as `v0.2.0`. Done so far: JSON logs on every component, ids shortened to a
+  6-character prefix. Then M5 Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module

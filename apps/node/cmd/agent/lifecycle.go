@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/Akinator31/Tryout/apps/node/internal/dockerapi"
+	"github.com/Akinator31/Tryout/apps/node/internal/logging"
 )
 
 // Docker labels set on session containers and networks, and the prefix of
@@ -45,7 +46,7 @@ func (a *agent) create(ctx context.Context, r sessionReq) error {
 		return err
 	}
 
-	slog.Info("session started", "id", r.ID, "project", r.Project, "runtime", r.Runtime, "kind", r.Kind)
+	slog.Info("session started", "id", logging.ID(r.ID), "project", r.Project, "runtime", r.Runtime, "kind", r.Kind)
 	a.pushRoutes(ctx)
 	return nil
 }
@@ -149,14 +150,14 @@ func (a *agent) destroy(ctx context.Context, id string) {
 	name := namePrefix + id
 
 	if err := a.docker.ContainerRemove(ctx, name); err != nil && !dockerapi.IsNotFound(err) {
-		slog.Warn("remove container", "id", id, "err", err)
+		slog.Warn("remove container", "id", logging.ID(id), "err", err)
 	}
 	if err := a.docker.NetworkDisconnect(ctx, name, a.cfg.gatewayName); err != nil && !dockerapi.IsNotFound(err) {
-		slog.Debug("disconnect gateway", "id", id, "err", err)
+		slog.Debug("disconnect gateway", "id", logging.ID(id), "err", err)
 	}
 	if err := a.docker.NetworkRemove(ctx, name); err != nil && !dockerapi.IsNotFound(err) {
-		slog.Warn("remove network", "id", id, "err", err)
+		slog.Warn("remove network", "id", logging.ID(id), "err", err)
 	}
 
-	slog.Info("session destroyed", "id", id)
+	slog.Info("session destroyed", "id", logging.ID(id))
 }

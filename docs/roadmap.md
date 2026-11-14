@@ -3,7 +3,7 @@
 Tryout moves through ordered milestones. Each milestone has a goal and exit criteria; an item
 moves to [Done](#done) when it ships. There are no dates.
 
-Next: the admin UI of M4, released as `v0.2.0`.
+Next: the rest of M4, released as `v0.2.0`.
 
 | Milestone | Goal | Status |
 |---|---|---|
@@ -11,7 +11,7 @@ Next: the admin UI of M4, released as `v0.2.0`.
 | [M1 — Deployable](#m1-deployable) | Run Tryout on real infrastructure without building anything on the node | Done |
 | [M2 — Live](#m2-live) | A first public deployment, a public repository and versioned releases | Done |
 | [M3 — Design](#m3-design) | A dark, clear and robust visitor experience, designed before it is built | Done |
-| [M4 — Operate](#m4-operate) | Set up and control projects from an admin UI; metrics and logs | Planned |
+| [M4 — Operate](#m4-operate) | Set up and control projects from an admin UI; metrics and logs | In progress |
 | [M5 — Hosting options](#m5-hosting-options) | More ways to run nodes safely | Planned |
 
 ## M0 — Proof of concept
@@ -108,7 +108,6 @@ can act on it. Released as `v0.2.0`.
 | Node health from the agent's `/healthz`, called by the control plane | Nodes still never call the control plane |
 | Admin UI (React, Chakra UI): project setup, nodes, embedding and limits, running sessions, forced stop | Screens from the M3 Figma file |
 | Metrics (Prometheus): sessions, queue length, start time, failures | Control plane and agent |
-| Structured logs in the agent and the gateway | The control plane already logs JSON |
 
 **Exit criteria:** an operator can set up a project from scratch, find and stop any session from
 the admin UI, and graph queue and session metrics.
@@ -192,3 +191,6 @@ the admin UI, and graph queue and session metrics.
   tagged per release; the deployment examples pin the release. First release `v0.1.0`. See
   [Contributing](contributing.md#releasing).
 - **M2** closed: a portfolio embeds Tryout in production, see [above](#m2-live).
+- **M4:** the agent and the gateway log JSON lines in the control plane's format; every
+  component keeps only a 6-character prefix of session and ticket ids in its logs. See
+  [Production deployment](deployment.md#logs).

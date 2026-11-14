@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	"github.com/Akinator31/Tryout/apps/node/internal/logging"
 )
 
 // maxRoutesBytes bounds the body of PUT /routes.
@@ -139,7 +141,7 @@ func (g *gateway) buildRouteTable(rs []route) map[string]entry {
 
 		p, err := g.newProxy(rt)
 		if err != nil {
-			slog.Warn("bad route", "id", rt.ID, "err", err)
+			slog.Warn("bad route", "id", logging.ID(rt.ID), "err", err)
 			continue
 		}
 		next[rt.ID] = entry{proxy: p}
