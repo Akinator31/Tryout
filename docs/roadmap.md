@@ -59,7 +59,7 @@ is released with its images.
 ## M3 — Design
 
 **Goal:** a visitor experience that is very dark, professional and striking, and above all clear,
-intuitive and robust. The design is settled in Figma before the React code is written.
+intuitive and robust. The design is settled in Figma before the UI code is written.
 
 Design steps, in order:
 

@@ -4,7 +4,8 @@
 
 ## Context
 
-- The M3 Figma file is settled: a visitor embed with twelve states and the admin screens of M4.
+- The M3 Figma file is settled: a visitor embed with twelve states (the roadmap's eight, plus an
+  active desktop, reconnecting, the per-IP limit and a narrow parent) and the admin screens of M4.
   Its variables, text styles and components follow Chakra UI v3 names (`Chakra / primitives`,
   `Chakra / semantic`, `Button`, `Field`, `NumberInput`, `Tabs.Trigger`…), and its cover maps
   each Figma collection to a Chakra theme token.
@@ -15,7 +16,7 @@
   - the **admin** is used by the operator: forms checked against the schema, tables, a side
     panel, a review dialog, keyboard use. It is loaded rarely, by one person.
 - [ADR 0008](0008-stack-and-license.md) names Chakra UI as the candidate kit and asks for a
-  minimal embed page.
+  minimal embed page. This record settles that choice.
 - The identity is a token system: neutral blacks, paper text, one amber accent that means
   "you", IBM Plex Sans, Sans Condensed and Mono, 3 px and 8 px radii. The embedding site may
   override the accent, the logo and the texts.
@@ -31,8 +32,8 @@
   admin needs and that are costly to write well.
 - **Embed: TypeScript without a UI framework.** A small state machine renders the card, the
   session frame and the bar from the ticket stream, as the current page does, with plain DOM and
-  CSS. No React, no CSS-in-JS runtime. Budget: under 15 kB of JavaScript and 10 kB of CSS,
-  compressed, fonts excluded; CI fails above it.
+  CSS. No React, no CSS-in-JS runtime. Its size is a budget checked in CI, set when the embed is
+  built.
 - **One set of tokens.** A single TypeScript module holds the design tokens as they are in Figma
   (colours, type styles, spacing, radii). It feeds Chakra's `createSystem` for the admin and is
   emitted as CSS custom properties for the embed. The embedding site's accent override replaces
@@ -42,9 +43,9 @@
   needs a few (Sans for text, Sans Condensed for the queue number, Mono for the countdown).
 - **One UI package, built once.** A new `apps/ui` package, built with Vite, produces two entry
   points (`embed` and `admin`) as static files. The control plane image copies the build output
-  and serves it; the control plane itself keeps running TypeScript without a build. The page
-  shells stay server-rendered, so the embed's headers (`frame-ancestors`, `no-referrer`) do not
-  change.
+  and serves it; the control plane itself keeps running TypeScript without a build. The control
+  plane still serves the page shells itself, so the embed's headers (`frame-ancestors`,
+  `no-referrer`) do not change.
 
 ## Consequences
 
@@ -56,7 +57,8 @@
 - The embed's states are hand-written. Each one needs its own test (rendering for every ticket
   state, keyboard focus, `aria-live` announcements), since no kit provides them.
 - The repository gains a frontend build: Node packages for Vite, React and Chakra, a build stage
-  in the control plane's Dockerfile, and a CI job. Dependabot covers the new packages.
+  in the control plane's Dockerfile, a CI job, and an entry for `apps/ui` in the Dependabot
+  configuration.
 - Chakra's runtime (Emotion) is accepted for the admin only. If its size or its React
   compatibility becomes a problem, the tokens and the Figma names stay; only the admin's
   components change.
