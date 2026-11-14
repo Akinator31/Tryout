@@ -29,11 +29,12 @@ import (
 	"time"
 
 	"github.com/Akinator31/Tryout/apps/node/internal/dockerapi"
+	"github.com/Akinator31/Tryout/apps/node/internal/logging"
 	"github.com/Akinator31/Tryout/apps/node/internal/registryauth"
 )
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	slog.SetDefault(logging.New(os.Stdout))
 
 	cfg := loadConfig()
 	if cfg.gatewayToken == "" {

@@ -211,6 +211,17 @@ falls back to the browser's, then to English.
 To match the portfolio's colours and show your logo on the waiting card, set `theme` in
 `tryout.yaml` and mount the logo next to it; see [Theme](configuration.md#theme).
 
+## Logs
+
+The control plane, the agent and the gateway write one JSON object per line on standard output
+(`docker compose logs`), with the time under `t` and the message under `msg`; the agent and the
+gateway add a `level`. Any log collector that reads Docker's output can parse them.
+
+Session and ticket ids are the credentials in the session URL, so log lines keep only their
+first 6 characters (`k2m7qa…`), wherever they appear, error messages included. Visitor IP
+addresses are never logged; the gateway writes `<client>` in their place in the HTTP server's
+error lines.
+
 ## Upgrade
 
 Change `TRYOUT_VERSION` in each `.env`, then on each machine:

@@ -18,10 +18,12 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/Akinator31/Tryout/apps/node/internal/logging"
 )
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	slog.SetDefault(logging.New(os.Stdout))
 
 	g := &gateway{
 		token:          os.Getenv("GATEWAY_TOKEN"),
@@ -44,6 +46,7 @@ func main() {
 		Handler:           http.HandlerFunc(g.public),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
+		ErrorLog:          logging.HTTPErrorLog(slog.Default()),
 		// no Read/WriteTimeout: WebSocket streams live for the whole session
 	}
 	slog.Info("gateway listening", "public", srv.Addr, "frame_ancestors", g.frameAncestors)

@@ -6,6 +6,8 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+
+	"github.com/Akinator31/Tryout/apps/node/internal/logging"
 )
 
 // newProxy returns the reverse proxy of one session. It keeps the public
@@ -30,7 +32,7 @@ func (g *gateway) newProxy(rt route) (*httputil.ReverseProxy, error) {
 		pr.Out.Header.Del("Cookie")
 	}
 	onError := func(w http.ResponseWriter, r *http.Request, err error) {
-		slog.Debug("upstream error", "id", rt.ID, "err", err)
+		slog.Debug("upstream error", "id", logging.ID(rt.ID), "err", err)
 		http.Error(w, "session starting or ended", http.StatusBadGateway)
 	}
 
@@ -39,6 +41,7 @@ func (g *gateway) newProxy(rt route) (*httputil.ReverseProxy, error) {
 		FlushInterval:  -1,
 		ModifyResponse: g.harden,
 		ErrorHandler:   onError,
+		ErrorLog:       logging.HTTPErrorLog(slog.Default()),
 	}, nil
 }
 

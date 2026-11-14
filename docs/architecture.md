@@ -230,6 +230,14 @@ transaction commits.
 - Each instance holds one extra Postgres connection for `LISTEN`. The trigger uses
   `CREATE OR REPLACE TRIGGER`, hence PostgreSQL 14 or later.
 
+### One log format
+
+The control plane, the agent and the gateway write the same JSON lines on standard output (`t`,
+`msg`, flat fields), so one collector parses all three. Logs are often shipped to services with
+wider access than the control plane, while session and ticket ids are credentials: the log
+writer of each component keeps a 6-character prefix of anything shaped like an id, in every
+value, rather than relying on each call site.
+
 ### Stack and license
 
 - **Go for the node**: static binaries, easy cross-compilation to arm64, low memory on small
