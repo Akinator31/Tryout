@@ -14,12 +14,16 @@ export interface Accent {
   contrast: string;
 }
 
-export interface Logo {
-  body: Buffer;
-  /** Content type, from the file's content. */
+/** An image format, recognised from a file's content. */
+export interface ImageFormat {
+  /** Content type. */
   type: string;
   /** File extension for its served name. */
   ext: string;
+}
+
+export interface Logo extends ImageFormat {
+  body: Buffer;
   alt: string;
 }
 
@@ -36,8 +40,11 @@ export const MIN_ACCENT_CONTRAST = 3;
 /** The card behind the accent: `bg/panel` in packages/tokens (a test keeps them equal). */
 export const CARD_BACKGROUND = "#141414";
 
-/** How far towards white the hover colour goes; the default #ffb000 → #ffc94a is about 0.3. */
-const HOVER_LIGHTEN = 0.3;
+/**
+ * How far the hover colour moves from the accent: towards white under black text (the default
+ * #ffb000 → #ffc94a is about 0.3), towards black under white text, so the text keeps its contrast.
+ */
+const HOVER_SHIFT = 0.3;
 
 /**
  * Reads `theme`: derives the brand tokens from `accent` and refuses one too dark to read on
@@ -89,7 +96,7 @@ function readLogo(path: string, report: Report): Omit<Logo, "alt"> | undefined {
 }
 
 /** Identifies an SVG, PNG or WebP file by its content, never by its name. */
-export function imageFormat(body: Buffer): { type: string; ext: string } | null {
+export function imageFormat(body: Buffer): ImageFormat | null {
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   if (body.subarray(0, 8).equals(png)) return { type: "image/png", ext: "png" };
 
@@ -102,17 +109,20 @@ export function imageFormat(body: Buffer): { type: string; ext: string } | null 
 
 /** An `<svg>` root, after an optional byte order mark, XML declaration, comments and doctype. */
 function isSvg(text: string): boolean {
-  const prolog = /^﻿?\s*(<\?xml[^>]*\?>\s*)?((<!--[\s\S]*?-->|<!DOCTYPE[^>]*>)\s*)*<svg[\s>]/i;
+  const prolog = /^\uFEFF?\s*(<\?xml[^>]*\?>\s*)?((<!--[\s\S]*?-->|<!DOCTYPE[^>]*>)\s*)*<svg[\s/>]/i;
   return prolog.test(text);
 }
 
-/** The brand tokens for one accent: a lighter hover, and black or white text, whichever reads better. */
+/**
+ * The brand tokens for one accent: black or white text, whichever reads better, and a hover
+ * colour further from that text.
+ */
 export function deriveAccent(solid: string): Accent {
-  const fg = mix(solid, "#ffffff", HOVER_LIGHTEN);
-  const onBlack = contrastRatio(solid, "#000000");
-  const onWhite = contrastRatio(solid, "#ffffff");
+  const blackText = contrastRatio(solid, "#000000") >= contrastRatio(solid, "#ffffff");
+  const contrast = blackText ? "#000000" : "#ffffff";
+  const fg = mix(solid, blackText ? "#ffffff" : "#000000", HOVER_SHIFT);
 
-  return { solid: solid.toLowerCase(), fg, contrast: onBlack >= onWhite ? "#000000" : "#ffffff" };
+  return { solid: solid.toLowerCase(), fg, contrast };
 }
 
 /** WCAG 2 contrast ratio between two #rrggbb colours, from 1 to 21. */

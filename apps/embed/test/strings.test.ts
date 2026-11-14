@@ -51,4 +51,5 @@ test("French: \"de\" is elided before a project name starting with a vowel", () 
   assert.equal(fr.startingTitle("Inkscape"), "Démarrage d’Inkscape…");
   assert.equal(fr.startingTitle("écho"), "Démarrage d’écho…");
   assert.equal(fr.startingTitle("cli-hello"), "Démarrage de cli-hello…");
+  assert.equal(fr.startingTitle("Yarn"), "Démarrage de Yarn…");
 });

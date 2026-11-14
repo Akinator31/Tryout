@@ -236,9 +236,12 @@ function parseLimits(v: unknown, report: Report): Limits {
   return { ...limits, new_tickets_per_ip: { ...rate, per_s: perS } };
 }
 
+/** A project as written in the file: no derived values, an optional title. */
+type FileProject = Omit<ProjectConfig, "max_age_s" | "title"> & { title?: string };
+
 /** Checks each project's node and max_age, and derives max_age_s and the default title. */
 function checkProjects(v: unknown, nodes: Record<string, NodeConfig>, report: Report): Record<string, ProjectConfig> {
-  const fileProjects = (isObject(v) ? v : {}) as Record<string, Omit<ProjectConfig, "max_age_s" | "title"> & { title?: string }>;
+  const fileProjects = (isObject(v) ? v : {}) as Record<string, FileProject>;
   const projects: Record<string, ProjectConfig> = {};
 
   for (const [name, p] of Object.entries(fileProjects)) {

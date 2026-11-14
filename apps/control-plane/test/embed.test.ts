@@ -56,6 +56,9 @@ test("fills the project and its title, escaped", () => {
   const unknown = embedPage(bundle, '"><script>', null);
   assert.match(unknown, /content="&quot;&gt;&lt;script&gt;"/);
   assert.match(unknown, /<title>&quot;&gt;&lt;script&gt;<\/title>/);
+
+  const patterns = embedPage(bundle, "$'$`$&", null);
+  assert.equal(patterns, '<title>$\'$`$&amp;</title><meta name="p" content="$\'$`$&amp;"><section></section>');
 });
 
 test("the theme adds a hashed stylesheet and logo, linked from the template", () => {

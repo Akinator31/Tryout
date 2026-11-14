@@ -19,14 +19,19 @@ test("the default accent derives close to the tokens' own hover", () => {
   assert.deepEqual(deriveAccent(colors.brand.solid), { solid: "#ffb000", fg: "#ffc84d", contrast: colors.brand.contrast });
 });
 
-test("a dark accent gets white text", () => {
-  assert.equal(deriveAccent("#d03030").contrast, "#ffffff");
+test("a dark accent gets white text, and a darker hover that keeps it readable", () => {
+  const accent = deriveAccent("#d03030");
+
+  assert.equal(accent.contrast, "#ffffff");
+  assert.equal(accent.fg, "#922222");
+  assert.ok(contrastRatio(accent.fg, "#ffffff") > contrastRatio(accent.solid, "#ffffff"));
 });
 
 test("image formats come from the content", () => {
   const webp = Buffer.from("RIFF\0\0\0\0WEBPVP8 ", "latin1");
   assert.deepEqual(imageFormat(webp), { type: "image/webp", ext: "webp" });
-  assert.deepEqual(imageFormat(Buffer.from("﻿<svg>")), { type: "image/svg+xml", ext: "svg" });
+  assert.deepEqual(imageFormat(Buffer.from("\uFEFF<svg>")), { type: "image/svg+xml", ext: "svg" });
+  assert.deepEqual(imageFormat(Buffer.from("<svg/>")), { type: "image/svg+xml", ext: "svg" });
   assert.deepEqual(imageFormat(Buffer.from('<!DOCTYPE svg PUBLIC "x">\n<svg viewBox="0 0 1 1"/>')), {
     type: "image/svg+xml",
     ext: "svg",

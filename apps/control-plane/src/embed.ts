@@ -36,16 +36,18 @@ export interface EmbedBundle {
 const THEME_MARK = "<!--tryout:theme-->";
 const LOGO_MARK = "<!--tryout:logo-->";
 
+const REBUILD = "run `npm ci && npm run build` in apps/embed";
+
 /** Reads the build, or fails with what to run when it is missing or older than this control plane. */
 export function loadEmbed(dir: string = DEFAULT_EMBED_DIR): EmbedBundle {
   let template: string;
   try {
     template = readFileSync(join(dir, "index.html"), "utf8");
   } catch {
-    throw new Error(`embed page not built: no index.html in ${dir}; run \`npm ci && npm run build\` in apps/embed`);
+    throw new Error(`embed page not built: no index.html in ${dir}; ${REBUILD}`);
   }
   if (!template.includes(THEME_MARK) || !template.includes(LOGO_MARK)) {
-    throw new Error(`embed page in ${dir} is older than the control plane; run \`npm ci && npm run build\` in apps/embed`);
+    throw new Error(`embed page in ${dir} is older than the control plane; ${REBUILD}`);
   }
 
   const assets = new Map<string, Asset>();
@@ -76,7 +78,7 @@ export function applyTheme(bundle: EmbedBundle, theme: Theme): EmbedBundle {
     img = `<img class="logo" src="/assets/${name}" alt="${escapeAttribute(alt)}">`;
   }
 
-  return { template: bundle.template.replace(THEME_MARK, link).replace(LOGO_MARK, img), assets };
+  return { template: bundle.template.replace(THEME_MARK, () => link).replace(LOGO_MARK, () => img), assets };
 }
 
 /**
@@ -98,12 +100,13 @@ function addAsset(assets: Map<string, Asset>, stem: string, ext: string, asset: 
 
 /**
  * The page for one project, named by `title` for visitors. `title` is null for an unknown
- * project, whose page shows its key and says it is unavailable.
+ * project, whose page shows its key and says it is unavailable. Values are inserted by
+ * functions, so a `$'` in a project key from the URL is not a replacement pattern.
  */
 export function embedPage(bundle: EmbedBundle, project: string, title: string | null): string {
   return bundle.template
-    .replaceAll("__PROJECT__", escapeAttribute(project))
-    .replaceAll("__TITLE__", escapeAttribute(title ?? project));
+    .replaceAll("__PROJECT__", () => escapeAttribute(project))
+    .replaceAll("__TITLE__", () => escapeAttribute(title ?? project));
 }
 
 /**

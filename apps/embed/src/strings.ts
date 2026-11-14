@@ -58,7 +58,7 @@ export const fr: Strings = {
   leaveQueue: "Quitter la file",
   positionAnnounce: (position) => `Votre place dans la file\u00a0: ${position}.`,
 
-  startingTitle: (title) => `Démarrage ${of(title)}…`,
+  startingTitle: (title) => `Démarrage ${frenchDe(title)}…`,
   startingDetail: "Quelques secondes.",
 
   endedTitle: "Session terminée",
@@ -92,9 +92,9 @@ export const fr: Strings = {
   endLabel: "Terminer la session",
 };
 
-/** French "de", elided before a vowel: "de Hello CLI", "d’Inkscape". */
-function of(name: string): string {
-  return /^[aeiouyàâäéèêëîïôöùûü]/i.test(name) ? `d’${name}` : `de ${name}`;
+/** French "de" before a name, elided before a vowel: "de Hello CLI", "d’Inkscape". */
+function frenchDe(name: string): string {
+  return /^[aeiouàâäéèêëîïôöùûü]/i.test(name) ? `d’${name}` : `de ${name}`;
 }
 
 /** Every language the page speaks, by its primary subtag; the first one is the fallback. */
