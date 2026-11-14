@@ -87,7 +87,7 @@ Fill in `.env`:
 | `GATEWAY_TOKEN` | `openssl rand -hex 32` |
 | `AGENT_PUBLISH` | where the agent's API is published: a private or VPN address and port, or `127.0.0.1:7000` when a tunnel carries it. **Never a public address.** |
 | `GATEWAY_PUBLISH` | where your proxy or tunnel reaches the gateway, e.g. `127.0.0.1:8080` |
-| `FRAME_ANCESTORS` | the control plane's public origin, e.g. `https://tryout.example.org` |
+| `FRAME_ANCESTORS` | the control plane's public origin and your portfolios' origins, space-separated: `"https://tryout.example.org https://portfolio.example.org"` ([Iframes](exposure.md#iframes)) |
 
 The other variables are described in [Configuration](configuration.md#agent) and in the file
 itself. Then start the node and check that the agent accepted its profile:
