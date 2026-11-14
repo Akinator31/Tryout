@@ -1,7 +1,7 @@
 // Control plane configuration: a YAML file validated against the shared JSON
 // Schema (src/tryout.schema.json, a copy of schema/tryout.schema.json that the
 // agent also embeds), then by semantic checks the schema cannot express.
-// See docs/configuration.md and ADR 0014. Problem reporting, value parsers
+// See docs/configuration.md. Problem reporting, value parsers
 // and agent_tls live in the sibling config-*.ts modules.
 import { readFileSync } from "node:fs";
 import { isIP } from "node:net";
@@ -57,7 +57,7 @@ export interface AgentTls {
   key: string;
 }
 
-/** Per-IP limits (ADR 0016); 0 disables a limit. */
+/** Per-IP limits; 0 disables a limit. */
 export interface Limits {
   live_tickets_per_ip: number;
   /** per as written in the file; per_s derived from it. */
@@ -197,7 +197,7 @@ function checkServerNames(nodes: Record<string, NodeConfig>, report: Report): vo
 
 /**
  * Reads `client_ip`: every trusted proxy must be an address or a CIDR block,
- * and `header` is kept only when set (ADR 0016).
+ * and `header` is kept only when set.
  */
 function checkClientIp(v: unknown, report: Report): ClientIpConfig {
   const clientIp = (isObject(v) ? v : {}) as Partial<ClientIpConfig>;

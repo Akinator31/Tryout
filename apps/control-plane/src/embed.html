@@ -221,7 +221,7 @@ async function join() {
   listen();
 }
 
-/** Per-IP limit reached (ADR 0016): counts down, then tries again on its own. */
+/** Per-IP limit reached: counts down, then tries again on its own. */
 function limited(seconds) {
   let left = seconds;
 
@@ -236,7 +236,7 @@ function limited(seconds) {
 
 /**
  * Follows the ticket over server-sent events: the server pushes every change
- * and a fresh view every 10 s. The open stream is also the heartbeat (ADR 0012).
+ * and a fresh view every 10 s. The open stream is also the heartbeat.
  */
 function listen() {
   clearTimeout(retry);

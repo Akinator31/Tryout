@@ -34,7 +34,9 @@ give the agent a credentials file with `REGISTRY_AUTH_FILE`, mounted read-only:
   `user:password`), or `username` and `password`, or `identitytoken`. The key is the registry
   host alone; Docker Hub is `docker.io` or `https://index.docker.io/v1/`. Keys scoped to a path
   (`ghcr.io/owner`) are refused rather than widened to the whole registry.
-- Credential helpers (`credsStore`, `credHelpers`) are refused. A `config.json` written by
+- Credential helpers (`credsStore`, `credHelpers`) are refused: they are external programs, and
+  the agent runs nothing but its own code. Registries with short-lived tokens need a token
+  refreshed outside Tryout, written as a static entry, then an agent restart. A `config.json` written by
   `docker login` on a desktop usually uses one; write the file by hand instead
   (`printf 'user:token' | base64 -w0`; without `-w0`, GNU `base64` wraps long values onto
   several lines, which breaks the JSON string).
@@ -44,7 +46,8 @@ give the agent a credentials file with `REGISTRY_AUTH_FILE`, mounted read-only:
   agent with an explicit error.
 - **Use a read-only token** limited to the project images, on an account that owns nothing
   else of value. For `ghcr.io`, a token with the `read:packages` scope only. A session that
-  escapes its sandbox could read it (see [ADR 0017](decisions/0017-registry-credentials.md)).
+  escapes its sandbox could read it; the exposure is then a read-only token for images the node
+  already runs (see [Security](security.md)).
 - An image is pulled only when it is missing on the node: pin images by digest to roll out a new
   version.
 

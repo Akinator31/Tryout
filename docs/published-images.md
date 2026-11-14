@@ -26,7 +26,12 @@ main repository. A fork publishes to its own namespace with no change to the wor
 Images are pushed only after the unit, integration and end-to-end tests of the same commit
 passed. Pull requests build the images without pushing them. When several commits land on `main`
 in quick succession, CI may skip the queued runs in between, so not every commit gets a
-`sha-*` tag.
+`sha-*` tag. The end-to-end tests run on images built from the same commit, not on the pushed
+bytes, and the arm64 images are built but not run in CI.
+
+The sample image is a demo, not a base image: its tags follow the repository, not ttyd, and its
+ttyd binaries are pinned by checksum. Third-party images, such as LinuxServer desktops, are not
+republished: pull them from their own publishers.
 
 **Pin by digest in production**, as for project images:
 

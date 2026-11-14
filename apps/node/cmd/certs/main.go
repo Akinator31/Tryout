@@ -1,5 +1,5 @@
 // tryout-certs: creates the private PKI of the mutual TLS link between the
-// control plane and the agents (ADR 0015, docs/certificates.md).
+// control plane and the agents (docs/certificates.md).
 //
 // Layout of the output directory; each sub-directory is what one machine needs:
 //

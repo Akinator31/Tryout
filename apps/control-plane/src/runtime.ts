@@ -1,4 +1,4 @@
-// SessionRuntime adapter for real nodes: agent API over mutual TLS (ADR 0015)
+// SessionRuntime adapter for real nodes: agent API over mutual TLS
 // + readiness probe through the gateway. Tests use an in-memory adapter instead.
 import { Agent, fetch as agentFetch } from "undici";
 import type { AgentTls, Config, NodeConfig } from "./config.ts";

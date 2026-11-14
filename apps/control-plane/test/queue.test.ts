@@ -1,6 +1,6 @@
 // The queue, through its interface only: caps, promotion, heartbeat loss,
 // maximum age, start failures and timeouts, several instances on one
-// database, watching (ADR 0012) and per-client limits (ADR 0016).
+// database, watching and per-client limits.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createQueue, RateLimitedError, UnknownProjectError, type QueueConfig, type TicketView } from "../src/queue.ts";
@@ -211,7 +211,7 @@ test("two control plane instances sharing a database never exceed the caps", asy
   assert.equal(states.filter((v) => v?.state === "waiting").length, 6);
 });
 
-// Watching: the push channel behind SSE (ADR 0012).
+// Watching: the push channel behind SSE.
 
 /** Records every view delivered to its listener. */
 function recorder() {
@@ -305,7 +305,7 @@ test("a ticket released on another instance reaches its watcher, which then stop
   assert.equal(rec.views.length, count, "no view after the ended one");
 });
 
-// Per-client limits (ADR 0016). The client key is the visitor's IP address
+// Per-client limits. The client key is the visitor's IP address
 // (or IPv6 /64), resolved by the HTTP layer.
 
 const limited = (live: number, max: number, windowMs = 60_000): QueueConfig => ({

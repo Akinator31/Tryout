@@ -105,7 +105,7 @@ jobs:
 
   publish:
     # main and v* tags: build and push to ghcr.io, only after every test passed.
-    # See docs/published-images.md and ADR 0013.
+    # See docs/published-images.md.
     name: Publish ${{ matrix.name }} (amd64 + arm64)
     if: github.event_name == 'push'
     needs: [node, control-plane, shellcheck, e2e, e2e-deploy]

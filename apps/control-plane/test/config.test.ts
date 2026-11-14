@@ -1,6 +1,6 @@
-// Configuration loading (ADR 0014): the schema copy, the shipped example
+// Configuration loading: the schema copy, the shipped example
 // files, every pass of parseConfig and its error locations, client_ip and
-// limits (ADR 0016), agent_tls (ADR 0015).
+// limits, agent_tls.
 import assert from "node:assert/strict";
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
@@ -126,7 +126,7 @@ test("defaults and derived values", () => {
   });
 });
 
-// ---------- client_ip and limits (ADR 0016) ----------
+// ---------- client_ip and limits ----------
 
 test("client_ip and limits can be set, and 0 disables a limit", () => {
   const { config } = parseConfig(
@@ -297,7 +297,7 @@ test("frame ancestors must be origins", () => {
   parseConfig(base.replace("https://portfolio.example.org", "https://*.example.org"), opts);
 });
 
-// ---------- agent_tls (ADR 0015) ----------
+// ---------- agent_tls ----------
 
 test("agent_tls is required and agent_url must be https", () => {
   assert.deepEqual(problems(base.slice(0, base.indexOf("agent_tls:"))), ["/: must have required property 'agent_tls'"]);

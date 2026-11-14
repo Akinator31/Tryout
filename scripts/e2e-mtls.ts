@@ -1,4 +1,4 @@
-// Mutual TLS on the agent API (ADR 0015): only the control plane's client
+// Mutual TLS on the agent API: only the control plane's client
 // certificate gets through. The other e2e scripts already show that the control
 // plane reaches the agent; this one checks what must be refused: no certificate,
 // plain HTTP, TLS 1.2, a node's own certificate used as a client, and a

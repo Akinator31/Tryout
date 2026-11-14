@@ -2,7 +2,7 @@
 
 The control plane calls each agent over **mutual TLS**: the agent proves its identity to the
 control plane, and the control plane to the agent. There is no other authentication and no
-plain-HTTP mode ([ADR 0015](decisions/0015-mutual-tls-control-plane-agent.md)).
+plain-HTTP mode, in any profile (see [Architecture](architecture.md#the-control-plane-calls-nodes)).
 
 You need:
 

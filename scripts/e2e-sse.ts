@@ -1,4 +1,4 @@
-// SSE stream (ADR 0012), with max_sessions=2 for cli-hello: a waiting ticket
+// SSE stream, with max_sessions=2 for cli-hello: a waiting ticket
 // is pushed its promotion without polling, an open stream keeps the ticket
 // alive past the 30 s heartbeat timeout, and the stream closes once it ends.
 // Usage: node scripts/e2e-sse.ts [control-plane-url] [project]

@@ -67,14 +67,16 @@ can turn them off.
 | Lifetime | Maximum session age. A session ends about 30 s after its heartbeat is lost (the event stream closes or polling stops). A peer that vanishes without closing its connection is only detected when the TCP connection or the proxy times out (about 11 minutes with Linux TCP keepalive defaults on a direct connection). The maximum age bounds an active session; a waiting ticket keeps its place until then. The agent keeps a safety net: it removes expired containers and orphan networks even if the control plane is gone. |
 | Session requests | The agent validates every session request against the JSON Schema shared with the control plane: unknown fields are refused, and so are environment variables the agent sets itself. |
 | Call direction | The control plane calls the agent, never the reverse, over mutual TLS 1.3 with a private CA. The agent accepts only a client certificate with the `clientAuth` usage; the control plane accepts only an agent certificate with the `serverAuth` usage that names the node it called. A node's certificate cannot impersonate the control plane or another node. The node holds no credential towards the rest of the infrastructure, except an optional read-only registry token for private project images. |
-| Per-IP limits | An IP address (an IPv6 /64) may hold 4 live tickets, create 10 tickets a minute and keep 8 event streams open, by default. Beyond that the control plane answers `429`. A single client cannot monopolise a queue. The address comes from the connection, or from forwarding headers only when the connection comes from a configured trusted proxy. It is stored with the ticket and deleted 5 minutes after the ticket ends; it is never logged. |
+| Per-IP limits | An IP address (an IPv6 /64) may hold 4 live tickets, create 10 tickets a minute and keep 8 event streams open, by default. Beyond that the control plane answers `429`. A single client cannot monopolise a queue. The address comes from the connection, or from forwarding headers only when the connection comes from a configured trusted proxy. It is stored in clear with the ticket (hashing would protect little: every IPv4 address can be hashed in seconds) and deleted 5 minutes after the ticket ends; it is never logged. |
 | State store | PostgreSQL is reachable by the control plane only: the dev compose file and the production example (`deploy/control-plane`) put it on an internal network that no node component joins. |
 | Prerequisites | The agent **refuses to start** if the declared profile is not met (see below). |
 
 ## Node profiles
 
 The profile is declared per node (`NODE_PROFILE`). It describes the situation of the machine that
-runs sessions.
+runs sessions. Operators run Tryout on very different machines (a dedicated VM, one small server
+running everything, a laptop), so the isolation level is a deployment choice checked at startup,
+not a code fork.
 
 ### `strict`: dedicated machine or VM
 
@@ -82,6 +84,8 @@ runs sessions.
   secrets towards the rest of the infrastructure.
 - **The agent requires** gVisor (`runsc`). Any other runtime (`runc`, `io.containerd.runc.v2`,
   Kata…) is accepted only with `ALLOW_RUNC=true`, for the default runtime and for each session.
+  The rule is an allowlist because the daemon can list runc under other names, and the agent
+  cannot judge the isolation of an unknown runtime.
 - **If a session escapes**, the attacker gets a disposable machine. Reinstall it.
 - **Residual risk**: lateral movement if the network is not segmented; resource exhaustion.
 
@@ -111,6 +115,10 @@ Internet.
 | `runsc` (gVisor) | The container talks to a kernel reimplemented in user space. The host kernel is reached only through a small, filtered set of calls. | Negligible for terminals. **2 to 2.5× more CPU** for a software-encoded desktop session (see the Performance page, `docs/performance.md`). |
 | VM (KVM, Kata) | Dedicated kernel. | A few hundred MB of RAM; low CPU cost for video encoding. |
 
+On a small node, desktop sessions force a choice between gVisor (fewer sessions), runc (weaker
+isolation) and a VM node (memory). Sysbox is not offered: an analysis reports that it greatly
+increases the reachable kernel attack surface.
+
 ## Deployment recommendations
 
 The production example files (`deploy/node`, `deploy/control-plane`, see the Production
@@ -134,7 +142,9 @@ published on an address you choose.
   by digest, and check their provenance.
 - **Give the agent a read-only registry token** for private project images
   (`REGISTRY_AUTH_FILE`), limited to those images, on an account that owns nothing else of
-  value. A session that escapes its sandbox could read it.
+  value. A session that escapes its sandbox could read it. The credentials stay on the node:
+  they are never part of the control plane's configuration nor of a session request, so the
+  control plane holds no registry secret and a session request cannot choose credentials.
 - **Keep AppArmor and seccomp enabled** on the host.
 - **Keep the Tryout CA key on your own machine.** Never copy `ca/ca.key` to a node or to the
   control plane, and use a CA dedicated to Tryout: an agent accepts any client certificate with

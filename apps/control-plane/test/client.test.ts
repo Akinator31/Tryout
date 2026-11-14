@@ -1,4 +1,4 @@
-// The client key behind the per-IP limits (ADR 0016) and the cap on open
+// The client key behind the per-IP limits and the cap on open
 // event streams.
 import assert from "node:assert/strict";
 import { test } from "node:test";

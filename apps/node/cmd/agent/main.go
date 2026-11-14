@@ -1,7 +1,7 @@
 // tryout-agent: the only component that talks to Docker on a sandbox node.
 //
 // It exposes a small private HTTP API used by the control plane, over mutual
-// TLS only (ADR 0015), creates one hardened container + one --internal network per
+// TLS only, creates one hardened container + one --internal network per
 // session, attaches the gateway to that network, and pushes the route table
 // to the gateway. A reconcile loop removes expired/dead sessions and orphans,
 // and attaches a recreated gateway again to every running session network.
@@ -78,7 +78,7 @@ func fatal(msg string, args ...any) {
 	os.Exit(1)
 }
 
-// loadRegistry reads the registry credentials of REGISTRY_AUTH_FILE (ADR 0017).
+// loadRegistry reads the registry credentials of REGISTRY_AUTH_FILE.
 // No file means anonymous pulls: it returns a nil store, which sends nothing.
 func loadRegistry(path string) (*registryauth.Store, error) {
 	if path == "" {

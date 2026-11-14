@@ -1,4 +1,4 @@
-// agent_tls: the control plane's client certificate towards agents (ADR 0015).
+// agent_tls: the control plane's client certificate towards agents.
 import { X509Certificate, createPrivateKey, type KeyObject } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -75,8 +75,8 @@ function checkCa(ca: X509Certificate, checkDates: (k: PemFile, c: X509Certificat
 }
 
 /**
- * The control plane's certificate must allow client authentication (ADR 0015:
- * agents refuse any other leaf), be within its validity dates and match its key.
+ * The control plane's certificate must allow client authentication (agents
+ * refuse any other leaf), be within its validity dates and match its key.
  */
 function checkClientCert(
   cert: X509Certificate,
