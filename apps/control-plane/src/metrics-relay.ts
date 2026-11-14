@@ -3,6 +3,7 @@
 // sample labelled with its node. Nodes run hostile code, so the text is parsed
 // strictly and rebuilt: a node can only add samples under its own label, never
 // break the scrape or spoof another node.
+import { escapeLabel } from "./metrics.ts";
 
 /** One node's /metrics text. */
 export interface NodeMetrics {
@@ -23,6 +24,13 @@ const HEADER = /^# (HELP|TYPE) ([a-zA-Z_:][a-zA-Z0-9_:]*) (.*)$/;
 const SAMPLE = /^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(.*)\})? (\S+)$/;
 const LABEL = /\s*([a-zA-Z_][a-zA-Z0-9_]*)="((?:[^"\\\n]|\\["\\n])*)"\s*(?:,|$)/y;
 const VALUE = /^(?:[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?|[+-]?Inf|NaN)$/;
+/** A HELP text with only the escapes the format allows: backslash and newline. */
+const HELP_TEXT = /^(?:[^\\]|\\[\\n])*$/;
+
+/** Prefix of every relayed family: the agent's metrics are all Tryout's. */
+const PREFIX = "tryout_";
+/** Most series relayed from one node, so a hostile node cannot flood Prometheus with series. */
+export const MAX_SERIES_PER_NODE = 2000;
 
 /** Suffixes a sample may add to its family's name, by family type. */
 const SUFFIXES: Record<string, string[]> = {
@@ -33,18 +41,22 @@ const SUFFIXES: Record<string, string[]> = {
 /**
  * Merges the nodes' metrics into one exposition text, each family once, its
  * samples in node order. Dropped: samples outside a typed family, samples
- * with a timestamp, a `node` label or a repeated label, invalid lines, repeated
- * series, families whose type differs from an earlier node's, and families
- * named like one of the control plane's own (`reserved`) or prefixed by one.
+ * with a timestamp, a `node` label, a reserved `__` label or a repeated label,
+ * invalid lines, repeated series, series beyond MAX_SERIES_PER_NODE, HELP texts
+ * with invalid escapes, families not prefixed `tryout_`, families whose type
+ * differs from an earlier node's, and families named like one of the control
+ * plane's own (`reserved`) or prefixed by one.
  */
 export function relayMetrics(sources: NodeMetrics[], reserved: Set<string> = new Set()): string {
   const families = new Map<string, Family>();
   const pendingHelp = new Map<string, string>();
   const seen = new Set<string>();
-  const isReserved = (name: string) => [...reserved].some((r) => name === r || name.startsWith(`${r}_`));
+  const isReserved = (name: string) =>
+    !name.startsWith(PREFIX) || [...reserved].some((r) => name === r || name.startsWith(`${r}_`));
 
   for (const { node, text } of sources) {
     let current: { name: string; family: Family } | null = null;
+    let budget = MAX_SERIES_PER_NODE;
 
     for (const line of text.split("\n")) {
       const header = HEADER.exec(line);
@@ -53,9 +65,10 @@ export function relayMetrics(sources: NodeMetrics[], reserved: Set<string> = new
         continue;
       }
 
-      const relabelled = current && relabel(line, current.name, current.family.type, node);
+      const relabelled = budget > 0 && current && relabel(line, current.name, current.family.type, node);
       if (!relabelled || seen.has(relabelled.series)) continue;
 
+      budget--;
       seen.add(relabelled.series);
       current!.family.samples.push(relabelled.line);
     }
@@ -83,6 +96,7 @@ function openFamily(
   if (isReserved(name)) return null;
 
   if (kind === "HELP") {
+    if (!HELP_TEXT.test(rest)) return current?.name === name ? current : null;
     const known = families.get(name);
     if (known && known.help === undefined) known.help = rest;
     if (!known) pendingHelp.set(name, rest);
@@ -113,9 +127,9 @@ function relabel(line: string, family: string, type: string, node: string): { li
   if (!METRIC_NAME.test(name) || !names.includes(name) || !VALUE.test(value)) return null;
 
   const labels = parseLabels(labelText);
-  if (!labels || labels.has("node")) return null;
+  if (!labels || labels.has("node") || [...labels.keys()].some((k) => k.startsWith("__"))) return null;
 
-  const pairs = [`node="${escapeNode(node)}"`, ...[...labels].map(([k, v]) => `${k}="${v}"`)];
+  const pairs = [`node="${escapeLabel(node)}"`, ...[...labels].map(([k, v]) => `${k}="${v}"`)];
   const series = `${name}{${pairs.join(",")}}`;
   return { line: `${series} ${value}`, series };
 }
@@ -131,11 +145,6 @@ function parseLabels(text: string): Map<string, string> | null {
     labels.set(m[1], m[2]);
   }
   return labels;
-}
-
-/** Node names are schema-checked to [a-z0-9-]; escaping is a second guard. */
-function escapeNode(node: string): string {
-  return node.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n");
 }
 
 /** The merged families as exposition text; families without samples are left out. */

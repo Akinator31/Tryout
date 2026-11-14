@@ -183,6 +183,10 @@ function checkSemantics(
   if (typeof file.admin_listen === "string" && !adminListen) {
     report(["admin_listen"], "must be [host]:port with a port between 1 and 65535");
   }
+  // Two hosts on one port overlap (":3000" covers "127.0.0.1:3000"): the second server could not bind.
+  if (listen && adminListen && adminListen.port === listen.port && !sameListen(listen, adminListen)) {
+    report(["admin_listen"], "uses the port of listen with another host: give it its own port, or the same address as listen");
+  }
 
   checkServerNames(nodes, report);
   const agentTls = loadAgentTls(file.agent_tls, baseDir, now, report, warnings);

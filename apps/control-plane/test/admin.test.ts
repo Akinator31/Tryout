@@ -64,3 +64,25 @@ test("a node cannot spoof the control plane's own families", async () => {
 
   assert.doesNotMatch(await page(), /tryout_node_up\{node="a"\} 1/);
 });
+
+test("concurrent scrapes share one round of node fetches", async () => {
+  let fetches = 0;
+  const page = createMetricsPage({
+    nodes: ["a"],
+    metrics: controlPlaneMetrics(),
+    stats: async () => ({}),
+    health: () => ({}),
+    fetchNodeMetrics: async () => {
+      fetches++;
+      await new Promise((r) => setTimeout(r, 10));
+      return agentText;
+    },
+  });
+
+  const [first, second] = await Promise.all([page(), page()]);
+  assert.equal(first, second);
+  assert.equal(fetches, 1);
+
+  await page();
+  assert.equal(fetches, 2);
+});

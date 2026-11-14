@@ -191,6 +191,10 @@ test("admin_listen is off unless set, and warns when it shares the public listen
   const shared = parseConfig(`listen: ":3000"\nadmin_listen: ":3000"\n${base}`, opts);
   assert.match(shared.warnings.join("\n"), /admin_listen equals listen: \/metrics is public/);
   assert.match(problems(`admin_listen: ":0"\n${base}`)[0], /^\/admin_listen \(line 1\): must be \[host\]:port/);
+  assert.match(
+    problems(`listen: ":3000"\nadmin_listen: "127.0.0.1:3000"\n${base}`)[0],
+    /^\/admin_listen \(line 2\): uses the port of listen with another host/,
+  );
 });
 
 test("listen accepts a host", () => {

@@ -400,7 +400,7 @@ class PgQueue implements Queue {
         await this.#failStart(ticket, session, e);
         return;
       }
-      report((await this.#activate(ticket, session, url)) ? "ok" : "abandoned");
+      report((await this.#activate(ticket, session, url)) ? "ok" : await this.#whyEnded(ticket.id));
     } finally {
       finish();
     }
@@ -453,6 +453,15 @@ class PgQueue implements Queue {
 
     await this.#stopSession(session);
     return false;
+  }
+
+  /**
+   * Why a ticket ended while its start was running: `timeout` when it was
+   * expired for its start deadline (by any instance), `abandoned` otherwise.
+   */
+  async #whyEnded(ticket: string): Promise<"timeout" | "abandoned"> {
+    const [row] = await this.#db.query<{ error: string | null }>(`SELECT error FROM tickets WHERE id = $1`, [ticket]);
+    return row?.error === START_FAILED ? "timeout" : "abandoned";
   }
 
   /** Marks a ticket ended (once), aborts its start if one is in flight here, and stops its session if it had one. */

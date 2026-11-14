@@ -253,9 +253,11 @@ scrape_configs:
 | `tryout_ticket_start_seconds` | histogram | `project` | Time from a slot being granted to a reachable session, as the visitor waits for it, for successful starts run by this instance. |
 
 Counters belong to the instance that ran the start and restart from zero with it; with several
-instances, scrape each one and sum. The control plane drops relayed lines it cannot parse, and
-any family a node sends under one of the names above, so a node cannot break the scrape or speak
-for another node.
+instances, scrape each one and sum. Concurrent scrapes share one round of calls to the nodes.
+The control plane relays only `tryout_` families, at most 2000 series per node, and drops lines
+it cannot parse, labels a node sets itself (`node`, `__name__`…) and any family a node sends under
+one of the names above, so a node cannot break the scrape, flood Prometheus or speak for another
+node.
 
 ### Agent endpoints
 

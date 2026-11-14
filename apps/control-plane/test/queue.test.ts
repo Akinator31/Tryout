@@ -451,6 +451,22 @@ test("every start reports its outcome and duration", async () => {
   assert.equal((await s.queue.poll(failed.ticket))?.state, "ended");
 });
 
+test("a start that completes after its deadline expired the ticket reports a timeout", async () => {
+  const outcomes: StartOutcome[] = [];
+  await using s = await setup({ manual: true, onStart: (o) => void outcomes.push(o) });
+  const a = await s.queue.join("cli");
+
+  for (let elapsed = 0; elapsed <= 180_000; elapsed += 10_000) {
+    s.clock.advance(10_000);
+    await s.queue.poll(a.ticket);
+  }
+  await s.queue.tick();
+  s.fake.pending[0].resolve("https://n1.test/s/late/");
+
+  await eventually(async () => outcomes.length, (n) => n === 1);
+  assert.equal(outcomes[0]?.result, "timeout");
+});
+
 test("a start that outlives its deadline reports a timeout", async () => {
   const outcomes: StartOutcome[] = [];
   await using s = await setup({ manual: true, onStart: (o) => void outcomes.push(o) });

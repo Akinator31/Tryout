@@ -74,53 +74,80 @@ test("relayed samples get their node's label and families merge across nodes", (
 
 test("histogram series keep their suffixes and labels", () => {
   const text = [
-    "# HELP h Start time.",
-    "# TYPE h histogram",
-    'h_bucket{project="cli",le="+Inf"} 3',
-    'h_sum{project="cli"} 1.5e+01',
-    'h_count{project="cli"} 3',
+    "# HELP tryout_h Start time.",
+    "# TYPE tryout_h histogram",
+    'tryout_h_bucket{project="cli",le="+Inf"} 3',
+    'tryout_h_sum{project="cli"} 1.5e+01',
+    'tryout_h_count{project="cli"} 3',
   ].join("\n");
 
-  assert.match(relayMetrics([{ node: "a", text }]), /h_bucket\{node="a",project="cli",le="\+Inf"\} 3\nh_sum\{node="a",project="cli"\} 1\.5e\+01\n/);
+  assert.match(
+    relayMetrics([{ node: "a", text }]),
+    /tryout_h_bucket\{node="a",project="cli",le="\+Inf"\} 3\ntryout_h_sum\{node="a",project="cli"\} 1\.5e\+01\n/,
+  );
 });
 
 test("lines a hostile node could use to break or spoof the scrape are dropped", () => {
   const text = [
     "orphan_sample 1",
-    "# HELP g Fine.",
-    "# TYPE g gauge",
-    'g{node="other"} 1',
-    'g{a="1",a="2"} 1',
-    'g{a="unterminated} 1',
-    "g 1 1700000000000",
-    "g not-a-number",
+    "# HELP tryout_g Fine.",
+    "# TYPE tryout_g gauge",
+    'tryout_g{node="other"} 1',
+    'tryout_g{__name__="tryout_node_up"} 1',
+    'tryout_g{a="1",a="2"} 1',
+    'tryout_g{a="unterminated} 1',
+    "tryout_g 1 1700000000000",
+    "tryout_g not-a-number",
     "other_family 1",
-    'g{a="x\\"y"} 2',
-    'g{a="x\\"y"} 3',
-    "# TYPE weird nonsense",
-    "weird 1",
+    'tryout_g{a="x\\"y"} 2',
+    'tryout_g{a="x\\"y"} 3',
+    "# TYPE tryout_weird nonsense",
+    "tryout_weird 1",
     "# HELP tryout_node_up Spoofed.",
     "# TYPE tryout_node_up gauge",
     "tryout_node_up 1",
     "# TYPE tryout_node_up_extra gauge",
     "tryout_node_up_extra 1",
+    "# TYPE junk gauge",
+    "junk 1",
+    "# HELP tryout_bad_help Invalid \\q escape.",
+    "# TYPE tryout_bad_help gauge",
+    "tryout_bad_help 1",
   ].join("\n");
 
   assert.equal(
     relayMetrics([{ node: "a", text }], new Set(["tryout_node_up"])),
-    ["# HELP g Fine.", "# TYPE g gauge", 'g{node="a",a="x\\"y"} 2', ""].join("\n"),
+    [
+      "# HELP tryout_g Fine.",
+      "# TYPE tryout_g gauge",
+      'tryout_g{node="a",a="x\\"y"} 2',
+      "# TYPE tryout_bad_help gauge",
+      'tryout_bad_help{node="a"} 1',
+      "",
+    ].join("\n"),
   );
 });
 
+test("a node relays at most 2000 series", () => {
+  const flood = ["# TYPE tryout_flood gauge", ...Array.from({ length: 2500 }, (_, i) => `tryout_flood{id="${i}"} 1`)];
+  const relayed = relayMetrics([
+    { node: "a", text: flood.join("\n") },
+    { node: "b", text: "# TYPE tryout_flood gauge\ntryout_flood 1\n" },
+  ]);
+
+  assert.equal(relayed.split("\n").filter((l) => l.includes('node="a"')).length, 2000);
+  assert.match(relayed, /^tryout_flood\{node="b"\} 1$/m);
+});
+
 test("a family whose type differs on a later node keeps the first node's type", () => {
-  const counter = "# TYPE x counter\nx 1\n";
-  const gauge = "# TYPE x gauge\nx 2\n";
+  const counter = "# TYPE tryout_x counter\ntryout_x 1\n";
+  const gauge = "# TYPE tryout_x gauge\ntryout_x 2\n";
 
   assert.equal(
     relayMetrics([
       { node: "a", text: counter },
       { node: "b", text: gauge },
     ]),
-    '# TYPE x counter\nx{node="a"} 1\n',
+    '# TYPE tryout_x counter\ntryout_x{node="a"} 1\n',
   );
 });

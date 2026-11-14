@@ -14,8 +14,12 @@ const START_BUCKETS = [0.5, 1, 2, 5, 10, 30, 60, 120, 180];
 /** Time an agent has to answer a metrics fetch. */
 const NODE_METRICS_TIMEOUT_MS = 5000;
 
-/** Gauge names computed at each scrape; with the registry's families, a node may not relay them. */
-const GAUGES = ["tryout_tickets", "tryout_node_up", "tryout_node_metrics_up"];
+/** Gauges computed at each scrape; with the registry's families, a node may not relay them. */
+const GAUGES = {
+  tickets: "tryout_tickets",
+  nodeUp: "tryout_node_up",
+  nodeMetricsUp: "tryout_node_metrics_up",
+} as const;
 
 /** The control plane's counters and histograms, fed by the queue's start outcomes. */
 export interface ControlPlaneMetrics {
@@ -42,7 +46,7 @@ export function controlPlaneMetrics(): ControlPlaneMetrics {
 
   return {
     registry,
-    reserved: new Set([...GAUGES, starts.name, seconds.name]),
+    reserved: new Set([...Object.values(GAUGES), starts.name, seconds.name]),
     onStart({ project, result, seconds: s }) {
       starts.inc({ project, result });
       if (result === "ok") seconds.observe(s, { project });
@@ -63,6 +67,8 @@ export interface MetricsPageDeps {
  * (the same on every instance), node health from this instance's checks, the
  * registry, then every agent's metrics fetched in parallel. An agent that
  * does not answer is left out and reported by tryout_node_metrics_up.
+ * Concurrent calls share one scrape, so parallel requests do not multiply the
+ * calls to the nodes.
  */
 export function createMetricsPage(deps: MetricsPageDeps): () => Promise<string> {
   const { nodes, metrics, stats, health, fetchNodeMetrics } = deps;
@@ -78,20 +84,30 @@ export function createMetricsPage(deps: MetricsPageDeps): () => Promise<string> 
       ),
     );
 
-  return async () => {
+  let inFlight: Promise<string> | null = null;
+
+  /** One scrape of the database, the health checks and the nodes. */
+  async function scrape(): Promise<string> {
     const [byProject, relayed] = await Promise.all([stats(), fetchAll()]);
     const statuses = health();
 
     const gauges: Gauge[] = [
       ticketsGauge(byProject),
-      nodeGauge("tryout_node_up", "1 when the node's last health check succeeded, else 0.", nodes, (n) => statuses[n]?.up === true),
-      nodeGauge("tryout_node_metrics_up", "1 when the node's metrics were relayed in this scrape, else 0.", nodes, (n) =>
+      nodeGauge(GAUGES.nodeUp, "1 when the node's last health check succeeded, else 0.", nodes, (n) => statuses[n]?.up === true),
+      nodeGauge(GAUGES.nodeMetricsUp, "1 when the node's metrics were relayed in this scrape, else 0.", nodes, (n) =>
         relayed.some((r) => r.node === n && r.text !== null),
       ),
     ];
     const answered = relayed.filter((r): r is { node: string; text: string } => r.text !== null);
 
     return metrics.registry.write(gauges) + relayMetrics(answered, metrics.reserved);
+  }
+
+  return () => {
+    inFlight ??= scrape().finally(() => {
+      inFlight = null;
+    });
+    return inFlight;
   };
 }
 
@@ -101,7 +117,7 @@ function ticketsGauge(byProject: Record<string, ProjectStats>): Gauge {
     Object.entries(counts).map(([state, value]) => ({ labels: { project, state }, value })),
   );
   return {
-    name: "tryout_tickets",
+    name: GAUGES.tickets,
     help: "Live tickets by project and state: waiting (the queue), starting or active.",
     labels: ["project", "state"],
     samples,

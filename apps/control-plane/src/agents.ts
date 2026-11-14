@@ -75,7 +75,7 @@ export async function fetchMetrics(client: AgentClient, signal: AbortSignal): Pr
 }
 
 /** Reads a response body as UTF-8, rejecting as soon as it grows past `max` bytes. */
-async function readCapped(res: Response, max: number): Promise<string> {
+export async function readCapped(res: Response, max: number): Promise<string> {
   const chunks: Uint8Array[] = [];
   let size = 0;
 
