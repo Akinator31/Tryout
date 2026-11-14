@@ -2,8 +2,6 @@
 // language. Copy follows the Figma mock-ups: sentence case, short, says what happens next.
 // French uses "vous" and a no-break space before ":".
 
-import type { Kind } from "./screens.ts";
-
 export const en = {
   connecting: "Connecting…",
 
@@ -13,7 +11,8 @@ export const en = {
   /** Announced to screen readers when the position changes. */
   positionAnnounce: (position: number) => `Your place in line: ${position}.`,
 
-  startingTitle: (kind: Kind): string => (kind === "desktop" ? "Starting your desktop…" : "Starting your terminal…"),
+  /** `title` is the project's name, as the operator wrote it. */
+  startingTitle: (title: string): string => `Starting ${title}…`,
   startingDetail: "This takes a few seconds.",
 
   endedTitle: "Session ended",
@@ -59,7 +58,7 @@ export const fr: Strings = {
   leaveQueue: "Quitter la file",
   positionAnnounce: (position) => `Votre place dans la file\u00a0: ${position}.`,
 
-  startingTitle: (kind) => (kind === "desktop" ? "Démarrage du bureau…" : "Démarrage du terminal…"),
+  startingTitle: (title) => `Démarrage ${of(title)}…`,
   startingDetail: "Quelques secondes.",
 
   endedTitle: "Session terminée",
@@ -92,6 +91,11 @@ export const fr: Strings = {
   end: "Terminer",
   endLabel: "Terminer la session",
 };
+
+/** French "de", elided before a vowel: "de Hello CLI", "d’Inkscape". */
+function of(name: string): string {
+  return /^[aeiouyàâäéèêëîïôöùûü]/i.test(name) ? `d’${name}` : `de ${name}`;
+}
 
 /** Every language the page speaks, by its primary subtag; the first one is the fallback. */
 export const catalogues = { en, fr } satisfies Record<string, Strings>;

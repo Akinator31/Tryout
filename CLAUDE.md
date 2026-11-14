@@ -116,9 +116,10 @@ vault with the original stack study (in French) and its sources.
   Then M3 Design: the Figma mock-ups are settled and the UI kit is chosen (Chakra UI for the
   admin, a framework-free embed, shared design tokens). The embed page is built from the Figma
   (`apps/embed`, `packages/tokens`; the control-plane image is built from the repository root).
-  The embed speaks English and French (`?lang=`, else the browser's language).
-  Next: theming by configuration, then the `v0.1.0` release that closes M2
-  (the repository is already public). Then M4 Operate: the admin
+  The embed speaks English and French (`?lang=`, else the browser's language) and takes a
+  theme from the YAML (`theme.accent`, `theme.logo`, per-project `title`); M3 is done.
+  Next: the `v0.1.0` release that closes M2 (the repository is already public), and a small
+  branding pass with the Tryout logo (README, docs site, favicon). Then M4 Operate: the admin
   UI to set up projects (configuration in Postgres, admin authentication), released as `v0.2.0`;
   M5 Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to

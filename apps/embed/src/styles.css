@@ -6,6 +6,7 @@
 :root {
   --bar-height: 36px;
   --card-width: 360px;
+  --logo-height: 20px;
   --focus-ring: 2px solid var(--brand-solid);
 }
 
@@ -78,6 +79,16 @@ button:focus-visible {
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radii-xl);
+}
+
+/* The operator's logo (theme.logo), filled in by the control plane. */
+.logo {
+  display: block;
+  height: var(--logo-height);
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+  object-position: left center;
 }
 
 .spinner-track {

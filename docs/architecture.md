@@ -26,8 +26,8 @@ for graphical ones. Each project is assigned to a node.
 | `db.ts`, `db-listen.ts` | Database port (queries, transactions, `LISTEN`); adapters for node-postgres and, in tests, PGlite; the reconnecting `LISTEN` session. |
 | `client.ts` | The visitor's IP address, read through trusted proxies only, and the cap on open event streams per IP. |
 | `http.ts` | Embed page and its assets, demo page, queue API and its SSE stream. Thin. |
-| `embed.ts` | The built embed page (`apps/embed/dist`), read once at start: its template, its hashed assets and its Content-Security-Policy. |
-| `config.ts`, `config-*.ts` | Configuration loading: YAML validated against the shared JSON Schema, then semantic checks; values (`config-values`), error reporting (`config-report`), agent TLS files (`config-tls`). |
+| `embed.ts` | The built embed page (`apps/embed/dist`), read once at start: its template, its hashed assets, the theme's stylesheet and logo, and its Content-Security-Policy. |
+| `config.ts`, `config-*.ts` | Configuration loading: YAML validated against the shared JSON Schema, then semantic checks; values (`config-values`), error reporting (`config-report`), agent TLS files (`config-tls`), theme (`config-theme`). |
 | `server.ts` | Wiring. |
 
 What it does:
@@ -72,6 +72,8 @@ What it does:
   left the queue, per-IP limit countdown, unavailable project. Once active, the session fills the
   frame above a 36 px bar with the time left, full screen and End; under a minute the bar turns
   amber.
+- Takes the operator's theme: an accent colour and a logo at the top of every card, and each
+  project's `title` in the bar, the starting card and the tab title.
 - Speaks English or French: the `lang` parameter of the iframe URL (`/embed/<project>?lang=fr`)
   if the page speaks it, else the first of the browser's languages it speaks (`fr-CA` counts as
   `fr`), else English. Both catalogues ship in the bundle, so no extra request is made.
@@ -241,6 +243,14 @@ transaction commits.
   HTML is filled per project and revalidated. With no inline script or style, the page's
   Content-Security-Policy allows only its own files, its own API, and frames from the nodes'
   public URLs.
+- **The theme as more hashed files.** At startup the control plane turns `theme.accent` into a
+  small stylesheet that overrides the brand tokens, and serves it and the logo next to the
+  build's files, linked from the HTML template. The page paints in the operator's colours from
+  the first frame, works before its script runs, and keeps the same CSP. The theme is
+  configuration, not a parameter of the iframe URL: the operator decides how their page looks,
+  and the page has nothing to validate. Only the accent and the logo change: the dark
+  background and the fonts are the product's look, and a light variant would double what must
+  be designed and tested.
 - **A minimal Docker client.** The agent needs about a dozen Engine API endpoints. The Go SDK is
   moving to new modules whose API is not yet stable, while the versioned REST API is, so the
   agent uses a small hand-written client pinned to API `v1.47`. The node has few third-party

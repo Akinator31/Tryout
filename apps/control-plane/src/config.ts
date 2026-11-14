@@ -1,8 +1,8 @@
 // Control plane configuration: a YAML file validated against the shared JSON
 // Schema (src/tryout.schema.json, a copy of schema/tryout.schema.json that the
 // agent also embeds), then by semantic checks the schema cannot express.
-// See docs/configuration.md. Problem reporting, value parsers
-// and agent_tls live in the sibling config-*.ts modules.
+// See docs/configuration.md. Problem reporting, value parsers,
+// agent_tls and theme live in the sibling config-*.ts modules.
 import { readFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { dirname } from "node:path";
@@ -10,6 +10,7 @@ import { Ajv2020 } from "ajv/dist/2020.js";
 import { LineCounter, parseDocument } from "yaml";
 import { parseCidr, type ClientIpConfig } from "./client.ts";
 import { createProblems, lineLocator, reportSchemaErrors, type Report } from "./config-report.ts";
+import { loadTheme, type Theme } from "./config-theme.ts";
 import { loadAgentTls } from "./config-tls.ts";
 import { interpolate, isObject, parseDuration, parseListen } from "./config-values.ts";
 import { FORGET_ENDED_MS, type QueueConfig } from "./queue.ts";
@@ -42,6 +43,8 @@ export interface Workload {
 }
 
 export interface ProjectConfig extends Workload {
+  /** Shown to visitors; the project's key when the file leaves it out. */
+  title: string;
   node: string;
   max_sessions: number;
   /** As written in the file, e.g. "15m". */
@@ -68,6 +71,7 @@ export interface Limits {
 export interface Config {
   listen: { host: string; port: number };
   embed_frame_ancestors: string[];
+  theme: Theme;
   client_ip: ClientIpConfig;
   limits: Limits;
   agent_tls: AgentTls;
@@ -166,6 +170,7 @@ function checkSemantics(
 
   checkServerNames(nodes, report);
   const agentTls = loadAgentTls(file.agent_tls, baseDir, now, report, warnings);
+  const theme = loadTheme(file.theme, baseDir, report);
   const clientIp = checkClientIp(file.client_ip, report);
   const limits = parseLimits(file.limits, report);
   const projects = checkProjects(file.projects, nodes, report);
@@ -173,6 +178,7 @@ function checkSemantics(
   return {
     listen: listen!,
     embed_frame_ancestors: file.embed_frame_ancestors as string[],
+    theme,
     client_ip: clientIp,
     limits,
     agent_tls: agentTls!,
@@ -230,9 +236,9 @@ function parseLimits(v: unknown, report: Report): Limits {
   return { ...limits, new_tickets_per_ip: { ...rate, per_s: perS } };
 }
 
-/** Checks each project's node and max_age, and derives max_age_s. */
+/** Checks each project's node and max_age, and derives max_age_s and the default title. */
 function checkProjects(v: unknown, nodes: Record<string, NodeConfig>, report: Report): Record<string, ProjectConfig> {
-  const fileProjects = (isObject(v) ? v : {}) as Record<string, Omit<ProjectConfig, "max_age_s">>;
+  const fileProjects = (isObject(v) ? v : {}) as Record<string, Omit<ProjectConfig, "max_age_s" | "title"> & { title?: string }>;
   const projects: Record<string, ProjectConfig> = {};
 
   for (const [name, p] of Object.entries(fileProjects)) {
@@ -247,7 +253,7 @@ function checkProjects(v: unknown, nodes: Record<string, NodeConfig>, report: Re
       report(["projects", name, "max_age"], "must be greater than zero and at most 24h");
     }
 
-    projects[name] = { ...p, max_age_s: maxAgeS };
+    projects[name] = { ...p, title: p.title ?? name, max_age_s: maxAgeS };
   }
   return projects;
 }

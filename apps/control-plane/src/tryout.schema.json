@@ -19,6 +19,28 @@
       "items": { "$ref": "#/$defs/origin" },
       "uniqueItems": true
     },
+    "theme": {
+      "description": "Look of the embed page, for every project. Leave it out for the default amber accent and no logo.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accent": {
+          "description": "Accent colour as #rrggbb: queue number, spinner, primary button, focus ring. Needs a contrast of at least 3:1 on the dark card.",
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$"
+        },
+        "logo": {
+          "description": "Logo shown at the top of the status card, 20 px high.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file", "alt"],
+          "properties": {
+            "file": { "description": "SVG, PNG or WebP file of at most 64 KB, relative to this file's directory.", "$ref": "#/$defs/path" },
+            "alt": { "description": "Text read by screen readers in place of the logo, such as your name.", "type": "string", "minLength": 1, "maxLength": 80 }
+          }
+        }
+      }
+    },
     "agent_tls": {
       "description": "Mutual TLS towards every agent: the control plane's client certificate and the CA that signs the agents' certificates. Paths are relative to this file's directory.",
       "type": "object",
@@ -154,6 +176,13 @@
       "unevaluatedProperties": false,
       "required": ["node", "max_sessions", "max_age"],
       "properties": {
+        "title": {
+          "description": "Name shown to visitors in the session bar, the starting card and the tab title. Defaults to the project's key.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[^\\x00-\\x1f\\x7f]+$"
+        },
         "node": { "description": "Node that runs the project.", "$ref": "#/$defs/name" },
         "max_sessions": {
           "description": "Concurrent sessions for this project. Later visitors wait in the queue.",

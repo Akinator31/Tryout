@@ -26,8 +26,13 @@ nodes:
     probe_url: http://10.0.50.10:8080/s/{session}/
     max_sessions: 10
 
+theme:                     # optional
+  accent: "#ffb000"
+  logo: { file: logo.svg, alt: Jane Doe }
+
 projects:
   my-cli:
+    title: My CLI            # optional
     node: cli
     image: ghcr.io/me/my-cli@sha256:…
     kind: terminal
@@ -80,9 +85,34 @@ be written.
 | `agent_tls` | Mutual TLS towards the agents: `ca` (the CA that signs the agents' certificates), `cert` and `key` (the control plane's client certificate, with the `clientAuth` usage). Paths of PEM files, relative to the configuration file. See [Certificates](certificates.md). |
 | `client_ip` | Optional: how to find a visitor's IP address behind proxies. See [Per-IP limits](#per-ip-limits). |
 | `limits` | Optional: per-IP limits on tickets and event streams. See [Per-IP limits](#per-ip-limits). |
+| `theme` | Optional: accent colour and logo of the embed page. See [Theme](#theme). |
 | `embed_frame_ancestors` | Origins allowed to embed `/embed/<project>` in an iframe: `https://example.org`, `https://*.example.org`, `http://localhost:3000`. `'self'` is always allowed. |
 | `nodes` | Nodes by name (lower-case letters, digits, `-`). |
 | `projects` | Projects by name (same rule); the name appears in `/embed/<project>`. |
+
+### Theme
+
+The embed page has a dark look with an amber accent. `theme` adapts it to the portfolio, for
+every project at once:
+
+```yaml
+theme:
+  accent: "#4c9aff"
+  logo:
+    file: brand/logo.svg   # relative to this file
+    alt: Jane Doe
+```
+
+| Key | Role |
+|---|---|
+| `theme.accent` | Optional: the accent colour as `#rrggbb`. It colours the queue number, the spinner, the primary button and the focus ring. The control plane derives the hover colour and picks black or white text for the button. It refuses an accent with a contrast below 3:1 on the card (`#141414`), the minimum for interface elements. |
+| `theme.logo.file` | The logo, shown 20 px high at the top of every status card, never over a session. An SVG, PNG or WebP file of at most 64 KB, recognised by its content. Prefer an SVG or an image at least 40 px high, for sharp rendering on high-density screens. |
+| `theme.logo.alt` | Required with a logo: the text screen readers say instead of it, such as your name. |
+
+The control plane reads the logo once at startup and serves it, with the accent's stylesheet,
+under `/assets/` with a name derived from its content: change the file and restart. The page
+loads nothing from elsewhere, so its Content-Security-Policy stays as strict as without a
+theme. The fonts and the dark background cannot be changed.
 
 ### Per-IP limits
 
@@ -140,6 +170,7 @@ the embed page poll instead, which keeps its place in line.
 
 | Key | Role |
 |---|---|
+| `title` | Optional: the project's name for visitors, up to 40 characters, in the session bar, the starting card ("Starting My CLI…") and the browser tab. Defaults to the project's key. |
 | `node` | Node that runs the project. |
 | `image` | Docker image, preferably pinned by digest. Must exist for the node's architecture. |
 | `kind` | `terminal` or `desktop`. Selects the hardening profile (see [Security](security.md)). |

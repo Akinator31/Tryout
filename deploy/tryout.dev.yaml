@@ -32,6 +32,7 @@ nodes:
 
 projects:
   cli-hello:
+    title: Hello CLI
     node: local
     image: tryout-example/cli-hello:dev
     kind: terminal
@@ -39,6 +40,7 @@ projects:
     max_sessions: 2
     max_age: 10m
   webtop:
+    title: Webtop
     node: local
     image: lscr.io/linuxserver/webtop:latest
     kind: desktop

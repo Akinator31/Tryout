@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { Config } from "../src/config.ts";
-import { embedCsp, embedPage, loadEmbed, sessionFrameSources } from "../src/embed.ts";
+import { deriveAccent } from "../src/config-theme.ts";
+import { applyTheme, embedCsp, embedPage, loadEmbed, sessionFrameSources } from "../src/embed.ts";
 
 /** A configuration with only what the embed page reads. */
 function config(publicUrls: string[]): Config {
@@ -14,11 +15,15 @@ function config(publicUrls: string[]): Config {
   return { nodes, embed_frame_ancestors: ["https://portfolio.example.org"] } as unknown as Config;
 }
 
+const TEMPLATE =
+  '<title>__TITLE__</title><!--tryout:theme--><meta name="p" content="__PROJECT__">' +
+  '<section><!--tryout:logo--></section>';
+
 /** A fake build directory. */
-function build(): string {
+function build(template = TEMPLATE): string {
   const dir = mkdtempSync(join(tmpdir(), "tryout-embed-"));
   mkdirSync(join(dir, "assets"));
-  writeFileSync(join(dir, "index.html"), '<meta name="p" content="__PROJECT__"><meta name="k" content="__KIND__">');
+  writeFileSync(join(dir, "index.html"), template);
   writeFileSync(join(dir, "assets", "index-abc.js"), "console.log(1)");
   writeFileSync(join(dir, "assets", "plex-def.woff2"), "font");
   writeFileSync(join(dir, "assets", "notes.txt"), "not served");
@@ -37,11 +42,33 @@ test("a missing build says what to run", () => {
   assert.throws(() => loadEmbed(join(tmpdir(), "tryout-no-such-dir")), /npm run build.*apps\/embed/);
 });
 
-test("fills the project and kind, escaping the project for its attribute", () => {
-  const bundle = loadEmbed(build());
+test("a build without the theme marks is refused as stale", () => {
+  assert.throws(() => loadEmbed(build("<title>__TITLE__</title>")), /older than the control plane/);
+});
 
-  assert.equal(embedPage(bundle, "cli-hello", "terminal"), '<meta name="p" content="cli-hello"><meta name="k" content="terminal">');
-  assert.match(embedPage(bundle, '"><script>', null), /content="&quot;&gt;&lt;script&gt;"/);
+test("fills the project and its title, escaped", () => {
+  const bundle = applyTheme(loadEmbed(build()), {});
+
+  assert.equal(
+    embedPage(bundle, "cli-hello", "Hello <CLI>"),
+    '<title>Hello &lt;CLI&gt;</title><meta name="p" content="cli-hello"><section></section>',
+  );
+  const unknown = embedPage(bundle, '"><script>', null);
+  assert.match(unknown, /content="&quot;&gt;&lt;script&gt;"/);
+  assert.match(unknown, /<title>&quot;&gt;&lt;script&gt;<\/title>/);
+});
+
+test("the theme adds a hashed stylesheet and logo, linked from the template", () => {
+  const logo = { body: Buffer.from("<svg/>"), type: "image/svg+xml", ext: "svg", alt: 'Jane "JD" Doe' };
+  const bundle = applyTheme(loadEmbed(build()), { accent: deriveAccent("#4c9aff"), logo });
+  const page = embedPage(bundle, "cli", "cli");
+
+  const css = /<link rel="stylesheet" href="\/assets\/(theme-[\w-]{8}\.css)">/.exec(page)![1];
+  assert.match(bundle.assets.get(css)!.body.toString(), /html:root \{\n  --brand-solid: #4c9aff;/);
+  assert.equal(bundle.assets.get(css)!.type, "text/css; charset=utf-8");
+
+  const img = /<img class="logo" src="\/assets\/(logo-[\w-]{8}\.svg)" alt="Jane &quot;JD&quot; Doe">/.exec(page)![1];
+  assert.deepEqual(bundle.assets.get(img), { body: logo.body, type: "image/svg+xml" });
 });
 
 test("session frame sources follow each node's public URL", () => {

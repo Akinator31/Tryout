@@ -2,7 +2,7 @@
 // Every text goes through textContent, so a server message is never parsed as HTML. Writes
 // happen only when a value changes, so rendering every second costs nothing.
 
-import { barFor, cardFor, type Card, type Kind, type Phase } from "./screens.ts";
+import { barFor, cardFor, type Card, type Phase } from "./screens.ts";
 import type { Strings } from "./strings.ts";
 
 /** Permissions the session frame may use; the agent locks the rest inside the session. */
@@ -24,8 +24,7 @@ export interface Snapshot {
 
 export class Page {
   #t: Strings;
-  #project: string;
-  #kind: Kind;
+  #title: string;
   #frame: HTMLIFrameElement | null = null;
   /** The session URL as given by the server; `frame.src` comes back normalised. */
   #frameUrl = "";
@@ -52,13 +51,13 @@ export class Page {
     announce: byId("announce"),
   };
 
-  constructor(project: string, kind: Kind, t: Strings, actions: Actions) {
+  /** `title` is the project's name for visitors, shown in the bar and the starting card. */
+  constructor(title: string, t: Strings, actions: Actions) {
     this.#t = t;
-    this.#project = project;
-    this.#kind = kind;
+    this.#title = title;
     const el = this.#el;
 
-    el.barProject.textContent = project;
+    el.barProject.textContent = title;
     el.endLabel.textContent = t.end;
     el.end.setAttribute("aria-label", t.endLabel);
     el.fullscreen.setAttribute("aria-label", t.fullScreen);
@@ -76,7 +75,7 @@ export class Page {
 
   /** Shows the card or the session for this instant; cheap enough to call every second. */
   render({ phase, connected, now }: Snapshot): void {
-    const card = cardFor(phase, this.#kind, now, this.#t);
+    const card = cardFor(phase, this.#title, now, this.#t);
 
     const leftSession = this.#frame !== null && phase.name !== "active";
 
@@ -143,7 +142,7 @@ export class Page {
     const frame = document.createElement("iframe");
     frame.className = "session";
     frame.allow = FRAME_ALLOW;
-    frame.title = this.#project;
+    frame.title = this.#title;
     frame.src = url;
     document.body.prepend(frame);
     this.#frame = frame;

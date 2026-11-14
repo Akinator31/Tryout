@@ -3,7 +3,7 @@
 import { createServer } from "node:http";
 import { ConfigError, loadConfig, queueConfig, type Config } from "./config.ts";
 import { pgDb } from "./db.ts";
-import { loadEmbed, type EmbedBundle } from "./embed.ts";
+import { applyTheme, loadEmbed, type EmbedBundle } from "./embed.ts";
 import { createHandler, json } from "./http.ts";
 import { createQueue, type Queue } from "./queue.ts";
 import { agentRuntime } from "./runtime.ts";
@@ -65,7 +65,7 @@ function serve(cfg: Config, queue: Queue, embed: EmbedBundle): void {
 
 const databaseUrl = requireDatabaseUrl();
 const cfg = loadConfigOrExit();
-const embed = loadEmbedOrExit();
+const embed = applyTheme(loadEmbedOrExit(), cfg.theme);
 const db = pgDb(databaseUrl);
 const queue = await createQueue({ db, config: queueConfig(cfg), runtime: agentRuntime(cfg), log });
 

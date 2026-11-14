@@ -2,7 +2,7 @@
 // files, every pass of parseConfig and its error locations, client_ip and
 // limits, agent_tls.
 import assert from "node:assert/strict";
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { test } from "node:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -359,4 +359,64 @@ test("server_name must be a DNS name", () => {
     "/nodes/n1/server_name (line 6): must be a DNS name: to reach a node by IP address, put the address in the agent's certificate and leave server_name out",
   ]);
   assert.match(problems(base, { NODE_NAME: "bad_name" })[0], /^\/nodes\/n1\/server_name \(line 6\): must match pattern/);
+});
+
+// ---------- theme and project titles ----------
+
+/** `base` with a theme block; logo files are written next to the PKI, the configuration's directory. */
+const themed = (theme: string) => `${base}theme:\n${theme}`;
+
+/** Writes a logo file in the configuration's directory. */
+function logoFile(name: string, body: Buffer | string): string {
+  writeFileSync(join(pki.dir, name), body);
+  return name;
+}
+
+const PNG = Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(32)]);
+
+test("no theme: the default look, and titles default to the project's key", () => {
+  const { config } = parseConfig(base, opts);
+  assert.deepEqual(config.theme, {});
+  assert.equal(config.projects.cli.title, "cli");
+});
+
+test("a project title is shown as written, within 40 printable characters", () => {
+  const titled = base.replace("    node: n1\n    image", "    title: Hello CLI\n    node: n1\n    image");
+  assert.equal(parseConfig(titled, opts).config.projects.cli.title, "Hello CLI");
+
+  assert.match(problems(titled.replace("Hello CLI", "x".repeat(41)))[0], /\/projects\/cli\/title .*must NOT have more than 40/);
+  assert.match(problems(titled.replace("Hello CLI", '"a\\tb"'))[0], /\/projects\/cli\/title .*must match pattern/);
+});
+
+test("theme.accent derives the brand tokens", () => {
+  const { config } = parseConfig(themed('  accent: "#4C9AFF"\n'), opts);
+  assert.deepEqual(config.theme.accent, { solid: "#4c9aff", fg: "#82b8ff", contrast: "#000000" });
+});
+
+test("theme.accent must be #rrggbb and readable on the card", () => {
+  assert.match(problems(themed("  accent: blue\n"))[0], /^\/theme\/accent \(line \d+\): must match pattern/);
+  assert.deepEqual(problems(themed('  accent: "#5a2d82"\n')), [
+    "/theme/accent (line 22): contrast 1.9:1 on the card (#141414) is below 3:1; choose a lighter colour",
+  ]);
+});
+
+test("theme.logo is read relative to the configuration, its format found from its content", () => {
+  const svg = logoFile("logo.png", '<?xml version="1.0"?>\n<!-- me -->\n<svg xmlns="http://www.w3.org/2000/svg"/>');
+  const logo = parseConfig(themed(`  logo: { file: ${svg}, alt: Jane Doe }\n`), opts).config.theme.logo!;
+  assert.equal(logo.type, "image/svg+xml");
+  assert.equal(logo.ext, "svg");
+  assert.equal(logo.alt, "Jane Doe");
+
+  const png = logoFile("logo-png", PNG);
+  assert.equal(parseConfig(themed(`  logo: { file: ${png}, alt: Me }\n`), opts).config.theme.logo!.type, "image/png");
+});
+
+test("theme.logo: missing, oversized, not an image, or without alt text", () => {
+  const page = logoFile("page.svg", "<html><script>alert(1)</script></html>");
+  const big = logoFile("big.png", Buffer.concat([PNG, Buffer.alloc(64 * 1024)]));
+
+  assert.match(problems(themed("  logo: { file: nope.svg, alt: Me }\n"))[0], /^\/theme\/logo\/file \(line 22\): cannot read .*nope\.svg$/);
+  assert.match(problems(themed(`  logo: { file: ${page}, alt: Me }\n`))[0], /page\.svg is not an SVG, PNG or WebP image$/);
+  assert.match(problems(themed(`  logo: { file: ${big}, alt: Me }\n`))[0], /big\.png is larger than 64 KB$/);
+  assert.match(problems(themed(`  logo: { file: ${page} }\n`))[0], /^\/theme\/logo \(line 22\): must have required property 'alt'$/);
 });
