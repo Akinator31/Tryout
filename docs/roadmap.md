@@ -51,7 +51,7 @@ closing (see [Done](#done)). Its other findings are M2 items.
 
 | Item | Notes |
 |---|---|
-| Versioned releases: semantic version tags, changelog, images tagged per release | First release `v0.1.0` |
+| Versioned releases: semantic version tags, release notes on GitHub, images tagged per release | First release `v0.1.0` |
 | Optional: GitHub Milestones and one issue per roadmap item | This page stays the source of truth |
 
 **Exit criteria:** a portfolio embeds Tryout in production; the repository is public; `v0.1.0`

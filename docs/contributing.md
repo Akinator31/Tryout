@@ -37,6 +37,19 @@ and forwards `/api` to a control plane on `localhost:3000`; open
 
 End-to-end tests: see [Local quickstart](quickstart.md).
 
+## Releasing
+
+Versions follow [Semantic Versioning](https://semver.org/); until 1.0, a minor version may break
+configuration or APIs.
+
+1. On a branch, set the new version in `deploy/node/.env.example`,
+   `deploy/control-plane/.env.example` and the sample image in `deploy/control-plane/tryout.yaml`;
+   merge it.
+2. Tag the merge commit on `main` and push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+   CI tests the tag and publishes the images (see [Published images](published-images.md)).
+3. Once the images are published, create the release with notes generated from the merged pull
+   requests: `gh release create vX.Y.Z --generate-notes`.
+
 ## Documentation
 
 ```bash

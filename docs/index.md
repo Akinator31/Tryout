@@ -15,9 +15,10 @@ The portfolio only embeds an iframe:
         allow="clipboard-read; clipboard-write; autoplay; fullscreen; keyboard-map"></iframe>
 ```
 
-!!! warning "Pre-release"
-    The project comes out of a validated proof of concept. The core works (sessions, queue,
-    isolation), but several pieces are still provisional. See the [Roadmap](roadmap.md).
+!!! warning "0.x"
+    Released versions are listed on the
+    [releases page](https://github.com/Akinator31/Tryout/releases). Until 1.0, configuration and
+    APIs may change between minor versions. See the [Roadmap](roadmap.md).
 
 ## Where to start
 
