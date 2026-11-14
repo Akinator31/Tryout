@@ -102,26 +102,21 @@ vault with the original stack study (in French) and its sources.
   - terminal and desktop sessions, queue, heartbeat loss, cleanup, network isolation, profile
     refusal;
   - Selkies under gVisor on a Raspberry Pi 5 (arm64), behind a base path.
-- The roadmap is organised in milestones (`docs/roadmap.md`): M1 Deployable is done
-  (ghcr.io images; YAML config + JSON Schema; mTLS; per-IP limits; exit criteria checked on
-  fresh VMs). M2 Live in progress:
-  - registry credentials for private project images;
-  - production deployment guide and example compose files (`docs/deployment.md`), tested in CI
-    by `scripts/e2e-deploy.sh` with gVisor; `scripts/e2e-mtls.ts` checks any agent with `--pki`;
-  - the reconcile loop reattaches a recreated gateway (`scripts/e2e-reattach.ts`) and reaps
-    containers stuck in `created`;
-  - packaging guide (`docs/packaging.md`) and `scripts/check-image.sh`;
-  - a minimal dark embed page, now replaced by the M3 one.
+- The roadmap is organised in milestones (`docs/roadmap.md`). Done:
+  - M1 Deployable: ghcr.io images; YAML config + JSON Schema; mTLS; per-IP limits; exit
+    criteria checked on fresh VMs.
+  - M2 Live: private project images; production guide and examples (`docs/deployment.md`,
+    tested by `scripts/e2e-deploy.sh` with gVisor); gateway reattachment and reaping of
+    `created` containers; packaging guide and `scripts/check-image.sh`; public repository;
+    `v0.1.0` released (GitHub release notes, procedure in `docs/contributing.md`); a portfolio
+    embeds Tryout in production.
+  - M3 Design: embed page built from the Figma (`apps/embed`, `packages/tokens`; the
+    control-plane image is built from the repository root), English and French, theme from the
+    YAML (`theme.accent`, `theme.logo`, per-project `title`); Tryout logo in the README, docs
+    site and embed favicon.
 
-  Then M3 Design: the Figma mock-ups are settled and the UI kit is chosen (Chakra UI for the
-  admin, a framework-free embed, shared design tokens). The embed page is built from the Figma
-  (`apps/embed`, `packages/tokens`; the control-plane image is built from the repository root).
-  The embed speaks English and French (`?lang=`, else the browser's language) and takes a
-  theme from the YAML (`theme.accent`, `theme.logo`, per-project `title`); M3 is done.
-  Next: the `v0.1.0` release that closes M2 (the repository is already public), and a small
-  branding pass with the Tryout logo (README, docs site, favicon). Then M4 Operate: the admin
-  UI to set up projects (configuration in Postgres, admin authentication), released as `v0.2.0`;
-  M5 Hosting options.
+  Next: M4 Operate, the admin UI to set up projects (configuration in Postgres, admin
+  authentication), released as `v0.2.0`; then M5 Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module
