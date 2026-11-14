@@ -112,8 +112,10 @@ vault with the original stack study (in French) and its sources.
   - a minimal dark embed page (`apps/control-plane/src/embed.html`), until the M3 design.
 
   Then M3 Design: the Figma mock-ups are settled and the UI kit is chosen (Chakra UI for the
-  admin, a framework-free embed, shared design tokens); the embed build comes next. Then M4
-  Operate, M5 Hosting options.
+  admin, a framework-free embed, shared design tokens); the embed build comes next, then the
+  `v0.1.0` release that closes M2 (the repository is already public). Then M4 Operate: the admin
+  UI to set up projects (configuration in Postgres, admin authentication), released as `v0.2.0`;
+  M5 Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module
