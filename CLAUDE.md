@@ -109,7 +109,8 @@ vault with the original stack study (in French) and its sources.
     by `scripts/e2e-deploy.sh` with gVisor; `scripts/e2e-mtls.ts` checks any agent with `--pki`;
   - the reconcile loop reattaches a recreated gateway (`scripts/e2e-reattach.ts`) and reaps
     containers stuck in `created`;
-  - packaging guide (`docs/packaging.md`) and `scripts/check-image.sh`.
+  - packaging guide (`docs/packaging.md`) and `scripts/check-image.sh`;
+  - a minimal dark embed page (`apps/control-plane/src/embed.html`), until the M3 design.
 
   Then M3 Design (theme, Figma, React embed; the UI kit is chosen there), M4 Operate, M5
   Hosting options.

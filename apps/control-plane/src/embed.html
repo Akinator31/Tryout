@@ -15,6 +15,7 @@
     --accent: #7c9cff;
     --warn: #f5b454;
     --bar-height: 28px;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
 
   * { box-sizing: border-box; }
@@ -54,7 +55,7 @@
   .eyebrow {
     margin: 0 0 18px;
     color: var(--muted);
-    font: 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font: 12px/1 var(--mono);
     letter-spacing: 0.04em;
   }
 
@@ -71,7 +72,7 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 
   @media (prefers-reduced-motion: reduce) {
-    .spinner { animation-duration: 3s; }
+    .spinner { animation: none; }
   }
 
   .position {
@@ -131,7 +132,7 @@
     color: var(--muted);
     background: var(--surface);
     border-top: 1px solid var(--border);
-    font: 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font: 12px/1 var(--mono);
   }
 
   #bar .dot {
@@ -146,12 +147,12 @@
 </style>
 </head>
 <body>
-<main id="status" role="status" aria-live="polite">
+<main id="status">
   <div class="card">
     <p class="eyebrow" id="project"></p>
     <div class="spinner" id="spinner"></div>
     <p class="position" id="position" hidden></p>
-    <h1 id="title"></h1>
+    <h1 id="title" role="status" aria-live="polite"></h1>
     <p class="detail" id="detail" hidden></p>
     <button id="action" type="button" hidden>Start again</button>
   </div>
@@ -166,7 +167,7 @@ const project = "__PROJECT__";
 const FRAME_ALLOW = "clipboard-read; clipboard-write; autoplay; fullscreen; keyboard-map";
 
 /** Below this many seconds left, the countdown turns amber. */
-const SOON_S = 60;
+const SOON_SECONDS = 60;
 
 const el = (id) => document.getElementById(id);
 const statusEl = el("status");
@@ -182,7 +183,8 @@ let endsAt = 0;
 
 /**
  * Shows the status card. Every text goes through textContent: errors come
- * from the server and are never parsed as HTML.
+ * from the server and are never parsed as HTML. The title is the live region
+ * read by screen readers, so it is only rewritten when it changes.
  *
  * - `title`: the main line;
  * - `detail`: an optional muted line under it;
@@ -191,7 +193,7 @@ let endsAt = 0;
  * - `action`: shows the "Start again" button.
  */
 function show({ title, detail = "", busy = false, position = null, action = false }) {
-  el("title").textContent = title;
+  if (el("title").textContent !== title) el("title").textContent = title;
   el("detail").textContent = detail;
   el("detail").hidden = !detail;
 
@@ -208,12 +210,14 @@ async function join() {
   clearTimeout(retry);
   show({ title: "Connecting…", busy: true });
 
-  const r = await fetch(`/api/projects/${project}/tickets`, { method: "POST" }).catch(() => null);
-  if (!r) return show({ title: "Cannot reach Tryout", detail: "Check your connection.", action: true });
-  if (r.status === 429) return limited(Number(r.headers.get("retry-after")) || 30);
-  if (!r.ok) return show({ title: "Project unavailable", detail: "Try again in a moment.", action: true });
+  const res = await fetch(`/api/projects/${project}/tickets`, { method: "POST" }).catch(() => null);
+  if (!res) return show({ title: "Cannot reach Tryout", detail: "Check your connection.", action: true });
+  if (res.status === 429) return limited(Number(res.headers.get("retry-after")) || 30);
 
-  ticket = (await r.json()).ticket;
+  const body = res.ok ? await res.json().catch(() => null) : null;
+  if (!body?.ticket) return show({ title: "Project unavailable", detail: "Try again in a moment.", action: true });
+
+  ticket = body.ticket;
   listen();
 }
 
@@ -252,39 +256,45 @@ async function onStreamError() {
 
   const current = ticket;
   try {
-    const r = await fetch(`/api/tickets/${current}`);
+    const res = await fetch(`/api/tickets/${current}`);
     if (current !== ticket) return;
-    if (r.status === 404) return ended("Session expired");
+    if (res.status === 404) return ended("Session expired");
 
-    const v = await r.json();
-    render(v);
-    if (v.state === "ended") return;
+    const view = await res.json();
+    if (current !== ticket) return;
+
+    render(view);
+    if (view.state === "ended") return;
   } catch {}
 
   if (current === ticket) retry = setTimeout(listen, 3000);
 }
 
 /** Shows a ticket's view, pushed or polled, whatever its state. */
-function render(v) {
-  if (v.state === "waiting") {
-    show({ title: "In the queue", detail: "Your session will start automatically.", position: v.position });
-  }
-  if (v.state === "starting") show({ title: "Starting the environment…", busy: true });
-  if (v.state === "active") renderActive(v);
-  if (v.state === "ended") ended(v.error || "Session ended");
+function render(view) {
+  if (view.state === "waiting") renderWaiting(view);
+  if (view.state === "starting") show({ title: "Starting the environment…", busy: true });
+  if (view.state === "active") renderActive(view);
+  if (view.state === "ended") ended(view.error || "Session ended");
+}
+
+/** The queue position, or a spinner while the server has not computed it yet. */
+function renderWaiting(view) {
+  const detail = "Your session will start automatically.";
+  show({ title: "In the queue", detail, busy: true, position: view.position ?? null });
 }
 
 /** Opens the session frame once, and re-syncs the countdown with every message. */
-function renderActive(v) {
+function renderActive(view) {
   if (!frame) {
     frame = document.createElement("iframe");
     frame.allow = FRAME_ALLOW;
-    frame.src = v.url;
+    frame.src = view.url;
     document.body.appendChild(frame);
     statusEl.hidden = true;
   }
 
-  endsAt = Date.now() + v.ends_in_s * 1000;
+  endsAt = Date.now() + view.ends_in_s * 1000;
   if (!countdown) countdown = setInterval(tickDown, 1000);
   tickDown();
   bar.hidden = false;
@@ -296,11 +306,17 @@ function tickDown() {
   const seconds = String(left % 60).padStart(2, "0");
 
   timer.textContent = `ends in ${Math.floor(left / 60)}:${seconds}`;
-  timer.classList.toggle("soon", left <= SOON_S);
+  timer.classList.toggle("soon", left <= SOON_SECONDS);
 }
 
-/** Tears the session down and offers to start again. */
-function ended(msg) {
+/** Ends the session on this page and offers to start again. */
+function ended(message) {
+  teardown();
+  show({ title: message, detail: "Each visit gets a fresh environment.", action: true });
+}
+
+/** Closes the stream, stops the timers and removes the session frame. */
+function teardown() {
   if (events) {
     events.close();
     events = null;
@@ -314,8 +330,6 @@ function ended(msg) {
   }
   bar.hidden = true;
   ticket = null;
-
-  show({ title: msg, detail: "Each visit gets a fresh environment.", action: true });
 }
 
 el("project").textContent = project;

@@ -199,8 +199,8 @@ Then embed a project in your portfolio:
 ```
 
 The embed page shows the visitor's place in the queue while they wait, then the session above a
-28-pixel bar with the project's name and the time left. When the session ends, it offers to start
-a new one.
+thin bar with the project's key (`cli-hello` here) and the time left; the session area is the
+iframe minus that bar. When the session ends, it offers to start a new one.
 
 ## Upgrade
 
