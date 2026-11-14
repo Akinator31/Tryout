@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Akinator31/Tryout/apps/node/internal/logging"
+	"github.com/Akinator31/Tryout/apps/node/internal/version"
 )
 
 const (
@@ -24,19 +25,33 @@ const (
 func (a *agent) apiHandler() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", a.handleHealthz)
+	mux.HandleFunc("GET /metrics", a.handleMetrics)
 	mux.HandleFunc("POST /v1/sessions", a.handleCreateSession)
 	mux.HandleFunc("DELETE /v1/sessions/{id}", a.handleDeleteSession)
 	mux.HandleFunc("GET /v1/sessions", a.handleListSessions)
 	return mux
 }
 
-// handleHealthz reports the node's profile, architecture and runtimes.
+// handleHealthz describes the node and its load, counting the sessions being
+// created as reserveSlot does. The node is healthy when its
+// Docker daemon answers: otherwise it answers 503, since it could neither
+// start nor list sessions.
 func (a *agent) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	n, err := a.countSessions(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "error": "docker: " + err.Error()})
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":       true,
-		"profile":  a.cfg.profile,
-		"arch":     a.arch,
-		"runtimes": sortedKeys(a.runtimes),
+		"ok":              true,
+		"version":         version.Version,
+		"profile":         a.cfg.profile,
+		"arch":            a.arch,
+		"default_runtime": a.cfg.defaultRuntime,
+		"runtimes":        sortedKeys(a.runtimes),
+		"sessions":        n + a.creatingCount(),
+		"max_sessions":    a.cfg.maxSessions,
 	})
 }
 
@@ -57,7 +72,10 @@ func (a *agent) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), createTimeout)
 	defer cancel()
-	if err := a.create(ctx, req); err != nil {
+	started := time.Now()
+	err = a.create(ctx, req)
+	a.metrics.observeStart(req.Project, time.Since(started), err)
+	if err != nil {
 		slog.Warn("create failed", "id", logging.ID(req.ID), "err", err)
 		writeError(w, http.StatusConflict, err)
 		return

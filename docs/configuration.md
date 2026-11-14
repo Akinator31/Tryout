@@ -190,7 +190,7 @@ the embed page poll instead, which keeps its place in line.
 | `NODE_PROFILE` | `dev` | `dev`, `strict` or `single-host` (see [Security](security.md)). |
 | `DEFAULT_RUNTIME` | `runsc` | Runtime used when the project does not set one. In `strict` and `single-host`, the agent refuses to start with anything but `runsc` unless `ALLOW_RUNC=true`. |
 | `ALLOW_RUNC` | `false` | Allows runtimes other than `runsc` (`runc`, `io.containerd.runc.v2`…) in `strict` and `single-host`. A documented, weaker opt-out. |
-| `AGENT_LISTEN` | `:7000` | Private API address, served over mutual TLS only, `/healthz` included. |
+| `AGENT_LISTEN` | `:7000` | Private API address, served over mutual TLS only, `/healthz` and `/metrics` included. |
 | `AGENT_TLS_CERT` | — | Required. PEM server certificate of the agent (`serverAuth`). |
 | `AGENT_TLS_KEY` | — | Required. Its private key. |
 | `AGENT_TLS_CLIENT_CA` | — | Required. PEM CA that signs the control plane's client certificate. |

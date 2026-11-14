@@ -60,7 +60,9 @@ func (a *agent) reapSessions(ctx context.Context, cs []dockerapi.ContainerSummar
 
 		if reason := shouldReap(c, now); reason != "" {
 			slog.Info("reaping", "id", logging.ID(id), "state", c.State, "reason", reason)
-			a.destroy(ctx, id)
+			if a.destroy(ctx, id) {
+				a.metrics.reaped.Inc(reason)
+			}
 			continue
 		}
 
