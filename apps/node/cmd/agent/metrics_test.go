@@ -74,7 +74,6 @@ func TestMetrics(t *testing.T) {
 	a := testAgent("dev", false)
 	a.arch = "amd64"
 	a.cfg.maxSessions = 10
-	a.metrics = newAgentMetrics()
 	a.docker = fakeDockerClient(t, sessionsDocker(t, "b/running", "a/running", "b/running", "a/created"))
 
 	a.metrics.observeStart("a", 3*time.Second, nil)
@@ -94,6 +93,7 @@ func TestMetrics(t *testing.T) {
 		`tryout_node_sessions{project="a",state="running"} 1`,
 		`tryout_node_sessions{project="b",state="running"} 2`,
 		`tryout_node_sessions_max 10`,
+		`tryout_node_docker_up 1`,
 		`tryout_session_starts_total{project="a",result="full"} 1`,
 		`tryout_session_starts_total{project="a",result="ok"} 1`,
 		`tryout_session_starts_total{project="b",result="error"} 1`,
@@ -108,5 +108,21 @@ func TestMetrics(t *testing.T) {
 	}
 	if t.Failed() {
 		t.Log(body)
+	}
+}
+
+// TestMetricsDockerDown: without a daemon, the counters are still served and
+// tryout_node_docker_up says why the session gauge is missing.
+func TestMetricsDockerDown(t *testing.T) {
+	a := testAgent("dev", false)
+	a.docker = fakeDockerClient(t, func(w http.ResponseWriter, r *http.Request) { http.Error(w, "down", http.StatusInternalServerError) })
+	a.metrics.observeStart("a", 0, errors.New("docker down"))
+
+	rec := serveAPI(a, "/metrics")
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, "tryout_node_docker_up 0\n") ||
+		!strings.Contains(body, `tryout_session_starts_total{project="a",result="error"} 1`) ||
+		strings.Contains(body, "tryout_node_sessions{") {
+		t.Errorf("status %d, body:\n%s", rec.Code, body)
 	}
 }

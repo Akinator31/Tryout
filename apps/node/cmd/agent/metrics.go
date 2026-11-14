@@ -3,6 +3,7 @@ package main
 import (
 	"cmp"
 	"errors"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -52,18 +53,35 @@ func (m *agentMetrics) observeStart(project string, took time.Duration, err erro
 	}
 }
 
-// handleMetrics serves the agent's metrics in the Prometheus text format.
-// The control plane relays them on its admin listener: the agent opens no
-// other port.
+// handleMetrics serves the agent's metrics in the Prometheus text format, on
+// the mutual TLS API like every other endpoint. When the Docker daemon does
+// not answer, the counters are still served, without the session gauge, and
+// tryout_node_docker_up is 0.
 func (a *agent) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	gauges := []metrics.Gauge{a.infoGauge(), a.maxSessionsGauge()}
+
 	cs, err := a.docker.ContainerList(r.Context(), labelSession)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
-		return
+		gauges = append(gauges, dockerUpGauge(false))
+	} else {
+		gauges = append(gauges, dockerUpGauge(true), sessionsGauge(cs))
 	}
 
 	w.Header().Set("Content-Type", metrics.ContentType)
-	a.metrics.registry.Write(w, a.infoGauge(), sessionsGauge(cs), a.maxSessionsGauge())
+	a.metrics.registry.Write(w, gauges...)
+}
+
+// dockerUpGauge tells whether the node's Docker daemon answered this scrape.
+func dockerUpGauge(up bool) metrics.Gauge {
+	v := 0.0
+	if up {
+		v = 1
+	}
+	return metrics.Gauge{
+		Name:    "tryout_node_docker_up",
+		Help:    "1 when the node's Docker daemon answered this scrape, else 0.",
+		Samples: []metrics.Sample{{Value: v}},
+	}
 }
 
 // infoGauge describes the agent: always 1, the information is in the labels.
@@ -80,15 +98,10 @@ func (a *agent) infoGauge() metrics.Gauge {
 func sessionsGauge(cs []dockerapi.ContainerSummary) metrics.Gauge {
 	type key struct{ project, state string }
 	counts := map[key]int{}
-	var order []key
-
 	for _, c := range cs {
-		k := key{c.Labels[labelProject], c.State}
-		if counts[k] == 0 {
-			order = append(order, k)
-		}
-		counts[k]++
+		counts[key{c.Labels[labelProject], c.State}]++
 	}
+	order := slices.Collect(maps.Keys(counts))
 
 	g := metrics.Gauge{
 		Name:   "tryout_node_sessions",

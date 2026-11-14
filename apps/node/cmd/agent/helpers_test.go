@@ -22,6 +22,7 @@ func testAgent(profile string, allowRunc bool) *agent {
 			maxAge:         3600e9,
 		},
 		runtimes: map[string]bool{"runc": true, "runsc": true},
+		metrics:  newAgentMetrics(),
 	}
 }
 

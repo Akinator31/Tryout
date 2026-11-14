@@ -32,7 +32,8 @@ func (a *agent) apiHandler() *http.ServeMux {
 	return mux
 }
 
-// handleHealthz describes the node and its load. The node is healthy when its
+// handleHealthz describes the node and its load, counting the sessions being
+// created as reserveSlot does. The node is healthy when its
 // Docker daemon answers: otherwise it answers 503, since it could neither
 // start nor list sessions.
 func (a *agent) handleHealthz(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +50,7 @@ func (a *agent) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		"arch":            a.arch,
 		"default_runtime": a.cfg.defaultRuntime,
 		"runtimes":        sortedKeys(a.runtimes),
-		"sessions":        n,
+		"sessions":        n + a.creatingCount(),
 		"max_sessions":    a.cfg.maxSessions,
 	})
 }

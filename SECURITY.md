@@ -156,7 +156,9 @@ published on an address you choose.
   control plane's key or of the CA, issue a new CA (see the Certificates page,
   `docs/certificates.md`).
 - **Keep the agent API off the Internet** even with mutual TLS: a private network, a VPN or a
-  tunnel that carries TLS end to end.
+  tunnel that carries TLS end to end. Besides sessions, it serves `/healthz` and `/metrics`,
+  which tell the node's version, profile, runtimes and load per project to whoever holds the
+  control plane's certificate; they carry no session id or visitor address.
 - **Declare your reverse proxies in `client_ip.trusted_proxies`**, and only them. Without it,
   every visitor behind the proxy shares its address and its limits; with a block that is too
   broad, a visitor can claim any address in `X-Forwarded-For`. Rate limiting raw requests at the

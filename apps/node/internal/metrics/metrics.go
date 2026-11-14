@@ -6,6 +6,7 @@ package metrics
 import (
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"slices"
 	"strconv"
@@ -161,7 +162,7 @@ func (c *Counter) write(w io.Writer) {
 	defer c.mu.Unlock()
 
 	writeHeader(w, c.name, c.help, "counter")
-	for _, key := range sortedKeys(c.series) {
+	for _, key := range slices.Sorted(maps.Keys(c.series)) {
 		s := c.series[key]
 		writeSample(w, c.name, c.labels, s.labels, s.value)
 	}
@@ -176,7 +177,7 @@ func (h *Histogram) write(w io.Writer) {
 	writeHeader(w, h.name, h.help, "histogram")
 	bucketLabels := append(slices.Clone(h.labels), "le")
 
-	for _, key := range sortedKeys(h.series) {
+	for _, key := range slices.Sorted(maps.Keys(h.series)) {
 		s := h.series[key]
 
 		var cumulative uint64
@@ -192,7 +193,7 @@ func (h *Histogram) write(w io.Writer) {
 
 // writeHeader writes the HELP and TYPE lines of a family.
 func writeHeader(w io.Writer, name, help, kind string) {
-	fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s %s\n", name, escapeHelp(help), name, kind)
+	fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s %s\n", name, helpEscaper.Replace(help), name, kind)
 }
 
 // writeSample writes one line: name{label="value",...} value.
@@ -206,7 +207,7 @@ func writeSample(w io.Writer, name string, labels, values []string, v float64) {
 			if i > 0 {
 				b.WriteByte(',')
 			}
-			fmt.Fprintf(&b, `%s="%s"`, l, escapeLabel(valueAt(values, i)))
+			fmt.Fprintf(&b, `%s="%s"`, l, labelEscaper.Replace(valueAt(values, i)))
 		}
 		b.WriteByte('}')
 	}
@@ -236,28 +237,14 @@ func formatFloat(v float64) string {
 	return strconv.FormatFloat(v, 'g', -1, 64)
 }
 
-// escapeLabel escapes a label value: backslash, double quote and newline.
-func escapeLabel(s string) string {
-	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`).Replace(s)
-}
+// labelEscaper escapes a label value: backslash, double quote and newline.
+var labelEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
 
-// escapeHelp escapes a HELP text: backslash and newline.
-func escapeHelp(s string) string {
-	return strings.NewReplacer(`\`, `\\`, "\n", `\n`).Replace(s)
-}
+// helpEscaper escapes a HELP text: backslash and newline.
+var helpEscaper = strings.NewReplacer(`\`, `\\`, "\n", `\n`)
 
 // seriesKey identifies a series by its label values. The separator cannot
 // appear in a valid UTF-8 label value.
 func seriesKey(labelValues []string) string {
 	return strings.Join(labelValues, "\xff")
-}
-
-// sortedKeys returns the keys of m in increasing order.
-func sortedKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	return keys
 }

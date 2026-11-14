@@ -63,6 +63,14 @@ func (a *agent) finishDestroying(id string) {
 	delete(a.destroying, id)
 }
 
+// creatingCount returns how many sessions are being created.
+func (a *agent) creatingCount() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return len(a.creating)
+}
+
 // busyIDs returns a snapshot of the sessions being created or removed.
 func (a *agent) busyIDs() map[string]bool {
 	a.mu.Lock()

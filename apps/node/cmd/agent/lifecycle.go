@@ -148,12 +148,15 @@ func (a *agent) remove(ctx context.Context, id string) {
 
 // destroy removes a session's container, detaches the gateway and removes the
 // network. Each step tolerates what is already gone, so destroy can clean up
-// a half-created session or run twice.
-func (a *agent) destroy(ctx context.Context, id string) {
+// a half-created session or run twice. It reports whether the container is
+// gone; the other steps are retried by the next reconcile pass.
+func (a *agent) destroy(ctx context.Context, id string) bool {
 	name := namePrefix + id
 
+	removed := true
 	if err := a.docker.ContainerRemove(ctx, name); err != nil && !dockerapi.IsNotFound(err) {
 		slog.Warn("remove container", "id", logging.ID(id), "err", err)
+		removed = false
 	}
 	if err := a.docker.NetworkDisconnect(ctx, name, a.cfg.gatewayName); err != nil && !dockerapi.IsNotFound(err) {
 		slog.Debug("disconnect gateway", "id", logging.ID(id), "err", err)
@@ -163,4 +166,5 @@ func (a *agent) destroy(ctx context.Context, id string) {
 	}
 
 	slog.Info("session destroyed", "id", logging.ID(id))
+	return removed
 }
