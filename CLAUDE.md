@@ -111,6 +111,8 @@ vault with the original stack study (in French) and its sources.
   - the reconcile loop reattaches a recreated gateway (`scripts/e2e-reattach.ts`) and reaps
     containers stuck in `created`;
   - packaging guide (`docs/packaging.md`) and `scripts/check-image.sh`;
+  - a minimal dark embed page, now replaced by the M3 one.
+
   Then M3 Design: the Figma mock-ups are settled and the UI kit is chosen (Chakra UI for the
   admin, a framework-free embed, shared design tokens). The embed page is built from the Figma
   (`apps/embed`, `packages/tokens`; the control-plane image is built from the repository root).

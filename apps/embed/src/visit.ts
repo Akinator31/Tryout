@@ -51,7 +51,8 @@ export class Visit {
   #connected = true;
   #ticket: string | null = null;
   #events: EventStream | null = null;
-  #timer: ReturnType<typeof setTimeout> | undefined;
+  /** The next automatic step: joining again (limit, backoff) or listening again after a poll. */
+  #retryTimer: ReturnType<typeof setTimeout> | undefined;
   #lostTimer: ReturnType<typeof setTimeout> | undefined;
   #joinFailures = 0;
   /** Bumped whenever the visit starts over or ends, so late answers from before are dropped. */
@@ -103,9 +104,13 @@ export class Visit {
     await this.#finishAndRelease({ name: "ended" });
   }
 
-  /** The page is going away: frees the slot or the queue place at once. */
+  /**
+   * The page is going away: frees the slot or the queue place at once and stops following
+   * the ticket. A page restored from the back-forward cache joins again.
+   */
   exit(): void {
     if (this.#ticket) this.#api.releaseOnExit(this.#ticket);
+    this.#stop();
   }
 
   /** Ends a session the server has not ended well after its time; called by the page's clock. */
@@ -115,6 +120,7 @@ export class Visit {
     }
   }
 
+  /** Holds the new ticket, shows its first view and follows it. */
   #joined(view: TicketView): void {
     this.#ticket = view.ticket;
     this.#apply(view);
@@ -124,7 +130,7 @@ export class Visit {
   /** A per-IP limit refused the ticket: counts down, then joins again by itself. */
   #limited(retryAfterS: number): void {
     this.#set({ name: "limited", retryAt: Date.now() + retryAfterS * 1000 });
-    this.#timer = setTimeout(() => void this.join(), retryAfterS * 1000);
+    this.#retryTimer = setTimeout(() => void this.join(), retryAfterS * 1000);
   }
 
   /** Network or server error while joining: keeps "Connecting…" up and tries again, slower each time. */
@@ -132,7 +138,7 @@ export class Visit {
     const delay = Math.min(JOIN_RETRY_MS * 2 ** this.#joinFailures, JOIN_RETRY_MAX_MS);
     this.#joinFailures++;
     this.#setConnected(false);
-    this.#timer = setTimeout(() => void this.join(), delay);
+    this.#retryTimer = setTimeout(() => void this.join(), delay);
   }
 
   /** Moves to the phase a ticket view describes, pushed or polled. */
@@ -182,7 +188,7 @@ export class Visit {
     if (result !== null) this.#apply(result);
     if (generation !== this.#generation) return;
 
-    this.#timer = setTimeout(() => this.#listen(), RELISTEN_MS);
+    this.#retryTimer = setTimeout(() => this.#listen(), RELISTEN_MS);
   }
 
   /** Ends the visit on this page, then tells the server, best effort. */
@@ -205,27 +211,31 @@ export class Visit {
   /** Drops everything in flight and returns the new generation. */
   #stop(): number {
     this.#closeEvents();
-    clearTimeout(this.#timer);
+    clearTimeout(this.#retryTimer);
     this.#clearLostTimer();
     this.#ticket = null;
     return ++this.#generation;
   }
 
+  /** Cancels a pending switch to "connection lost". */
   #clearLostTimer(): void {
     clearTimeout(this.#lostTimer);
     this.#lostTimer = undefined;
   }
 
+  /** Closes the event stream, if one is open. */
   #closeEvents(): void {
     this.#events?.close();
     this.#events = null;
   }
 
+  /** Moves to a phase and lets the page render it. */
   #set(phase: Phase): void {
     this.#phase = phase;
     this.#onChange();
   }
 
+  /** Records whether the control plane is reachable; a reachable one cancels a pending "lost". */
   #setConnected(connected: boolean): void {
     if (connected) this.#clearLostTimer();
     if (this.#connected === connected) return;

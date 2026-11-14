@@ -62,21 +62,11 @@ export function clock(seconds: number): string {
 
 /** The card for a phase; null while the session is active, since the session fills the frame. */
 export function cardFor(phase: Phase, kind: Kind, now: number, t: Strings): Card | null {
-  const card = (title: string, rest: Partial<Card> = {}): Card => ({
-    visual: null,
-    detail: null,
-    action: null,
-    secondary: null,
-    announce: title,
-    ...rest,
-    title,
-  });
-
   switch (phase.name) {
     case "connecting":
       return card(t.connecting, { visual: { type: "spinner" } });
     case "waiting":
-      return waitingCard(phase.position, t, card);
+      return waitingCard(phase.position, t);
     case "starting":
       return card(t.startingTitle(kind), { visual: { type: "spinner" }, detail: t.startingDetail });
     case "active":
@@ -96,8 +86,13 @@ export function cardFor(phase: Phase, kind: Kind, now: number, t: Strings): Card
   }
 }
 
+/** A card with a title and only the parts given; it announces its title unless told otherwise. */
+function card(title: string, rest: Partial<Card> = {}): Card {
+  return { visual: null, detail: null, action: null, secondary: null, announce: title, ...rest, title };
+}
+
 /** Waiting: the position is the hero; a spinner until the server has computed it. */
-function waitingCard(position: number | null, t: Strings, card: (title: string, rest: Partial<Card>) => Card): Card {
+function waitingCard(position: number | null, t: Strings): Card {
   const rest = { detail: t.waitingDetail, secondary: t.leaveQueue };
   if (position === null) return card(t.waitingTitle, { ...rest, visual: { type: "spinner" } });
 

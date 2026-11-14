@@ -24,6 +24,7 @@ export interface Snapshot {
 
 export class Page {
   #t: Strings;
+  #project: string;
   #kind: Kind;
   #frame: HTMLIFrameElement | null = null;
   /** The session URL as given by the server; `frame.src` comes back normalised. */
@@ -53,6 +54,7 @@ export class Page {
 
   constructor(project: string, kind: Kind, t: Strings, actions: Actions) {
     this.#t = t;
+    this.#project = project;
     this.#kind = kind;
     const el = this.#el;
 
@@ -64,11 +66,15 @@ export class Page {
     show(el.fullscreen, document.fullscreenEnabled);
 
     el.action.addEventListener("click", actions.join);
-    el.secondary.addEventListener("click", actions.leave);
+    el.secondary.addEventListener("click", () => {
+      actions.leave();
+      el.action.focus();
+    });
     el.end.addEventListener("click", actions.end);
     el.fullscreen.addEventListener("click", () => void this.#frame?.requestFullscreen().catch(() => {}));
   }
 
+  /** Shows the card or the session for this instant; cheap enough to call every second. */
   render({ phase, connected, now }: Snapshot): void {
     const card = cardFor(phase, this.#kind, now, this.#t);
 
@@ -82,6 +88,7 @@ export class Page {
     this.#renderBanner(connected, phase.name === "active");
   }
 
+  /** Fills the status card: visual, texts and actions, each hidden when absent. */
   #renderCard(card: Card): void {
     const el = this.#el;
     const visual = card.visual;
@@ -127,21 +134,23 @@ export class Page {
     setText(el.timer, bar.time);
     show(el.bar, true);
 
-    if (bar.tone === "ending") this.#announce(this.#t.endingAnnounce);
+    this.#announce(bar.tone === "ending" ? this.#t.endingAnnounce : this.#t.sessionAnnounce);
   }
 
+  /** Replaces the session frame with one loading `url`, under the bar. */
   #openFrame(url: string): void {
     this.#frame?.remove();
     const frame = document.createElement("iframe");
     frame.className = "session";
     frame.allow = FRAME_ALLOW;
-    frame.title = this.#el.barProject.textContent ?? "";
+    frame.title = this.#project;
     frame.src = url;
     document.body.prepend(frame);
     this.#frame = frame;
     this.#frameUrl = url;
   }
 
+  /** The "connection lost" pill, worded for whether a session is kept. */
   #renderBanner(connected: boolean, inSession: boolean): void {
     const el = this.#el;
     setText(el.bannerText, inSession ? this.#t.lostWithSession : this.#t.lostWithoutSession);
@@ -156,6 +165,7 @@ export class Page {
   }
 }
 
+/** An element of index.html; a missing one is a build mistake, so it throws. */
 function byId(id: string): HTMLElement {
   const el = document.getElementById(id);
   if (!el) throw new Error(`embed page: #${id} is missing`);
@@ -167,6 +177,7 @@ function show(el: Element, visible: boolean): void {
   el.toggleAttribute("hidden", !visible);
 }
 
+/** Sets an element's text, touching the DOM only when it changes. */
 function setText(el: HTMLElement, text: string): void {
   if (el.textContent !== text) el.textContent = text;
 }

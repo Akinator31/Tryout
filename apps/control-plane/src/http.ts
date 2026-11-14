@@ -47,6 +47,24 @@ const limited = (res: ServerResponse, error: string, limit: LimitName, headers: 
 export function createHandler(cfg: Config, queue: Queue, embed: EmbedBundle, log: (msg: string) => void = () => {}) {
   const csp = embedCsp(cfg);
 
+  /**
+   * The embed page, framable by the configured portfolios only, and sending no referrer to
+   * sessions. An unknown project still gets the page, with a 404 status: its first request
+   * fails and the page says the project is unavailable, inside the portfolio's frame.
+   */
+  function serveEmbed(res: ServerResponse, project: string): void {
+    const known = Object.hasOwn(cfg.projects, project);
+
+    res.writeHead(known ? 200 : 404, {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-cache",
+      "content-security-policy": csp,
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+    });
+    res.end(embedPage(embed, project, known ? cfg.projects[project].kind : null));
+  }
+
   const clientKey = clientKeyResolver(cfg.client_ip, log);
   const streams = new StreamLimiter(cfg.limits.streams_per_ip);
   const clientOf = (req: IncomingMessage) => clientKey(req.socket.remoteAddress, req.headers);
@@ -87,7 +105,7 @@ export function createHandler(cfg: Config, queue: Queue, embed: EmbedBundle, log
     const isPost = req.method === "POST";
     const api = (resource: string) => parts[0] === "api" && parts[1] === resource;
 
-    if (isGet && parts[0] === "embed" && parts.length === 2) return serveEmbed(cfg, embed, csp, res, parts[1]);
+    if (isGet && parts[0] === "embed" && parts.length === 2) return serveEmbed(res, parts[1]);
     if (isGet && parts[0] === "assets" && parts.length === 2) return serveAsset(embed, res, parts[1]);
     if (isGet && url.pathname === "/demo") return serveDemo(cfg, res);
     if (isPost && api("projects") && parts[3] === "tickets") return join(req, res, parts[2]);
@@ -98,24 +116,6 @@ export function createHandler(cfg: Config, queue: Queue, embed: EmbedBundle, log
 
     json(res, 404, { error: "not found" });
   };
-}
-
-/**
- * The embed page, framable by the configured portfolios only, and sending no referrer to
- * sessions. An unknown project still gets the page, with a 404 status: its first request
- * fails and the page says the project is unavailable, inside the portfolio's frame.
- */
-function serveEmbed(cfg: Config, embed: EmbedBundle, csp: string, res: ServerResponse, project: string): void {
-  const known = Object.hasOwn(cfg.projects, project);
-
-  res.writeHead(known ? 200 : 404, {
-    "content-type": "text/html; charset=utf-8",
-    "cache-control": "no-cache",
-    "content-security-policy": csp,
-    "referrer-policy": "no-referrer",
-    "x-content-type-options": "nosniff",
-  });
-  res.end(embedPage(embed, project, known ? cfg.projects[project].kind : ""));
 }
 
 /** A file of the embed build. Its name carries a content hash, so it never changes. */

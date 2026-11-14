@@ -48,7 +48,8 @@ What it does:
 - Pushes every ticket change to the visitor over server-sent events. A trigger on the tickets
   table sends a Postgres `NOTIFY`, so a change made by any instance reaches every instance.
 - Serves the `/embed/<project>` page that portfolios embed in an iframe, and its files under
-  `/assets/`.
+  `/assets/`. An unknown project gets the same page with a `404` status, which tells the
+  visitor that the project is unavailable inside the portfolio's frame.
 
 ### Embed page — `apps/embed`, `packages/tokens`
 

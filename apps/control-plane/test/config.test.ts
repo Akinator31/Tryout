@@ -286,6 +286,13 @@ test("overbooking a node is a warning, not an error", () => {
   assert.deepEqual(warnings, ["node n1: its projects allow 9 sessions, the node caps them at 4"]);
 });
 
+test("{session} deeper than the first host label is a warning, since the embed CSP must widen", () => {
+  const url = (u: string) => parseConfig(base.replace("https://sbx.example.org/s/{session}/", u), opts).warnings;
+
+  assert.deepEqual(url("https://{session}.sbx.example.org/"), []);
+  assert.match(url("https://sbx.{session}.example.org/")[0], /^node n1: put \{session\} in the path or the first label/);
+});
+
 test("YAML syntax errors carry a line", () => {
   assert.match(problems("nodes: [\n")[0], /^line \d+: /);
 });

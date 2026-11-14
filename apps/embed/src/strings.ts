@@ -36,6 +36,8 @@ export const en = {
   lostWithSession: "Connection lost. Reconnecting… your session is kept.",
   lostWithoutSession: "Connection lost. Reconnecting…",
 
+  /** Announced when the session appears, since the card that spoke until then is gone. */
+  sessionAnnounce: "Your session is ready.",
   barReconnecting: "Reconnecting…",
   barEnding: "Copy what you want to keep.",
   /** Announced once when the session enters its last minute. */

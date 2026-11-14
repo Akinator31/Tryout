@@ -10,10 +10,12 @@ import type { Kind } from "./screens.ts";
 import { en } from "./strings.ts";
 import { Visit } from "./visit.ts";
 
-/** The control plane fills these meta tags; `vite dev` leaves the placeholders, hence ?project= and ?kind=. */
+/** The control plane fills these meta tags; under `vite dev` they keep their placeholders, so ?project= and ?kind= stand in. */
 function meta(name: string, devParam: string): string {
   const value = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content ?? "";
-  return value.startsWith("__") ? (new URLSearchParams(location.search).get(devParam) ?? "") : value;
+  if (!import.meta.env.DEV) return value;
+
+  return new URLSearchParams(location.search).get(devParam) ?? value;
 }
 
 const project = meta("tryout-project", "project");
@@ -26,6 +28,7 @@ const page = new Page(project, kind, en, {
   end: () => void visit.end(),
 });
 
+/** Renders the visit as it stands now. */
 function render(): void {
   page.render({ phase: visit.phase, connected: visit.connected, now: Date.now() });
 }
@@ -37,5 +40,8 @@ setInterval(() => {
 }, 1000);
 
 addEventListener("pagehide", () => visit.exit());
+addEventListener("pageshow", (e) => {
+  if (e.persisted) void visit.join();
+});
 
 void visit.join();

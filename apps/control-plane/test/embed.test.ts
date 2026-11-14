@@ -41,7 +41,7 @@ test("fills the project and kind, escaping the project for its attribute", () =>
   const bundle = loadEmbed(build());
 
   assert.equal(embedPage(bundle, "cli-hello", "terminal"), '<meta name="p" content="cli-hello"><meta name="k" content="terminal">');
-  assert.match(embedPage(bundle, '"><script>', ""), /content="&quot;&gt;&lt;script&gt;"/);
+  assert.match(embedPage(bundle, '"><script>', null), /content="&quot;&gt;&lt;script&gt;"/);
 });
 
 test("session frame sources follow each node's public URL", () => {

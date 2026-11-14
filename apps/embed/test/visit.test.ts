@@ -284,6 +284,8 @@ test("leaving the page releases a held ticket, and nothing otherwise", async (t)
 
   fake.joinResults.push(joined());
   await visit.join();
+  const stream = fake.stream;
   visit.exit();
   assert.deepEqual(fake.released, ["t1"]);
+  assert.equal(stream.closed, true, "the visit stops following the released ticket");
 });

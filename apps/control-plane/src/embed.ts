@@ -46,9 +46,10 @@ export function loadEmbed(dir: string = DEFAULT_EMBED_DIR): EmbedBundle {
   return { template, assets };
 }
 
-/** The page for one project. `kind` is empty for an unknown project, whose page says it is unavailable. */
-export function embedPage(bundle: EmbedBundle, project: string, kind: Kind | ""): string {
-  return bundle.template.replaceAll("__PROJECT__", escapeAttribute(project)).replaceAll("__KIND__", kind);
+/** The page for one project. `kind` is null for an unknown project, whose page says it is unavailable. */
+export function embedPage(bundle: EmbedBundle, project: string, kind: Kind | null): string {
+  const page = bundle.template.replaceAll("__PROJECT__", escapeAttribute(project));
+  return page.replaceAll("__KIND__", kind ?? "");
 }
 
 /**
@@ -82,13 +83,22 @@ export function sessionFrameSources(cfg: Config): string[] {
     const [scheme, rest] = node.public_url.split("://");
     const host = rest.split("/")[0];
 
-    if (!host.includes("{session}")) sources.add(`${scheme}://${host}`);
-    else if (!host.split(".")[0].includes("{session}") || !host.includes(".")) sources.add(`${scheme}:`);
-    else sources.add(`${scheme}://*.${host.slice(host.indexOf(".") + 1)}`);
+    sources.add(hostSource(scheme, host));
   }
   return [...sources].sort();
 }
 
+/** The CSP source for one public URL's scheme and host, `{session}` included; see sessionFrameSources. */
+function hostSource(scheme: string, host: string): string {
+  if (!host.includes("{session}")) return `${scheme}://${host}`;
+
+  const dot = host.indexOf(".");
+  const sessionInFirstLabel = dot > 0 && host.slice(0, dot).includes("{session}");
+
+  return sessionInFirstLabel ? `${scheme}://*.${host.slice(dot + 1)}` : `${scheme}:`;
+}
+
+/** Escapes a value for a double-quoted HTML attribute. */
 function escapeAttribute(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }

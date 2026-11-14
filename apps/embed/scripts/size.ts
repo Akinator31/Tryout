@@ -10,23 +10,42 @@ import { extname, join } from "node:path";
 import { gzipSync } from "node:zlib";
 
 const KB = 1024;
-const BUDGETS = [
+
+interface Budget {
+  name: string;
+  extensions: string[];
+  limit: number;
+  gzip: boolean;
+}
+
+interface File {
+  name: string;
+  bytes: Buffer;
+}
+
+const BUDGETS: Budget[] = [
   { name: "scripts and styles (gzip)", extensions: [".js", ".css"], limit: 25 * KB, gzip: true },
   { name: "fonts", extensions: [".woff2"], limit: 100 * KB, gzip: false },
 ];
 
-const assets = join(process.argv[2] ?? "dist", "assets");
-const files = readdirSync(assets).map((name) => ({ name, bytes: readFileSync(join(assets, name)) }));
+/** Every file of dist/assets. */
+function readAssets(dist: string): File[] {
+  const dir = join(dist, "assets");
+  return readdirSync(dir).map((name) => ({ name, bytes: readFileSync(join(dir, name)) }));
+}
 
-let over = false;
-for (const budget of BUDGETS) {
+/** Prints one budget's total and files; returns whether it holds. */
+function check(budget: Budget, files: File[]): boolean {
   const matching = files.filter((f) => budget.extensions.includes(extname(f.name)));
   const size = matching.reduce((sum, f) => sum + (budget.gzip ? gzipSync(f.bytes).length : f.bytes.length), 0);
   const ok = size <= budget.limit;
-  over ||= !ok;
 
   console.log(`${ok ? "ok  " : "OVER"} ${budget.name}: ${(size / KB).toFixed(1)} KB of ${budget.limit / KB} KB`);
   for (const f of matching) console.log(`       ${f.name}`);
+  return ok;
 }
 
-process.exit(over ? 1 : 0);
+const files = readAssets(process.argv[2] ?? "dist");
+const results = BUDGETS.map((budget) => check(budget, files));
+
+process.exit(results.every(Boolean) ? 0 : 1);

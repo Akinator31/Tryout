@@ -49,6 +49,7 @@ node scripts/e2e-reattach.ts http://localhost:3000 cli-hello -- \
 scripts/e2e-deploy.sh        # the production layout with gVisor; Docker Desktop: see the script
 (cd apps/node && go test ./...)
 (cd apps/control-plane && npm ci && npm run typecheck && npm test)
+(cd apps/embed && npm ci && npm run typecheck && npm test)
 ```
 
 ## Stop
