@@ -224,13 +224,49 @@ error lines.
 
 ## Health and metrics
 
+The control plane checks each node's `/healthz` every 10 s, over mutual TLS. A node that
+answers anything but `200`, or nothing within 5 s, is down: its waiting visitors keep their place
+and no session starts there until a check succeeds again. A node is down from the control
+plane's start until its first check, a few seconds later. The control plane logs `node down`
+and `node up` when a node changes state. Each instance checks the nodes on its own; nodes never
+call the control plane.
+
+With `admin_listen` set (see [Configuration](configuration.md#top-level)), the control plane
+serves Prometheus metrics on `/metrics` of that listener: its own, then every agent's, which it
+fetches over mutual TLS at each scrape and labels with `node`. Prometheus scrapes one target
+per control plane instance and needs no certificate, and nodes open no new port. Keep the admin
+listener on a private address or behind your own access control: it has no authentication.
+
+```yaml
+scrape_configs:
+  - job_name: tryout
+    static_configs:
+      - targets: ["127.0.0.1:9090"]
+```
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `tryout_tickets` | gauge | `project`, `state` | Live tickets: `waiting` (the queue length), `starting`, `active`. Read from PostgreSQL, so every instance reports the same values. |
+| `tryout_node_up` | gauge | `node` | 1 when this instance's last health check of the node succeeded, else 0. |
+| `tryout_node_metrics_up` | gauge | `node` | 1 when the node's metrics were relayed in this scrape, else 0. |
+| `tryout_ticket_starts_total` | counter | `project`, `result` | Session starts run by this instance: `ok`, `error` (the node or the readiness probe failed), `timeout` (no session after 180 s) or `abandoned` (the ticket ended during the start, usually because the visitor left). |
+| `tryout_ticket_start_seconds` | histogram | `project` | Time from a slot being granted to a reachable session, as the visitor waits for it, for successful starts run by this instance. |
+
+Counters belong to the instance that ran the start and restart from zero with it; with several
+instances, scrape each one and sum. The control plane drops relayed lines it cannot parse, and
+any family a node sends under one of the names above, so a node cannot break the scrape or speak
+for another node.
+
+### Agent endpoints
+
 Each agent serves two read-only endpoints on its mutual TLS API, so only a client with the
 control plane's certificate can call them:
 
 - `GET /healthz` answers `200` with the node's version, profile, architecture, default
   runtime, installed runtimes, session count (starts in progress included) and `MAX_SESSIONS`, or `503` when the agent cannot
   reach its Docker daemon.
-- `GET /metrics` answers in the Prometheus text format:
+- `GET /metrics` answers in the Prometheus text format, relayed by the control plane with a
+  `node` label:
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|

@@ -3,6 +3,10 @@
 # Guide: docs/deployment.md. ${NAME} reads an environment variable of the container.
 listen: ":3000"
 
+# Optional: the admin listener, with Prometheus metrics on /metrics. Off when left out.
+# Keep it off the Internet: publish it on a private address only (see compose.yaml).
+# admin_listen: ":9090"
+
 # The portfolios allowed to embed /embed/<project> in an iframe.
 embed_frame_ancestors:
   - https://portfolio.example.org

@@ -23,6 +23,9 @@ for graphical ones. Each project is assigned to a node.
 | `queue.ts` | **The core.** Interface: `join`, `poll`, `watch`, `release`, `tick`. Behind it: per-project and per-node caps, per-IP ticket limits, FIFO promotion, session start, heartbeat loss, maximum age, start timeout, change notifications (`LISTEN/NOTIFY`). State lives in Postgres. |
 | `queue-*.ts` | The queue's internals: table and migrations (`queue-schema`), per-IP ticket limits (`queue-limits`), stream watchers (`queue-watchers`), delays (`queue-timing`). |
 | `runtime.ts` | `SessionRuntime` adapter for real nodes: agent API over mutual TLS + readiness probe through the gateway. Tests use an in-memory adapter. |
+| `agents.ts` | One mutual TLS client per node, shared by the runtime, the health check and the metrics relay; the agent's `/healthz` and `/metrics` calls, with size-capped answers. |
+| `health.ts` | Node health: checks every node's `/healthz` every 10 s and keeps the last result; the queue starts no session on a node that is not up. |
+| `admin.ts`, `metrics*.ts` | The admin listener: its `/metrics` page (ticket gauges, node health, start counters), the Prometheus text writer (`metrics`) and the strict relay of the agents' metrics (`metrics-relay`). |
 | `db.ts`, `db-listen.ts` | Database port (queries, transactions, `LISTEN`); adapters for node-postgres and, in tests, PGlite; the reconnecting `LISTEN` session. |
 | `client.ts` | The visitor's IP address, read through trusted proxies only, and the cap on open event streams per IP. |
 | `http.ts` | Embed page and its assets, demo page, queue API and its SSE stream. Thin. |
@@ -36,6 +39,8 @@ What it does:
   refuses to start on any error.
 - Manages **tickets**: a visitor joins a project's queue and waits for a free slot.
 - Enforces two caps: sessions per project and sessions per node.
+- Checks each node's health every 10 s and starts no session on a node that does not answer;
+  its visitors keep waiting.
 - Limits what one IP address can hold: live tickets, tickets created per minute and open event
   streams ([Configuration](configuration.md#per-ip-limits)).
 - Starts a session through the agent, checks that it answers through the gateway, then hands
@@ -50,6 +55,8 @@ What it does:
 - Serves the `/embed/<project>` page that portfolios embed in an iframe, and its files under
   `/assets/`. An unknown project gets the same page with a `404` status, which tells the
   visitor that the project is unavailable inside the portfolio's frame.
+- Serves Prometheus metrics on a separate admin listener (`admin_listen`, off by default): its
+  own, and every agent's, relayed over mutual TLS with a `node` label.
 
 ### Embed page — `apps/embed`, `packages/tokens`
 
@@ -232,6 +239,25 @@ transaction commits.
   stream and resynchronises the page's countdown.
 - Each instance holds one extra Postgres connection for `LISTEN`. The trigger uses
   `CREATE OR REPLACE TRIGGER`, hence PostgreSQL 14 or later.
+
+### Health and metrics through the control plane
+
+Nodes never call the control plane, so the control plane asks them: it checks each agent's
+`/healthz` and fetches its `/metrics` over the mutual TLS link it already has. Prometheus then
+scrapes the control plane alone, needs no certificate from the Tryout CA, and nodes open no new
+port. A node runs hostile code, so its metrics are parsed strictly and rebuilt with its own
+`node` label rather than copied, and its answers are size-capped.
+
+- **Health per instance.** Each control plane instance checks the nodes itself and keeps the
+  result in memory. Two instances may disagree for a few seconds after a node changes state,
+  which at worst starts a session that fails and ends with an error, as it would without the
+  check.
+- **Down until checked.** A node counts as down until its first check, so a control plane that
+  just started never sends a session to a node it has not reached. The first check runs at
+  startup, followed by a promotion pass.
+- **A separate listener.** Metrics tell queue lengths and node versions, and the admin UI will
+  join them on the same listener. Keeping it off by default, on its own address, lets the
+  operator leave it off the Internet.
 
 ### One log format
 

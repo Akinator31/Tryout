@@ -196,3 +196,7 @@ the admin UI, and graph queue and session metrics.
 - **M4:** the agent reports its version, policy and load on `/healthz` (503 when Docker does not
   answer) and Prometheus metrics on `/metrics`, on its mutual TLS API. See
   [Health and metrics](deployment.md#health-and-metrics).
+- **M4:** the control plane checks every node's health every 10 s and starts no session on a
+  node that does not answer; with `admin_listen`, it serves Prometheus metrics (tickets, node
+  health, start counts and times) and relays the agents' metrics with a `node` label. See
+  [Health and metrics](deployment.md#health-and-metrics).

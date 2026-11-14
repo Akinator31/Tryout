@@ -1,8 +1,8 @@
 // Queue: the control plane's deep module.
 //
-// Interface: join / poll / watch / release / tick. Behind it: per-project
-// and per-node caps, per-client limits, FIFO promotion, session start and readiness, heartbeat
-// loss, maximum age, change notifications. State lives in Postgres
+// Interface: join / poll / watch / release / tick / stats. Behind it: per-project
+// and per-node caps, node health, per-client limits, FIFO promotion, session start and
+// readiness, heartbeat loss, maximum age, change notifications. State lives in Postgres
 // so several control plane instances can share it; time comes from an
 // injected clock. The storage, the limits and the watchers live in the
 // sibling queue-*.ts modules.
@@ -47,6 +47,21 @@ export interface SessionRuntime {
 
 export type TicketState = "waiting" | "starting" | "active" | "ended";
 
+/** Live tickets of one project, by state. */
+export type ProjectStats = Record<Exclude<TicketState, "ended">, number>;
+
+/**
+ * How a session start ended: `ok` (the ticket became active), `error` (the
+ * node or the readiness probe failed), `timeout` (the start deadline passed)
+ * or `abandoned` (the ticket ended during the start, usually because the
+ * visitor left).
+ */
+export interface StartOutcome {
+  project: string;
+  result: "ok" | "error" | "timeout" | "abandoned";
+  seconds: number;
+}
+
 export interface TicketView {
   ticket: string;
   state: TicketState;
@@ -76,12 +91,28 @@ export interface Queue {
   release(ticket: string): Promise<TicketView | null>;
   /** Keeps watched tickets alive, expires tickets, promotes waiting ones. Call every few seconds. */
   tick(): Promise<void>;
+  /**
+   * Live tickets by project and state, across every instance: each configured
+   * project, with zeros, and any project still holding tickets after it left
+   * the configuration.
+   */
+  stats(): Promise<Record<string, ProjectStats>>;
 }
 
 export class UnknownProjectError extends Error {}
 
 /** Error shown to the visitor when a session failed or timed out while starting. */
 const START_FAILED = "Could not start the session.";
+
+/** Why a start in flight was aborted; carried as the start signal's reason. */
+class StartAborted extends Error {
+  readonly result: "timeout" | "abandoned";
+
+  constructor(result: "timeout" | "abandoned") {
+    super(result === "timeout" ? "start timed out" : "ticket ended");
+    this.result = result;
+  }
+}
 
 /** A session id: 26 base32 chars = 130 bits, since the session id is the credential in the URL. */
 export function randomId(): string {
@@ -113,16 +144,17 @@ async function readUsage(q: Query): Promise<Usage> {
 }
 
 /**
- * Takes a slot for `ticket` if its project and its node are both below their
- * caps. A ticket whose project or node left the configuration never starts.
+ * Takes a slot for `ticket` if its node is up and its project and node are
+ * both below their caps. A ticket whose project or node left the
+ * configuration never starts.
  */
-function takeSlot(config: QueueConfig, usage: Usage, ticket: Row): boolean {
+function takeSlot(config: QueueConfig, nodeUp: (node: string) => boolean, usage: Usage, ticket: Row): boolean {
   const project = config.projects[ticket.project];
   const node = config.nodes[ticket.node];
   const usedByProject = usage.perProject.get(ticket.project) ?? 0;
   const usedOnNode = usage.perNode.get(ticket.node) ?? 0;
 
-  if (!project || !node) return false;
+  if (!project || !node || !nodeUp(ticket.node)) return false;
   if (usedByProject >= project.maxSessions || usedOnNode >= node.maxSessions) return false;
 
   usage.perProject.set(ticket.project, usedByProject + 1);
@@ -132,13 +164,20 @@ function takeSlot(config: QueueConfig, usage: Usage, ticket: Row): boolean {
 
 const sessionOf = (row: Row): SessionRef => ({ sessionId: row.session_id!, project: row.project, node: row.node });
 
-/** What a queue needs: its database, configuration and nodes, plus an injectable clock and logger. */
+/**
+ * What a queue needs: its database, configuration and nodes, plus an
+ * injectable clock and logger. `nodeUp` tells whether a node may receive new
+ * sessions (every node by default); `onStart` hears how each start run by
+ * this instance ended.
+ */
 export interface QueueDeps {
   db: Db;
   config: QueueConfig;
   runtime: SessionRuntime;
   now?: () => number;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
+  nodeUp?: (node: string) => boolean;
+  onStart?: (outcome: StartOutcome) => void;
 }
 
 /** Creates the queue, after creating or upgrading its table and subscribing to ticket changes. */
@@ -157,6 +196,8 @@ class PgQueue implements Queue {
   readonly #runtime: SessionRuntime;
   readonly #now: () => number;
   readonly #log: (msg: string, extra?: Record<string, unknown>) => void;
+  readonly #nodeUp: (node: string) => boolean;
+  readonly #onStart: (outcome: StartOutcome) => void;
   readonly #watchers: ReturnType<typeof createWatchers>;
 
   /** Starts run by this instance, by ticket: aborted when the ticket ends. */
@@ -169,6 +210,8 @@ class PgQueue implements Queue {
     this.#runtime = deps.runtime;
     this.#now = deps.now ?? Date.now;
     this.#log = deps.log ?? (() => {});
+    this.#nodeUp = deps.nodeUp ?? (() => true);
+    this.#onStart = deps.onStart ?? (() => {});
     this.#watchers = createWatchers({ db: deps.db, view: (row) => this.#view(row), log: this.#log });
     this.#lastResync = this.#now();
   }
@@ -232,6 +275,20 @@ class PgQueue implements Queue {
     await this.#forgetEnded(t);
     await this.#schedule();
     this.#resyncWatchers(t);
+  }
+
+  async stats(): Promise<Record<string, ProjectStats>> {
+    const rows = await this.#db.query<{ project: string; state: keyof ProjectStats; n: number }>(
+      `SELECT project, state, count(*)::int AS n
+       FROM tickets
+       WHERE state <> 'ended'
+       GROUP BY project, state`,
+    );
+
+    const zero = (): ProjectStats => ({ waiting: 0, starting: 0, active: 0 });
+    const stats = Object.fromEntries(Object.keys(this.#config.projects).map((p) => [p, zero()]));
+    for (const r of rows) (stats[r.project] ??= zero())[r.state] = r.n;
+    return stats;
   }
 
   /** What the visitor may see of a ticket: only the fields that make sense in its state. */
@@ -309,7 +366,7 @@ class PgQueue implements Queue {
 
     const promoted: Row[] = [];
     for (const ticket of waiting) {
-      if (!takeSlot(this.#config, usage, ticket)) continue;
+      if (!takeSlot(this.#config, this.#nodeUp, usage, ticket)) continue;
 
       const [row] = await q<Row>(
         `UPDATE tickets SET state = 'starting', session_id = $2, start_deadline = $3
@@ -322,10 +379,16 @@ class PgQueue implements Queue {
     return promoted;
   }
 
-  /** Starts a promoted ticket's session and activates the ticket once the session is reachable. */
+  /**
+   * Starts a promoted ticket's session, activates the ticket once the session
+   * is reachable, and reports the outcome.
+   */
   async #start(ticket: Row): Promise<void> {
     const session = sessionOf(ticket);
     const { signal, finish } = this.#trackStart(ticket.id);
+    const startedAt = this.#now();
+    const report = (result: StartOutcome["result"]) =>
+      this.#onStart({ project: ticket.project, result, seconds: (this.#now() - startedAt) / 1000 });
     this.#log("starting", { ticket: ticket.id, project: ticket.project, node: ticket.node });
 
     try {
@@ -333,10 +396,11 @@ class PgQueue implements Queue {
       try {
         ({ url } = await this.#runtime.start(session, signal));
       } catch (e) {
+        report(signal.reason instanceof StartAborted ? signal.reason.result : "error");
         await this.#failStart(ticket, session, e);
         return;
       }
-      await this.#activate(ticket, session, url);
+      report((await this.#activate(ticket, session, url)) ? "ok" : "abandoned");
     } finally {
       finish();
     }
@@ -350,7 +414,7 @@ class PgQueue implements Queue {
   #trackStart(ticket: string): { signal: AbortSignal; finish: () => void } {
     const abort = new AbortController();
     this.#inFlight.set(ticket, abort);
-    const deadline = setTimeout(() => abort.abort(new Error("start timed out")), START_TIMEOUT_MS);
+    const deadline = setTimeout(() => abort.abort(new StartAborted("timeout")), START_TIMEOUT_MS);
     deadline.unref();
 
     const finish = () => {
@@ -371,9 +435,9 @@ class PgQueue implements Queue {
   /**
    * Makes a started ticket active, with its URL and maximum age. A ticket that
    * ended while starting (visitor left, heartbeat lost) is left alone, and its
-   * session, now an orphan, is stopped.
+   * session, now an orphan, is stopped. Returns whether the ticket became active.
    */
-  async #activate(ticket: Row, session: SessionRef, url: string): Promise<void> {
+  async #activate(ticket: Row, session: SessionRef, url: string): Promise<boolean> {
     const maxAgeMs = (this.#config.projects[ticket.project]?.maxAgeS ?? 0) * 1000;
     const activated = await this.#db.query(
       `UPDATE tickets SET state = 'active', url = $2, ends_at = $3
@@ -384,9 +448,11 @@ class PgQueue implements Queue {
 
     if (activated.length > 0) {
       this.#log("active", { ticket: ticket.id, project: ticket.project });
-    } else {
-      await this.#stopSession(session);
+      return true;
     }
+
+    await this.#stopSession(session);
+    return false;
   }
 
   /** Marks a ticket ended (once), aborts its start if one is in flight here, and stops its session if it had one. */
@@ -400,7 +466,7 @@ class PgQueue implements Queue {
     if (!row) return;
 
     this.#log("ended", { ticket: ticket, project: row.project, error: error ?? null });
-    this.#inFlight.get(ticket)?.abort(new Error("ticket ended"));
+    this.#inFlight.get(ticket)?.abort(new StartAborted(error === START_FAILED ? "timeout" : "abandoned"));
     if (row.session_id) await this.#stopSession(sessionOf(row));
   }
 

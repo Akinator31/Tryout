@@ -20,7 +20,10 @@ services:
     security_opt: ["no-new-privileges:true"]
     # The embed page and the queue API. Put your reverse proxy or tunnel in front,
     # and list it in client_ip.trusted_proxies.
-    ports: ["${CONTROL_PLANE_PUBLISH:?set CONTROL_PLANE_PUBLISH in .env}:3000"]
+    ports:
+      - "${CONTROL_PLANE_PUBLISH:?set CONTROL_PLANE_PUBLISH in .env}:3000"
+      # With admin_listen: ":9090" in tryout.yaml, for Prometheus on this machine:
+      # - "127.0.0.1:9090:9090"
     networks: [default, db]   # default: outbound to the agents; db: PostgreSQL only
     depends_on:
       postgres: { condition: service_healthy }
