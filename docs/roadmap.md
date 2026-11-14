@@ -3,13 +3,16 @@
 Tryout moves through ordered milestones. Each milestone has a goal and exit criteria; an item
 moves to [Done](#done) when it ships. There are no dates.
 
+Order from here: the M3 embed is built first, then `v0.1.0` is released and M2 closes; the admin
+UI of M4 follows, in `v0.2.0`.
+
 | Milestone | Goal | Status |
 |---|---|---|
 | [M0 — Proof of concept](#m0-proof-of-concept) | Show that the stack works end to end | Done |
 | [M1 — Deployable](#m1-deployable) | Run Tryout on real infrastructure without building anything on the node | Done |
 | [M2 — Live](#m2-live) | A first public deployment, a public repository and versioned releases | In progress |
 | [M3 — Design](#m3-design) | A dark, clear and robust visitor experience, designed before it is built | In progress |
-| [M4 — Operate](#m4-operate) | See and control what runs: admin UI, metrics, logs | Planned |
+| [M4 — Operate](#m4-operate) | Set up and control projects from an admin UI; metrics and logs | Planned |
 | [M5 — Hosting options](#m5-hosting-options) | More ways to run nodes safely | Planned |
 
 ## M0 — Proof of concept
@@ -49,8 +52,7 @@ closing (see [Done](#done)). Its other findings are M2 items.
 
 | Item | Notes |
 |---|---|
-| Public repository: private vulnerability reporting enabled, security policy checked | |
-| Versioned releases: semantic version tags, changelog, images tagged per release | First release `v0.1.0` |
+| Versioned releases: semantic version tags, changelog, images tagged per release | First release `v0.1.0`, once the M3 embed is built |
 | Optional: GitHub Milestones and one issue per roadmap item | This page stays the source of truth |
 
 **Exit criteria:** a portfolio embeds Tryout in production; the repository is public; `v0.1.0`
@@ -90,17 +92,21 @@ end-to-end tests still pass.
 
 ## M4 — Operate
 
-**Goal:** the operator sees what runs and can act on it.
+**Goal:** the operator sets up projects, nodes and limits from an admin UI, sees what runs and
+can act on it. Released as `v0.2.0`.
 
 | Item | Notes |
 |---|---|
+| Configuration stored in Postgres, with revisions validated by the JSON Schema | Replaces editing `tryout.yaml` and restarting; YAML import and export stay |
 | Admin authentication | Design first, agreed with the maintainer: the admin API must not weaken the security invariants |
-| Admin UI (React): running sessions, queue per project, nodes, forced stop | Screens from the M3 Figma file |
+| Admin API in the control plane | Projects, nodes, embedding and limits, sessions, revisions |
+| Node health from the agent's `/healthz`, called by the control plane | Nodes still never call the control plane |
+| Admin UI (React, Chakra UI): project setup, nodes, embedding and limits, running sessions, forced stop | Screens from the M3 Figma file |
 | Metrics (Prometheus): sessions, queue length, start time, failures | Control plane and agent |
 | Structured logs in the agent and the gateway | The control plane already logs JSON |
 
-**Exit criteria:** an operator can find and stop any session from the admin UI, and graph queue
-and session metrics.
+**Exit criteria:** an operator can set up a project from scratch, find and stop any session from
+the admin UI, and graph queue and session metrics.
 
 ## M5 — Hosting options
 
@@ -157,6 +163,7 @@ and session metrics.
   Python tool behind ttyd) and a desktop project (an application on a LinuxServer Selkies
   image), and `scripts/check-image.sh`, which runs an image with the session constraints and
   probes its base path. CI checks the example image with it.
+- **M2:** the repository is public, with private vulnerability reporting enabled.
 - **M2:** a minimal visual pass on the embed page, so the first visitors do not see raw HTML:
   a dark status card (queue position, spinner, "Start again"), a bar under the session with the
   time left, and server messages shown as text only. The real design is M3.
