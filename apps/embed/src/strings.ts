@@ -55,35 +55,35 @@ export const fr: Strings = {
   connecting: "Connexion…",
 
   waitingTitle: "Votre place dans la file",
-  waitingDetail: "Gardez cet onglet ouvert pour la conserver. Votre session démarre toute seule.",
+  waitingDetail: "Gardez cet onglet ouvert. La session démarre automatiquement.",
   leaveQueue: "Quitter la file",
   positionAnnounce: (position) => `Votre place dans la file\u00a0: ${position}.`,
 
-  startingTitle: (kind) => (kind === "desktop" ? "Démarrage de votre bureau…" : "Démarrage de votre terminal…"),
-  startingDetail: "Cela prend quelques secondes.",
+  startingTitle: (kind) => (kind === "desktop" ? "Démarrage du bureau…" : "Démarrage du terminal…"),
+  startingDetail: "Quelques secondes.",
 
   endedTitle: "Session terminée",
-  endedDetail: "Le conteneur et ses fichiers sont supprimés. Recommencez pour en avoir un neuf.",
+  endedDetail: "Conteneur et fichiers supprimés.",
   startAgain: "Recommencer",
 
-  leftTitle: "Vous avez quitté la file",
-  leftDetail: "Votre place est passée à la personne suivante. Revenez quand vous voulez.",
+  leftTitle: "File quittée",
+  leftDetail: "Votre place est libérée.",
   joinAgain: "Rejoindre la file",
 
-  failedTitle: "La session n’a pas démarré",
-  failedDetail: "La machine qui l’héberge n’a pas répondu à temps. Rien n’a été conservé.",
+  failedTitle: "Échec du démarrage",
+  failedDetail: "Le serveur n’a pas répondu à temps.",
   tryAgain: "Réessayer",
 
   limitedTitle: "Trop de sessions depuis votre réseau",
-  limitedDetail: "D’autres personnes de votre réseau utilisent Tryout. Nouvel essai automatique.",
+  limitedDetail: "Nouvel essai automatique.",
 
-  unavailableTitle: "Ce projet est hors ligne",
-  unavailableDetail: "Son serveur est injoignable pour le moment. Réessayez plus tard.",
+  unavailableTitle: "Projet hors ligne",
+  unavailableDetail: "Serveur injoignable. Réessayez plus tard.",
 
-  lostWithSession: "Connexion perdue. Reconnexion… votre session est conservée.",
+  lostWithSession: "Connexion perdue. Reconnexion… Session conservée.",
   lostWithoutSession: "Connexion perdue. Reconnexion…",
 
-  sessionAnnounce: "Votre session est prête.",
+  sessionAnnounce: "Session prête.",
   barReconnecting: "Reconnexion…",
   barEnding: "Copiez ce que vous voulez garder.",
   endingAnnounce: "Moins d’une minute restante. Copiez ce que vous voulez garder.",
