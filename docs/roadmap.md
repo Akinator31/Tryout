@@ -81,11 +81,8 @@ Build:
 
 | Item | Replaces | Notes |
 |---|---|---|
-| Embed page from the Figma mock-ups, on the shared tokens | Plain HTML embed page | Same queue API and event stream |
 | Theming by configuration: accent colour, logo, texts | One built-in look | A dark default theme; the embedding site can adapt it |
 | Internationalisation: English and French to start | English only | Language from the browser or a parameter |
-| Accessibility: keyboard use, contrast, reduced motion, screen reader labels | | |
-| Robust states: reconnection, network loss, errors, session about to end | | Every state has a designed screen |
 
 **Exit criteria:** every embed state matches the Figma mock-ups, in English and French, and the
 end-to-end tests still pass.
@@ -167,3 +164,11 @@ the admin UI, and graph queue and session metrics.
 - **M2:** a minimal visual pass on the embed page, so the first visitors do not see raw HTML:
   a dark status card (queue position, spinner, "Start again"), a bar under the session with the
   time left, and server messages shown as text only. The real design is M3.
+- **M3:** the embed page built from the Figma mock-ups (`apps/embed`), framework-free, on shared
+  design tokens with bundled IBM Plex subsets (`packages/tokens`). Every designed state has its
+  screen: connecting, position in line, starting, active, ending soon, reconnecting, ended,
+  start failed, per-IP limit, unavailable project, narrow parent. Robust to network loss (dimmed
+  session and banner, polling fallback, join retries with backoff, overdue session ended
+  locally); keyboard use, visible focus, reduced motion and screen reader announcements. The
+  control plane serves it as hashed static files under a strict Content-Security-Policy; CI
+  checks a size budget (25 KB of script and style gzipped, 100 KB of fonts).

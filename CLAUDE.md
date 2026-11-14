@@ -73,6 +73,8 @@ Key facts that are easy to forget:
 
 ```
 apps/control-plane/   TypeScript, Node ≥ 24 (native type stripping); queue.ts is the core module
+apps/embed/           embed page: framework-free TypeScript, Vite build served by the control plane; visit.ts is the core
+packages/tokens/      design tokens (in step with the Figma variables) + IBM Plex subsets (scripts/subset-fonts.sh)
 apps/node/            Go: cmd/agent, cmd/gateway, cmd/certs, internal/{dockerapi,pki,spec}; one image
 deploy/               compose.dev.yaml, tryout.dev.yaml, .env.example (dev); node/, control-plane/ (production
                       examples from published images, docs/deployment.md)
@@ -109,11 +111,11 @@ vault with the original stack study (in French) and its sources.
   - the reconcile loop reattaches a recreated gateway (`scripts/e2e-reattach.ts`) and reaps
     containers stuck in `created`;
   - packaging guide (`docs/packaging.md`) and `scripts/check-image.sh`;
-  - a minimal dark embed page (`apps/control-plane/src/embed.html`), until the M3 design.
-
   Then M3 Design: the Figma mock-ups are settled and the UI kit is chosen (Chakra UI for the
-  admin, a framework-free embed, shared design tokens); the embed build comes next, then the
-  `v0.1.0` release that closes M2 (the repository is already public). Then M4 Operate: the admin
+  admin, a framework-free embed, shared design tokens). The embed page is built from the Figma
+  (`apps/embed`, `packages/tokens`; the control-plane image is built from the repository root).
+  Next: French (i18n), then theming by configuration, then the `v0.1.0` release that closes M2
+  (the repository is already public). Then M4 Operate: the admin
   UI to set up projects (configuration in Postgres, admin authentication), released as `v0.2.0`;
   M5 Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
@@ -154,6 +156,8 @@ decision records, English only.
 (cd apps/node && test -z "$(gofmt -l .)" && go vet ./... && go test -race ./...)
 # TypeScript (control plane)
 (cd apps/control-plane && npm ci && npm run typecheck && npm test)   # TEST_DATABASE_URL for real Postgres
+# TypeScript (embed page; the control plane needs its dist/ to start outside Docker)
+(cd apps/embed && npm ci && npm run typecheck && npm test && npm run build && npm run size)
 # Shell
 shellcheck scripts/*.sh examples/*/*.sh
 # Docs

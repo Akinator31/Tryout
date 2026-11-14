@@ -1,0 +1,311 @@
+/*
+ * The embed page, from the Figma mock-ups ("Embed — visitor"). Every value comes from the
+ * shared tokens (virtual:tokens.css) except layout sizes specific to this page.
+ */
+
+:root {
+  --bar-height: 36px;
+  --card-width: 360px;
+  --focus-ring: 2px solid var(--brand-solid);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font: var(--text-text-sm);
+  -webkit-font-smoothing: antialiased;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+p,
+h1 {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+button:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Every phase but "active": one left-aligned card, like a ticket, in the middle of the frame. */
+
+.status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--spacing-4);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-4);
+  width: min(var(--card-width), 100%);
+  padding: var(--spacing-6);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radii-xl);
+}
+
+.spinner-track {
+  stroke: var(--border);
+}
+
+.spinner-indicator {
+  stroke: var(--brand-solid);
+}
+
+.spinner {
+  display: block;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.number {
+  font: var(--text-display-ticket);
+  letter-spacing: var(--tracking-display-ticket);
+  font-variant-numeric: tabular-nums;
+  color: var(--brand-solid);
+  white-space: nowrap;
+}
+
+.number.warning {
+  color: var(--fg-warning);
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  width: 100%;
+  overflow-wrap: break-word;
+}
+
+.title {
+  font: var(--text-heading-lg);
+  letter-spacing: var(--tracking-heading-lg);
+}
+
+.detail {
+  color: var(--fg-muted);
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-2);
+  font: var(--text-label-sm);
+  border-radius: var(--radii-md);
+  white-space: nowrap;
+}
+
+.button-primary {
+  height: 40px;
+  padding: 0 var(--spacing-4);
+  color: var(--brand-contrast);
+  background: var(--brand-solid);
+}
+
+.button-primary:hover {
+  background: var(--brand-fg);
+}
+
+.button-ghost {
+  height: 32px;
+  padding: 0 var(--spacing-3);
+  color: var(--fg);
+}
+
+.button-ghost:hover {
+  background: var(--border);
+}
+
+/* Active: the session fills the frame above the bar. */
+
+.session {
+  position: absolute;
+  inset: 0 0 var(--bar-height);
+  width: 100%;
+  height: calc(100% - var(--bar-height));
+  border: 0;
+  background: var(--bg);
+  transition: opacity 0.2s;
+}
+
+.session.dimmed {
+  opacity: 0.35;
+}
+
+.bar {
+  position: absolute;
+  inset: auto 0 0;
+  height: var(--bar-height);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  padding: 0 var(--spacing-3);
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  font: var(--text-text-xs);
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radii-full);
+  background: var(--fg-success);
+}
+
+.bar-project {
+  font: var(--text-label-xs);
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bar-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.timer {
+  font: var(--text-mono-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: 0 -5px;
+  border-radius: var(--radii-sm);
+}
+
+.icon-button:hover,
+.end-button:hover {
+  color: var(--fg);
+}
+
+.end-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  padding: var(--spacing-0_5) var(--spacing-2);
+  font: var(--text-label-xs);
+  border: 1px solid var(--border-emphasized);
+  border-radius: var(--radii-sm);
+}
+
+.bar.ending {
+  border-top-color: var(--brand-solid);
+}
+
+.bar.ending .dot {
+  background: var(--brand-solid);
+}
+
+.bar.ending .bar-note {
+  color: var(--fg-warning);
+}
+
+.bar.ending .timer {
+  color: var(--brand-solid);
+}
+
+.bar.reconnecting .dot {
+  background: var(--fg-muted);
+}
+
+/* Lost connection: a pill at the top, over the session or the card. */
+
+.banner {
+  position: absolute;
+  top: var(--spacing-6);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  max-width: calc(100% - 2 * var(--spacing-4));
+  padding: var(--spacing-2_5) var(--spacing-4);
+  font: var(--text-label-sm);
+  color: var(--fg);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-emphasized);
+  border-radius: var(--radii-full);
+  box-shadow: var(--shadow-lg);
+}
+
+.banner svg {
+  flex: none;
+  color: var(--fg-muted);
+}
+
+/* Narrow parent: the bar drops the project name and keeps the rest. */
+
+@media (max-width: 480px) {
+  .bar-project {
+    display: none;
+  }
+
+  .banner {
+    font: var(--text-label-xs);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+
+  .session {
+    transition: none;
+  }
+}

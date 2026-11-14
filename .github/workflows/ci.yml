@@ -65,6 +65,26 @@ jobs:
         env:
           TEST_DATABASE_URL: postgres://tryout:tryout@localhost:5432/tryout
 
+  embed:
+    name: Embed page (TypeScript)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/embed
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/embed/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Size budget
+        run: npm run size
+
   shellcheck:
     name: Shell scripts
     runs-on: ubuntu-latest
@@ -87,7 +107,8 @@ jobs:
             context: apps/node
             description: Tryout node, agent and gateway binaries in one image
           - name: tryout-control-plane
-            context: apps/control-plane
+            context: .
+            file: apps/control-plane/Dockerfile
             description: Tryout control plane, queue and embed page
           - name: tryout-example-cli-hello
             context: examples/cli-hello
@@ -99,6 +120,7 @@ jobs:
       - uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
           platforms: linux/amd64,linux/arm64
           push: false
           cache-from: type=gha,scope=${{ matrix.name }}
@@ -108,7 +130,7 @@ jobs:
     # See docs/published-images.md.
     name: Publish ${{ matrix.name }} (amd64 + arm64)
     if: github.event_name == 'push'
-    needs: [node, control-plane, shellcheck, e2e, e2e-deploy]
+    needs: [node, control-plane, embed, shellcheck, e2e, e2e-deploy]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -123,7 +145,8 @@ jobs:
             context: apps/node
             description: Tryout node, agent and gateway binaries in one image
           - name: tryout-control-plane
-            context: apps/control-plane
+            context: .
+            file: apps/control-plane/Dockerfile
             description: Tryout control plane, queue and embed page
           - name: tryout-example-cli-hello
             context: examples/cli-hello
@@ -164,6 +187,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

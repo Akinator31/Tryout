@@ -71,7 +71,7 @@ services:
     restart: unless-stopped
 
   control-plane:
-    build: ../apps/control-plane
+    build: { context: .., dockerfile: apps/control-plane/Dockerfile }
     environment:
       TRYOUT_CONFIG: /app/tryout.yaml
       DATABASE_URL: postgres://tryout:tryout@postgres:5432/tryout

@@ -199,8 +199,9 @@ Then embed a project in your portfolio:
 ```
 
 The embed page shows the visitor's place in the queue while they wait, then the session above a
-thin bar with the project's key (`cli-hello` here) and the time left; the session area is the
-iframe minus that bar. When the session ends, it offers to start a new one.
+36 px bar with the project's key (`cli-hello` here), the time left, a full-screen button and
+End; the session area is the iframe minus that bar. When the session ends, it offers to start a
+new one. Keep `fullscreen` in the `allow` attribute, or the full-screen button stays hidden.
 
 ## Upgrade
 

@@ -1,12 +1,12 @@
-// HTTP layer: embed page, demo page, queue API and its SSE stream. Thin by design; the
-// behaviour lives in the Queue module. Covered by scripts/e2e-*.ts.
+// HTTP layer: embed page and its assets, demo page, queue API and its SSE stream. Thin by
+// design; the behaviour lives in the Queue module. Covered by scripts/e2e-*.ts.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
 import { clientKeyResolver, StreamLimiter } from "./client.ts";
-import { frameAncestors, type Config } from "./config.ts";
+import type { Config } from "./config.ts";
+import { embedCsp, embedPage, type EmbedBundle } from "./embed.ts";
 import { RateLimitedError, UnknownProjectError, type LimitName, type Queue, type TicketView } from "./queue.ts";
 
-const embedHtml = readFileSync(new URL("./embed.html", import.meta.url), "utf8");
 const demoHtml = readFileSync(new URL("./demo.html", import.meta.url), "utf8");
 
 /** Sends a JSON response that is never cached. */
@@ -33,6 +33,7 @@ const limited = (res: ServerResponse, error: string, limit: LimitName, headers: 
  * Creates the request handler. Routes:
  *
  * - `GET /embed/:project`: the page portfolios put in their iframe;
+ * - `GET /assets/:file`: its scripts, styles and fonts, with hashed names;
  * - `GET /demo`: a simulated portfolio embedding every project;
  * - `POST /api/projects/:project/tickets`: join the queue;
  * - `GET /api/tickets/:id/events`: SSE stream of the ticket's view;
@@ -43,7 +44,9 @@ const limited = (res: ServerResponse, error: string, limit: LimitName, headers: 
  * Per-IP limits: tickets are limited by the queue, across
  * instances; open streams by this instance, which holds the connections.
  */
-export function createHandler(cfg: Config, queue: Queue, log: (msg: string) => void = () => {}) {
+export function createHandler(cfg: Config, queue: Queue, embed: EmbedBundle, log: (msg: string) => void = () => {}) {
+  const csp = embedCsp(cfg);
+
   const clientKey = clientKeyResolver(cfg.client_ip, log);
   const streams = new StreamLimiter(cfg.limits.streams_per_ip);
   const clientOf = (req: IncomingMessage) => clientKey(req.socket.remoteAddress, req.headers);
@@ -84,7 +87,8 @@ export function createHandler(cfg: Config, queue: Queue, log: (msg: string) => v
     const isPost = req.method === "POST";
     const api = (resource: string) => parts[0] === "api" && parts[1] === resource;
 
-    if (isGet && parts[0] === "embed" && parts.length === 2) return serveEmbed(cfg, res, parts[1]);
+    if (isGet && parts[0] === "embed" && parts.length === 2) return serveEmbed(cfg, embed, csp, res, parts[1]);
+    if (isGet && parts[0] === "assets" && parts.length === 2) return serveAsset(embed, res, parts[1]);
     if (isGet && url.pathname === "/demo") return serveDemo(cfg, res);
     if (isPost && api("projects") && parts[3] === "tickets") return join(req, res, parts[2]);
     if (isGet && api("tickets") && parts[3] === "events" && parts.length === 4) return openStream(req, res, parts[2]);
@@ -96,16 +100,36 @@ export function createHandler(cfg: Config, queue: Queue, log: (msg: string) => v
   };
 }
 
-/** The embed page, framable by the configured portfolios only, and sending no referrer to sessions. */
-function serveEmbed(cfg: Config, res: ServerResponse, project: string): void {
-  if (!Object.hasOwn(cfg.projects, project)) return json(res, 404, { error: "unknown project" });
+/**
+ * The embed page, framable by the configured portfolios only, and sending no referrer to
+ * sessions. An unknown project still gets the page, with a 404 status: its first request
+ * fails and the page says the project is unavailable, inside the portfolio's frame.
+ */
+function serveEmbed(cfg: Config, embed: EmbedBundle, csp: string, res: ServerResponse, project: string): void {
+  const known = Object.hasOwn(cfg.projects, project);
+
+  res.writeHead(known ? 200 : 404, {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-cache",
+    "content-security-policy": csp,
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff",
+  });
+  res.end(embedPage(embed, project, known ? cfg.projects[project].kind : ""));
+}
+
+/** A file of the embed build. Its name carries a content hash, so it never changes. */
+function serveAsset(embed: EmbedBundle, res: ServerResponse, name: string): void {
+  const asset = embed.assets.get(name);
+  if (!asset) return json(res, 404, { error: "not found" });
 
   res.writeHead(200, {
-    "content-type": "text/html; charset=utf-8",
-    "content-security-policy": `frame-ancestors ${frameAncestors(cfg)}`,
-    "referrer-policy": "no-referrer",
+    "content-type": asset.type,
+    "content-length": asset.body.length,
+    "cache-control": "public, max-age=31536000, immutable",
+    "x-content-type-options": "nosniff",
   });
-  res.end(embedHtml.replaceAll("__PROJECT__", project));
+  res.end(asset.body);
 }
 
 /** The demo page, listing the configured projects. */

@@ -1,0 +1,11 @@
+{
+  "name": "@tryout/tokens",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "description": "Design tokens and bundled IBM Plex fonts shared by the Tryout embed page and admin UI",
+  "exports": {
+    ".": "./src/tokens.ts",
+    "./fonts.css": "./src/fonts.css"
+  }
+}

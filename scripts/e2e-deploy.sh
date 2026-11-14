@@ -33,7 +33,7 @@ profile=${NODE_PROFILE:-strict}
 # Images under test: build them unless TRYOUT_VERSION names published ones.
 if [ -z "${TRYOUT_VERSION:-}" ]; then
   docker build -q -t tryout-node:e2e "$root/apps/node" >/dev/null
-  docker build -q -t tryout-control-plane:e2e "$root/apps/control-plane" >/dev/null
+  docker build -q -t tryout-control-plane:e2e -f "$root/apps/control-plane/Dockerfile" "$root" >/dev/null
   export TRYOUT_NODE_IMAGE=tryout-node TRYOUT_CONTROL_PLANE_IMAGE=tryout-control-plane TRYOUT_VERSION=e2e
 fi
 node_image="${TRYOUT_NODE_IMAGE:-ghcr.io/akinator31/tryout-node}:$TRYOUT_VERSION"

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="tryout-project" content="__PROJECT__">
+<meta name="tryout-kind" content="__KIND__">
+<title>Tryout</title>
+<script type="module" src="/src/main.ts"></script>
+</head>
+<body>
+<main id="status" class="status" hidden>
+  <section class="card" aria-labelledby="title">
+    <div id="visual" class="visual">
+      <svg id="spinner" class="spinner" width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <circle cx="16" cy="16" r="14.5" stroke-width="3" class="spinner-track"/>
+        <path d="M16 1.5C19.8456 1.5 23.5338 3.02767 26.253 5.74695C28.9723 8.46623 30.5 12.1544 30.5 16" stroke-width="3" stroke-linecap="round" class="spinner-indicator"/>
+      </svg>
+      <p id="number" class="number" aria-hidden="true"></p>
+    </div>
+    <div class="text">
+      <h1 id="title" class="title"></h1>
+      <p id="detail" class="detail"></p>
+    </div>
+    <button id="action" class="button button-primary" type="button">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M2 8C2 6.4087 2.63214 4.88258 3.75736 3.75736C4.88258 2.63214 6.4087 2 8 2C9.67737 2.00631 11.2874 2.66082 12.4933 3.82667L14 5.33333"/>
+        <path d="M14 2V5.33333H10.6667"/>
+        <path d="M14 8C14 9.5913 13.3679 11.1174 12.2426 12.2426C11.1174 13.3679 9.5913 14 8 14C6.32263 13.9937 4.71265 13.3392 3.50667 12.1733L2 10.6667"/>
+        <path d="M5.33333 10.6667H2V14"/>
+      </svg>
+      <span id="action-label"></span>
+    </button>
+    <button id="secondary" class="button button-ghost" type="button"></button>
+  </section>
+</main>
+
+<div id="banner" class="banner" role="status" hidden>
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M8 13.3333H8.00667"/>
+    <path d="M5.66667 10.9527C6.28976 10.3419 7.12749 9.99981 8 9.99981C8.87251 9.99981 9.71024 10.3419 10.3333 10.9527"/>
+    <path d="M3.33333 8.57267C4.27868 7.64594 5.47854 7.02164 6.78 6.77933"/>
+    <path d="M12.6667 8.57267C12.2653 8.17917 11.8157 7.83802 11.3287 7.55733"/>
+    <path d="M1.33333 5.88C2.15773 5.14272 3.09873 4.5473 4.118 4.118"/>
+    <path d="M14.6667 5.88C13.6498 4.97054 12.4576 4.27876 11.1635 3.84722C9.86929 3.41568 8.50051 3.2535 7.14133 3.37067"/>
+    <path d="M1.33333 1.33333L14.6667 14.6667"/>
+  </svg>
+  <span id="banner-text"></span>
+</div>
+
+<footer id="bar" class="bar" hidden>
+  <span class="dot" aria-hidden="true"></span>
+  <span id="bar-project" class="bar-project"></span>
+  <span id="bar-note" class="bar-note"></span>
+  <span class="spacer"></span>
+  <span id="timer" class="timer" role="timer"></span>
+  <button id="fullscreen" class="icon-button" type="button">
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4.66667 1.75H2.91667C2.60725 1.75 2.3105 1.87292 2.09171 2.09171C1.87292 2.3105 1.75 2.60725 1.75 2.91667V4.66667"/>
+      <path d="M12.25 4.66667V2.91667C12.25 2.60725 12.1271 2.3105 11.9083 2.09171C11.6895 1.87292 11.3928 1.75 11.0833 1.75H9.33333"/>
+      <path d="M1.75 9.33333V11.0833C1.75 11.3928 1.87292 11.6895 2.09171 11.9083C2.3105 12.1271 2.60725 12.25 2.91667 12.25H4.66667"/>
+      <path d="M9.33333 12.25H11.0833C11.3928 12.25 11.6895 12.1271 11.9083 11.9083C12.1271 11.6895 12.25 11.3928 12.25 11.0833V9.33333"/>
+    </svg>
+  </button>
+  <button id="end" class="end-button" type="button">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M3.5 2.5H8.5C9.05228 2.5 9.5 2.94772 9.5 3.5V8.5C9.5 9.05228 9.05228 9.5 8.5 9.5H3.5C2.94772 9.5 2.5 9.05228 2.5 8.5V3.5C2.5 2.94772 2.94772 2.5 3.5 2.5Z"/>
+    </svg>
+    <span id="end-label"></span>
+  </button>
+</footer>
+
+<p id="announce" class="visually-hidden" role="status" aria-live="polite"></p>
+</body>
+</html>
