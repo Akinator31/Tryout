@@ -78,7 +78,7 @@ services:
     volumes:
       - ./tryout.dev.yaml:/app/tryout.yaml:ro
       - { type: volume, source: pki, target: /app/pki, read_only: true, volume: { subpath: control-plane } }
-    ports: ["3000:3000"]
+    ports: ["3000:3000", "127.0.0.1:9090:9090"]
     networks: [control, db]
     depends_on:
       postgres: { condition: service_healthy }

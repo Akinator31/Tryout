@@ -13,6 +13,11 @@
       "pattern": "^(\\[[0-9A-Fa-f:.]+\\]|[A-Za-z0-9.-]*):[0-9]{1,5}$",
       "default": ":3000"
     },
+    "admin_listen": {
+      "description": "Address of the admin listener (/metrics), as [host]:port. Leave it out to turn the admin listener off. It may equal listen, which makes /metrics public.",
+      "type": "string",
+      "pattern": "^(\\[[0-9A-Fa-f:.]+\\]|[A-Za-z0-9.-]*):[0-9]{1,5}$"
+    },
     "embed_frame_ancestors": {
       "description": "Origins allowed to embed /embed/<project> in an iframe ('self' is always allowed).",
       "type": "array",

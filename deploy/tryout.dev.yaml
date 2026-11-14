@@ -2,6 +2,8 @@
 # Control plane configuration for the local dev stack (compose.dev.yaml).
 # Reference: docs/configuration.md. ${VAR} reads an environment variable.
 listen: ":3000"
+# Admin listener (/metrics); compose.dev.yaml publishes it on 127.0.0.1 only.
+admin_listen: ":9090"
 embed_frame_ancestors:
   - http://localhost:3000
 

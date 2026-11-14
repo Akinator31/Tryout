@@ -3,7 +3,15 @@
 // database, watching and per-client limits.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createQueue, RateLimitedError, UnknownProjectError, type QueueConfig, type TicketView } from "../src/queue.ts";
+import {
+  createQueue,
+  RateLimitedError,
+  UnknownProjectError,
+  type QueueConfig,
+  type QueueDeps,
+  type StartOutcome,
+  type TicketView,
+} from "../src/queue.ts";
 import { eventually, fakeClock, fakeRuntime, freshDb } from "./support.ts";
 
 const config: QueueConfig = {
@@ -19,11 +27,18 @@ const config: QueueConfig = {
  * for a ticket to become active; `joinAll` joins one ticket per project, in
  * order. Disposing it closes the database.
  */
-async function setup(opts: { manual?: boolean; config?: QueueConfig } = {}) {
+async function setup(opts: { manual?: boolean; config?: QueueConfig } & Pick<QueueDeps, "nodeUp" | "onStart"> = {}) {
   const db = await freshDb();
   const clock = fakeClock();
   const fake = fakeRuntime(opts);
-  const queue = await createQueue({ db, config: opts.config ?? config, runtime: fake.runtime, now: clock.now });
+  const queue = await createQueue({
+    db,
+    config: opts.config ?? config,
+    runtime: fake.runtime,
+    now: clock.now,
+    nodeUp: opts.nodeUp,
+    onStart: opts.onStart,
+  });
 
   const active = (t: string) => eventually(() => queue.poll(t), (v) => v?.state === "active");
   const joinAll = async (projects: string[], client?: string) => {
@@ -382,4 +397,88 @@ test("limits hold across control plane instances under concurrent joins", async 
 
   assert.equal(results.filter((r) => r.status === "fulfilled").length, 2);
   for (const r of results) if (r.status === "rejected") assert.ok(r.reason instanceof RateLimitedError);
+});
+
+// Node health and what the queue reports to metrics.
+
+test("no session starts on a node that is down; its visitors wait and start once it is back", async () => {
+  let up = false;
+  await using s = await setup({ nodeUp: () => up });
+  const a = await s.queue.join("cli");
+
+  await s.queue.tick();
+  assert.deepEqual(await s.queue.poll(a.ticket), { ticket: a.ticket, state: "waiting", position: 1 });
+
+  up = true;
+  await s.queue.tick();
+  assert.equal((await s.active(a.ticket))?.state, "active");
+});
+
+test("stats count every configured project's tickets by state", async () => {
+  await using s = await setup({ manual: true }); // cli allows 2 sessions
+  const [a] = await s.joinAll(["cli", "cli", "cli"]);
+  s.fake.pending[0].resolve("https://n1.test/s/a/");
+  await s.active(a.ticket);
+
+  assert.deepEqual(await s.queue.stats(), {
+    cli: { waiting: 1, starting: 1, active: 1 },
+    gui: { waiting: 0, starting: 0, active: 0 },
+  });
+});
+
+test("every start reports its outcome and duration", async () => {
+  const outcomes: StartOutcome[] = [];
+  await using s = await setup({ manual: true, onStart: (o) => void outcomes.push(o) });
+  const [ok, failed] = await s.joinAll(["cli", "gui"]);
+  const left = await s.queue.join("gui");
+
+  s.clock.advance(1500);
+  s.fake.pending[0].resolve("https://n1.test/s/ok/");
+  s.fake.pending[1].reject(new Error("image pull failed"));
+  await s.active(ok.ticket);
+  await eventually(async () => outcomes.length, (n) => n === 2);
+
+  await s.queue.release(left.ticket);
+  s.fake.pending[2].resolve("https://n1.test/s/late/");
+  await eventually(async () => outcomes.length, (n) => n === 3);
+
+  const settledAtOnce = outcomes.slice(0, 2).sort((x, y) => x.project.localeCompare(y.project));
+  assert.deepEqual(settledAtOnce, [
+    { project: "cli", result: "ok", seconds: 1.5 },
+    { project: "gui", result: "error", seconds: 1.5 },
+  ]);
+  assert.deepEqual(outcomes[2], { project: "gui", result: "abandoned", seconds: 1.5 });
+  assert.equal((await s.queue.poll(failed.ticket))?.state, "ended");
+});
+
+test("a start that completes after its deadline expired the ticket reports a timeout", async () => {
+  const outcomes: StartOutcome[] = [];
+  await using s = await setup({ manual: true, onStart: (o) => void outcomes.push(o) });
+  const a = await s.queue.join("cli");
+
+  for (let elapsed = 0; elapsed <= 180_000; elapsed += 10_000) {
+    s.clock.advance(10_000);
+    await s.queue.poll(a.ticket);
+  }
+  await s.queue.tick();
+  s.fake.pending[0].resolve("https://n1.test/s/late/");
+
+  await eventually(async () => outcomes.length, (n) => n === 1);
+  assert.equal(outcomes[0]?.result, "timeout");
+});
+
+test("a start that outlives its deadline reports a timeout", async () => {
+  const outcomes: StartOutcome[] = [];
+  await using s = await setup({ manual: true, onStart: (o) => void outcomes.push(o) });
+  const a = await s.queue.join("cli");
+
+  for (let elapsed = 0; elapsed <= 180_000; elapsed += 10_000) {
+    s.clock.advance(10_000);
+    await s.queue.poll(a.ticket);
+  }
+  await s.queue.tick();
+  s.fake.pending[0].reject(new Error("aborted"));
+
+  await eventually(async () => outcomes.length, (n) => n === 1);
+  assert.equal(outcomes[0]?.result, "timeout");
 });

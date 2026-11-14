@@ -80,7 +80,7 @@ deploy/               compose.dev.yaml, tryout.dev.yaml, .env.example (dev); nod
                       examples from published images, docs/deployment.md)
 schema/               tryout.schema.json (source of truth) + testdata/ fixtures shared by TS and Go
 examples/cli-hello/   sample terminal project (ttyd)
-scripts/              e2e-*.ts (cli, queue, sse, mtls, limits, reattach), e2e-deploy.sh, check-image.sh,
+scripts/              e2e-*.ts (cli, metrics, queue, sse, mtls, limits, reattach), e2e-deploy.sh, check-image.sh,
                       feasibility-node.sh
 docs/                 Zensical documentation (English)
 SECURITY.md           threat model and profiles (included in the docs site)
@@ -117,7 +117,10 @@ vault with the original stack study (in French) and its sources.
 
   In progress: M4 Operate (plan in `docs/roadmap.md`), released as `v0.2.0`. Done so far: JSON logs on every component, ids shortened to a
   6-character prefix; agent `/metrics` (hand-written Prometheus format, `internal/metrics`) and
-  a richer `/healthz`, version injected at build time (`internal/version`). Then M5 Hosting options.
+  a richer `/healthz`, version injected at build time (`internal/version`); control plane
+  health checks (`health.ts`, no promotion to a down node), admin listener `admin_listen` with
+  `/metrics` relaying the agents' metrics (`admin.ts`, `metrics-relay.ts`). Next: configuration
+  in Postgres (PR 4 of the M4 plan). Then M5 Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module
@@ -166,7 +169,7 @@ zensical build --clean --strict      # or: zensical serve
 docker build -t tryout-example/cli-hello:dev examples/cli-hello
 cp deploy/.env.example deploy/.env
 docker compose -f deploy/compose.dev.yaml up -d --build
-node scripts/e2e-cli.ts && node scripts/e2e-queue.ts && node scripts/e2e-sse.ts && node scripts/e2e-mtls.ts \
+node scripts/e2e-cli.ts && node scripts/e2e-metrics.ts && node scripts/e2e-queue.ts && node scripts/e2e-sse.ts && node scripts/e2e-mtls.ts \
   && node scripts/e2e-limits.ts \
   && node scripts/e2e-reattach.ts http://localhost:3000 cli-hello -- \
        docker compose -f deploy/compose.dev.yaml up -d --force-recreate --no-deps gateway

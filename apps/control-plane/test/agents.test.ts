@@ -1,11 +1,13 @@
 // The control plane's client towards agents, against a local HTTPS
-// server that requires a client certificate, like the agent.
+// server that requires a client certificate, like the agent: mutual TLS,
+// then the health check and the metrics fetch, whose answers are size-capped.
 import assert from "node:assert/strict";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer, type Server } from "node:https";
 import type { AddressInfo, TLSSocket } from "node:tls";
 import { after, test } from "node:test";
 import type { AgentTls } from "../src/config.ts";
-import { agentClient } from "../src/runtime.ts";
+import { agentClient, checkHealth, fetchMetrics } from "../src/agents.ts";
 import { makePki, type Leaf } from "./pki.ts";
 
 const pki = makePki();
@@ -14,13 +16,16 @@ const tls: AgentTls = { ca: pki.ca, cert: client.cert, key: client.key };
 const servers: Server[] = [];
 after(() => servers.forEach((s) => s.close()));
 
-/** An agent-like server: TLS 1.3, client certificate required. Answers with the client's CN. */
-async function agent(leaf: Leaf): Promise<number> {
+/** Answers with the client certificate's CN. */
+function echoPeer(req: IncomingMessage, res: ServerResponse): void {
+  const peer = (req.socket as TLSSocket).getPeerCertificate();
+  res.end(peer.subject?.CN ?? "");
+}
+
+/** An agent-like server: TLS 1.3, client certificate required. Answers with the client's CN by default. */
+async function agent(leaf: Leaf, handler: (req: IncomingMessage, res: ServerResponse) => void = echoPeer): Promise<number> {
   const options = { cert: leaf.cert, key: leaf.key, ca: pki.ca, requestCert: true, rejectUnauthorized: true, minVersion: "TLSv1.3" } as const;
-  const server = createServer(options, (req, res) => {
-    const peer = (req.socket as TLSSocket).getPeerCertificate();
-    res.end(peer.subject?.CN ?? "");
-  });
+  const server = createServer(options, handler);
   servers.push(server);
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -80,4 +85,47 @@ test("the agent refuses a client certificate from another CA", async () => {
 
   // TLS 1.3: the server checks the client after the handshake and closes the connection.
   await rejects(call(foreignTls, `https://localhost:${port}`), /other side closed|ECONNRESET|alert/);
+});
+
+// Health and metrics.
+
+const localAgent = () => pki.leaf("srv-api", { usage: "serverAuth", san: ["DNS:localhost"] });
+
+/** An agent answering `status` and `body` on every path; returns a client for it. */
+async function answering(status: number, body: string) {
+  const port = await agent(localAgent(), (_req, res) => {
+    res.writeHead(status);
+    res.end(body);
+  });
+  const c = agentClient(tls, { agent_url: `https://localhost:${port}` });
+  after(() => c.close());
+  return c;
+}
+
+const signal = () => AbortSignal.timeout(5000);
+
+test("a healthy agent's report is returned", async () => {
+  const c = await answering(200, JSON.stringify({ ok: true, version: "v0.2.0", sessions: 1 }));
+  assert.deepEqual(await checkHealth(c, signal()), { ok: true, version: "v0.2.0", sessions: 1 });
+});
+
+test("an agent whose Docker does not answer fails the check with its error", async () => {
+  const c = await answering(503, JSON.stringify({ ok: false, error: "docker: connection refused" }));
+  await assert.rejects(checkHealth(c, signal()), /agent 503: docker: connection refused/);
+});
+
+test("an answer that is not JSON fails the check", async () => {
+  const c = await answering(200, "<html>proxy error</html>");
+  await assert.rejects(checkHealth(c, signal()), /agent 200: not JSON/);
+});
+
+test("metrics are fetched as text; an error status or an oversized answer is refused", async () => {
+  const ok = await answering(200, "# TYPE x gauge\nx 1\n");
+  assert.equal(await fetchMetrics(ok, signal()), "# TYPE x gauge\nx 1\n");
+
+  const failing = await answering(500, "boom");
+  await assert.rejects(fetchMetrics(failing, signal()), /agent 500/);
+
+  const huge = await answering(200, "x 1\n".repeat(300_000));
+  await assert.rejects(fetchMetrics(huge, signal()), /larger than 1048576 bytes/);
 });

@@ -68,8 +68,16 @@ export interface Limits {
   streams_per_ip: number;
 }
 
+/** A listening address; an empty host means every interface. */
+export interface Listen {
+  host: string;
+  port: number;
+}
+
 export interface Config {
-  listen: { host: string; port: number };
+  listen: Listen;
+  /** The admin listener (/metrics); off when absent. */
+  admin_listen?: Listen;
   embed_frame_ancestors: string[];
   theme: Theme;
   client_ip: ClientIpConfig;
@@ -148,6 +156,9 @@ export function parseConfig(
 
   warnings.push(...overbookingWarnings(config));
   warnings.push(...sessionUrlWarnings(config));
+  if (sameListen(config.listen, config.admin_listen)) {
+    warnings.push("admin_listen equals listen: /metrics is public; give the admin listener its own address to keep it private");
+  }
   return { config, warnings };
 }
 
@@ -168,6 +179,15 @@ function checkSemantics(
   const listen = parseListen(typeof file.listen === "string" ? file.listen : ":3000");
   if (!listen) report(["listen"], "must be [host]:port with a port between 1 and 65535");
 
+  const adminListen = typeof file.admin_listen === "string" ? parseListen(file.admin_listen) : undefined;
+  if (typeof file.admin_listen === "string" && !adminListen) {
+    report(["admin_listen"], "must be [host]:port with a port between 1 and 65535");
+  }
+  // Two hosts on one port overlap (":3000" covers "127.0.0.1:3000"): the second server could not bind.
+  if (listen && adminListen && adminListen.port === listen.port && !sameListen(listen, adminListen)) {
+    report(["admin_listen"], "uses the port of listen with another host: give it its own port, or the same address as listen");
+  }
+
   checkServerNames(nodes, report);
   const agentTls = loadAgentTls(file.agent_tls, baseDir, now, report, warnings);
   const theme = loadTheme(file.theme, baseDir, report);
@@ -177,6 +197,7 @@ function checkSemantics(
 
   return {
     listen: listen!,
+    ...(adminListen ? { admin_listen: adminListen } : {}),
     embed_frame_ancestors: file.embed_frame_ancestors as string[],
     theme,
     client_ip: clientIp,
@@ -297,6 +318,11 @@ function overbookingWarnings(config: Config): string[] {
     }
   }
   return warnings;
+}
+
+/** Whether the admin listener shares the public one: then a single server answers both. */
+export function sameListen(a: Listen, b: Listen | undefined): boolean {
+  return b !== undefined && a.host === b.host && a.port === b.port;
 }
 
 /** Value of the frame-ancestors CSP directive for the embed page. */

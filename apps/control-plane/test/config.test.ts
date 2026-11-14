@@ -181,6 +181,22 @@ limits:
   assert.match(negative[0], /^\/limits\/streams_per_ip/);
 });
 
+test("admin_listen is off unless set, and warns when it shares the public listener", () => {
+  assert.equal(parseConfig(base, opts).config.admin_listen, undefined);
+
+  const own = parseConfig(`admin_listen: "127.0.0.1:9090"\n${base}`, opts);
+  assert.deepEqual(own.config.admin_listen, { host: "127.0.0.1", port: 9090 });
+  assert.deepEqual(own.warnings, []);
+
+  const shared = parseConfig(`listen: ":3000"\nadmin_listen: ":3000"\n${base}`, opts);
+  assert.match(shared.warnings.join("\n"), /admin_listen equals listen: \/metrics is public/);
+  assert.match(problems(`admin_listen: ":0"\n${base}`)[0], /^\/admin_listen \(line 1\): must be \[host\]:port/);
+  assert.match(
+    problems(`listen: ":3000"\nadmin_listen: "127.0.0.1:3000"\n${base}`)[0],
+    /^\/admin_listen \(line 2\): uses the port of listen with another host/,
+  );
+});
+
 test("listen accepts a host", () => {
   assert.deepEqual(parseConfig(`listen: "127.0.0.1:8000"\n${base}`, opts).config.listen, { host: "127.0.0.1", port: 8000 });
   assert.deepEqual(parseConfig(`listen: "[::1]:8000"\n${base}`, opts).config.listen, { host: "::1", port: 8000 });

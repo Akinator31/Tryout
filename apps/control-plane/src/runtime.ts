@@ -1,11 +1,13 @@
 // SessionRuntime adapter for real nodes: agent API over mutual TLS
 // + readiness probe through the gateway. Tests use an in-memory adapter instead.
-import { Agent, fetch as agentFetch } from "undici";
-import type { AgentTls, Config, NodeConfig } from "./config.ts";
+import { readCapped, type AgentClient } from "./agents.ts";
+import type { Config } from "./config.ts";
 import type { SessionRef, SessionRuntime } from "./queue.ts";
 
 /** Timeout of an agent call that has no signal of its own (stop). */
 const AGENT_CALL_TIMEOUT_MS = 30_000;
+/** Largest error answer read from an agent; it ends up in a log line. */
+const MAX_ERROR_BYTES = 4096;
 const PROBE_TIMEOUT_MS = 5000;
 const PROBE_INTERVAL_MS = 1000;
 /** The agent's hard stop is a safety net, slightly later than the queue's maximum age. */
@@ -29,41 +31,12 @@ const sleep = (ms: number, signal: AbortSignal) =>
   });
 
 /**
- * HTTP client for one agent: TLS 1.3, the agent's certificate must chain to
- * agent_tls.ca and name the URL host (or server_name), and the control plane
- * presents its client certificate. The fetch comes from undici too, so the
- * dispatcher always matches it.
- */
-export function agentClient(tls: AgentTls, node: Pick<NodeConfig, "agent_url" | "server_name">) {
-  const dispatcher = new Agent({
-    connect: {
-      ca: tls.ca,
-      cert: tls.cert,
-      key: tls.key,
-      minVersion: "TLSv1.3",
-      rejectUnauthorized: true,
-      ...(node.server_name ? { servername: node.server_name } : {}),
-    },
-  });
-
-  return {
-    fetch: (path: string, init: Omit<Parameters<typeof agentFetch>[1], "dispatcher"> = {}) =>
-      agentFetch(node.agent_url + path, { ...init, dispatcher }),
-    close: () => dispatcher.close(),
-  };
-}
-
-/**
  * The runtime for the configured nodes. A start creates the session on the
  * agent, then polls the session URL through the gateway until it answers.
  * The queue aborts the start's signal when the visitor leaves or the start
  * deadline passes.
  */
-export function agentRuntime(cfg: Config): SessionRuntime {
-  const clients = Object.fromEntries(
-    Object.entries(cfg.nodes).map(([name, n]) => [name, agentClient(cfg.agent_tls, n)]),
-  );
-
+export function agentRuntime(cfg: Config, clients: Record<string, AgentClient>): SessionRuntime {
   /** Calls the agent's API; a 404 is not an error (stopping an unknown session is a no-op). */
   async function call(node: string, method: string, path: string, body?: unknown, signal?: AbortSignal) {
     const res = await clients[node].fetch(path, {
@@ -73,7 +46,10 @@ export function agentRuntime(cfg: Config): SessionRuntime {
       body: body ? JSON.stringify(body) : undefined,
     });
 
-    if (!res.ok && res.status !== 404) throw new Error(`agent ${res.status}: ${await res.text()}`);
+    if (res.ok || res.status === 404) return void (await res.body?.cancel());
+
+    const detail = await readCapped(res, MAX_ERROR_BYTES).catch(() => "(answer too large)");
+    throw new Error(`agent ${res.status}: ${detail}`);
   }
 
   /** The POST /v1/sessions body (`$defs/session_request` in the schema). */

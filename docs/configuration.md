@@ -12,6 +12,7 @@ The configuration file (see `deploy/tryout.dev.yaml`):
 ```yaml
 # yaml-language-server: $schema=https://akinator31.github.io/Tryout/schema/v1/tryout.schema.json
 listen: ":3000"
+admin_listen: "127.0.0.1:9090"   # optional
 embed_frame_ancestors:
   - https://portfolio.example.org
 agent_tls:
@@ -82,6 +83,7 @@ be written.
 | Key | Role |
 |---|---|
 | `listen` | Optional: `[host]:port` to listen on. Default `:3000` (every interface). |
+| `admin_listen` | Optional: `[host]:port` of the admin listener, which serves Prometheus metrics on `/metrics` (see [Health and metrics](deployment.md#health-and-metrics)). Off when left out. Keep it on a private address: it has no authentication. It may equal `listen`, which makes `/metrics` public; the control plane warns about it. Another host on the port of `listen` is refused, since the two servers would overlap. |
 | `agent_tls` | Mutual TLS towards the agents: `ca` (the CA that signs the agents' certificates), `cert` and `key` (the control plane's client certificate, with the `clientAuth` usage). Paths of PEM files, relative to the configuration file. See [Certificates](certificates.md). |
 | `client_ip` | Optional: how to find a visitor's IP address behind proxies. See [Per-IP limits](#per-ip-limits). |
 | `limits` | Optional: per-IP limits on tickets and event streams. See [Per-IP limits](#per-ip-limits). |

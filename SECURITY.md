@@ -72,6 +72,7 @@ can turn them off.
 | Call direction | The control plane calls the agent, never the reverse, over mutual TLS 1.3 with a private CA. The agent accepts only a client certificate with the `clientAuth` usage; the control plane accepts only an agent certificate with the `serverAuth` usage that names the node it called. A node's certificate cannot impersonate the control plane or another node. The node holds no credential towards the rest of the infrastructure, except an optional read-only registry token for private project images. |
 | Per-IP limits | An IP address (an IPv6 /64) may hold 4 live tickets, create 10 tickets a minute and keep 8 event streams open, by default. Beyond that the control plane answers `429`. A single client cannot monopolise a queue. The address comes from the connection, or from forwarding headers only when the connection comes from a configured trusted proxy. It is stored in clear with the ticket (hashing would protect little: every IPv4 address can be hashed in seconds) and deleted 5 minutes after the ticket ends; it is never logged. |
 | Logs | Session and ticket ids appear in log lines only as a 6-character prefix, wherever they occur (container names and error messages included), so reading the logs does not give access to a session. Visitor IP addresses are never logged: the gateway removes the peer address from the error lines of Go's HTTP server and proxy. |
+| Admin listener | Off unless `admin_listen` is set. It serves `/metrics`, without authentication, so the operator keeps it on a private address; the control plane warns when it shares the public listener. Agents' metrics are relayed through it: the control plane reads at most 1 MB and 2000 series per node, relays only `tryout_` families, rebuilds every sample with the node's own `node` label, and drops invalid lines and HELP texts, labels the node set itself (`node`, `__name__`…) and the control plane's own metric names, so a compromised node cannot break the scrape, flood Prometheus or report for another node. Concurrent scrapes share one round of calls to the nodes. Error answers of the agent API are read up to 4 KB. |
 | State store | PostgreSQL is reachable by the control plane only: the dev compose file and the production example (`deploy/control-plane`) put it on an internal network that no node component joins. |
 | Prerequisites | The agent **refuses to start** if the declared profile is not met (see below). |
 
@@ -159,6 +160,9 @@ published on an address you choose.
   tunnel that carries TLS end to end. Besides sessions, it serves `/healthz` and `/metrics`,
   which tell the node's version, profile, runtimes and load per project to whoever holds the
   control plane's certificate; they carry no session id or visitor address.
+- **Keep `admin_listen` private.** Its `/metrics` has no authentication and tells queue lengths,
+  projects and node versions. Bind it to a private address, or put your own access control in
+  front of it.
 - **Declare your reverse proxies in `client_ip.trusted_proxies`**, and only them. Without it,
   every visitor behind the proxy shares its address and its limits; with a block that is too
   broad, a visitor can claim any address in `X-Forwarded-For`. Rate limiting raw requests at the
