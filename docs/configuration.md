@@ -110,8 +110,8 @@ Once the database is seeded, remove the settings from `tryout.yaml`, or keep the
 the active revision. Settings are compared after `${VAR}` substitution, and the logo by its
 content.
 
-**Changing the settings** happens through the [admin API](#admin-api), or from the command
-line, until the admin interface edits them (sessions and accounts come first). The commands run where the control plane runs, with the same `DATABASE_URL`. With the
+**Changing the settings** happens in the [admin interface](#admin-interface), through the
+[admin API](#admin-api), or from the command line. The commands run where the control plane runs, with the same `DATABASE_URL`. With the
 production example, the image's own directories are read-only for its user, so work in
 `/tmp` and copy files in and out:
 
@@ -307,15 +307,40 @@ a page of the same origin.
 With `admin_listen` set, the control plane serves the admin interface on that listener, at
 `/admin/` (`/` redirects there). It opens on the sign-in page, then:
 
+- **Embedding**: the origins allowed to frame `/embed/<project>`, with a hint when a typed
+  origin lacks its scheme or has a path, and the per-IP visitor limits. The trusted proxies
+  stay in `tryout.yaml` (`client_ip`);
+- **Theme**: the accent colour, with its contrast on the embed card, and the logo with its
+  alt text, beside a preview of the waiting card;
 - **Sessions**: every live ticket with its state, place in line, start and time left,
   refreshed every 3 seconds while the tab is visible, and a Stop button that asks first;
+- **Revisions**: every revision, newest first; for each, its changes from its parent, its
+  settings as YAML to download, and rolling back to it;
 - **Accounts**: the accounts, adding and deleting one (not one's own, nor the last), and
   changing one's own password.
 
 The sidebar shows whether the last call to the control plane got an answer, the control
-plane's version (`TRYOUT_VERSION`) and the active revision. The pages that edit the settings
-(projects, nodes, embedding, limits, theme, revisions) come next; until then, change the
-settings with `import` or the admin API.
+plane's version (`TRYOUT_VERSION`) and the active revision. The pages that edit projects and
+nodes come next; until then, change them with `import` or the admin API.
+
+**Pending changes.** Edits on any settings page join one draft of the whole settings, kept
+in the browser tab (it survives a reload, not closing the tab, and signing out drops it). While
+it holds changes, every settings page shows *Discard* and *Review N changes*. The review lists
+the changes and their YAML diff, runs the dry run (problems block Apply, warnings such as an
+unreachable node do not), takes an optional note, and publishes the draft as the next
+revision. *Download YAML* saves the draft, or a revision, in the format of the `import`
+command, with a stored logo named as a file beside it (*Download logo* on the revision).
+
+If another account publishes a revision meanwhile, the draft moves on top of it: each side's
+changes are kept, and where both changed the same value, the draft's value is kept and the
+review marks it. A rollback waits until the draft is applied or discarded.
+
+A logo is stored as soon as it is picked, before the review: a logo picked and then dropped
+stays in the database (64 KB at most each), unused.
+
+After an edit from the admin interface, the settings in the database differ from those in
+`tryout.yaml`, so the control plane refuses to restart until they are removed from the file
+(see the table above). With the dev stack, `down -v` starts again from `tryout.dev.yaml`.
 
 The interface is plain files built into the control plane's image, served with a
 Content-Security-Policy that allows only its own scripts and API and forbids framing it. Its

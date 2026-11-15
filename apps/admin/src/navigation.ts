@@ -6,7 +6,10 @@ export const BASE = "/admin";
 
 export const paths = {
   signIn: `${BASE}/sign-in`,
+  embedding: `${BASE}/embedding`,
+  theme: `${BASE}/theme`,
   sessions: `${BASE}/sessions`,
+  revisions: `${BASE}/revisions`,
   accounts: `${BASE}/accounts`,
 } as const;
 

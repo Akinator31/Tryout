@@ -8,9 +8,14 @@ import { BrowserRouter, MemoryRouter, Navigate, Route, Routes, useLocation, useN
 import { isRefusal, isSignedOut, type ApiClient } from "../api.ts";
 import { BASE, HOME, paths, signInPath } from "../navigation.ts";
 import { Accounts } from "../pages/Accounts.tsx";
+import { Embedding } from "../pages/Embedding.tsx";
+import { Revisions } from "../pages/Revisions.tsx";
+import { Theme } from "../pages/Theme.tsx";
 import { Sessions } from "../pages/Sessions.tsx";
 import { SignIn } from "../pages/SignIn.tsx";
 import { ApiContext } from "../queries.ts";
+import { createDraftStore } from "../settings/draft.ts";
+import { DraftProvider, tabStorage } from "../useDraft.tsx";
 import { system } from "../theme.ts";
 import { Shell } from "./Shell.tsx";
 
@@ -66,7 +71,11 @@ function AppRoutes() {
       <Route path={paths.signIn} element={<SignIn />} />
       <Route path={BASE} element={<Shell />}>
         <Route index element={<Navigate to={HOME} replace />} />
+        <Route path={paths.embedding} element={<Embedding />} />
+        <Route path={paths.theme} element={<Theme />} />
         <Route path={paths.sessions} element={<Sessions />} />
+        <Route path={paths.revisions} element={<Revisions />} />
+        <Route path={`${paths.revisions}/:id`} element={<Revisions />} />
         <Route path={paths.accounts} element={<Accounts />} />
         <Route path="*" element={<Navigate to={HOME} replace />} />
       </Route>
@@ -81,6 +90,8 @@ interface AppProps {
   cache?: EmotionCache;
   /** Tests start at a path, in memory, instead of the browser's address. */
   initialPath?: string;
+  /** Where the settings draft is kept; the tab's sessionStorage by default. */
+  draftStorage?: Storage | null;
 }
 
 /** Wraps `children` in Emotion's cache when one is given. */
@@ -90,8 +101,9 @@ function Styles({ cache, children }: { cache?: EmotionCache; children: ReactNode
 }
 
 /** The whole admin. */
-export function App({ api, cache, initialPath }: AppProps) {
+export function App({ api, cache, initialPath, draftStorage = tabStorage() }: AppProps) {
   const [client] = useState(createQueryClient);
+  const [drafts] = useState(() => createDraftStore(draftStorage));
   const routes = (
     <>
       <SignedOutRedirect client={client} />
@@ -103,7 +115,9 @@ export function App({ api, cache, initialPath }: AppProps) {
     <Styles cache={cache}>
       <ApiContext.Provider value={api}>
         <QueryClientProvider client={client}>
-          {initialPath ? <MemoryRouter initialEntries={[initialPath]}>{routes}</MemoryRouter> : <BrowserRouter>{routes}</BrowserRouter>}
+          <DraftProvider store={drafts}>
+            {initialPath ? <MemoryRouter initialEntries={[initialPath]}>{routes}</MemoryRouter> : <BrowserRouter>{routes}</BrowserRouter>}
+          </DraftProvider>
         </QueryClientProvider>
       </ApiContext.Provider>
     </Styles>

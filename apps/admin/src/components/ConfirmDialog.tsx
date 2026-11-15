@@ -19,14 +19,16 @@ interface ConfirmDialogProps {
   onClose: () => void;
 }
 
-/** The admin's modal: centred, 480 px, panel background; its content mounts while open only. */
-export function DialogShell({ open, onClose, alert, children }: { open: boolean; onClose: () => void; alert?: boolean; children: ReactNode }) {
+/** The admin's modal: centred, 480 px unless told otherwise, panel background; its content mounts while open only. */
+export function DialogShell(props: { open: boolean; onClose: () => void; alert?: boolean; maxW?: string; children: ReactNode }) {
+  const { open, onClose, alert, maxW = "480px", children } = props;
+
   return (
     <Dialog.Root open={open} onOpenChange={(e) => !e.open && onClose()} placement="center" role={alert ? "alertdialog" : "dialog"} lazyMount unmountOnExit>
       <Portal>
         <Dialog.Backdrop bg="blackAlpha.700" />
         <Dialog.Positioner>
-          <Dialog.Content bg="bg.subtle" borderWidth="1px" borderColor="border.emphasized" borderRadius="l3" maxW="480px" shadow="none">
+          <Dialog.Content bg="bg.subtle" borderWidth="1px" borderColor="border.emphasized" borderRadius="l3" maxW={maxW} shadow="none">
             {children}
           </Dialog.Content>
         </Dialog.Positioner>
@@ -60,12 +62,16 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
 }
 
 /** A dialog's header (title, context, close button) and bordered body. */
-export function DialogFrame({ title, context, children }: { title: string; context?: string; children: ReactNode }) {
+export function DialogFrame({ title, context, children }: { title: string; context?: ReactNode; children: ReactNode }) {
   return (
     <>
       <Dialog.Header px="6" pt="6" pb="5" borderBottomWidth="1px" borderColor="border" display="block">
         <Dialog.Title textStyle="heading-lg">{title}</Dialog.Title>
-        {context && <Text mt="1">{context}</Text>}
+        {context && (
+          <Text mt="1">
+            {context}
+          </Text>
+        )}
         <Dialog.CloseTrigger asChild top="5" insetEnd="5">
           <CloseButton size="sm" aria-label={strings.common.close} />
         </Dialog.CloseTrigger>

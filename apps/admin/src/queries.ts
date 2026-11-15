@@ -3,7 +3,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext } from "react";
 import type { ApiClient } from "./api.ts";
-import type { Account, ActiveSettings, Me, Session } from "./model.ts";
+import type { Account, ActiveSettings, Me, Revision, RevisionSummary, Session, Validation } from "./model.ts";
+import type { SettingsDocument } from "./settings/document.ts";
 
 /** How often lists refresh while the tab is visible. */
 export const POLL_MS = 3000;
@@ -23,6 +24,8 @@ export const keys = {
   settings: ["settings"],
   sessions: ["sessions"],
   accounts: ["accounts"],
+  revisions: ["revisions"],
+  revision: (id: number) => ["revisions", id],
 } as const;
 
 /** The signed-in account; its failure with 401 sends the browser to sign in. */
@@ -108,4 +111,73 @@ export function useSignIn() {
 export function useSignOut() {
   const api = useApi();
   return useMutation({ mutationFn: () => api.request<void>("logout", { method: "POST" }) });
+}
+
+/** Every revision's summary, newest first. */
+export function useRevisions() {
+  const api = useApi();
+  return useQuery({
+    queryKey: keys.revisions,
+    queryFn: async () => (await api.request<{ revisions: RevisionSummary[] }>("revisions")).revisions,
+    refetchInterval: POLL_MS,
+  });
+}
+
+/** One revision with its document; a revision never changes, so it is fetched once. */
+export function useRevision(id: number | null) {
+  const api = useApi();
+  return useQuery({
+    queryKey: keys.revision(id ?? 0),
+    queryFn: () => api.request<Revision>(`revisions/${id}`),
+    enabled: id !== null,
+    staleTime: Infinity,
+  });
+}
+
+/** The dry run of a document: 200 with warnings, or an ApiError 422 with `problems`. */
+export function useValidate() {
+  const api = useApi();
+  return useMutation({
+    mutationFn: (document: SettingsDocument) => api.request<Validation>("config/validate", { method: "POST", body: { document } }),
+  });
+}
+
+/** What a publication answers. */
+export interface Published {
+  revision: RevisionSummary;
+  warnings: string[];
+}
+
+/** Refreshes what a new revision changes: the active settings and the revisions list. */
+function refreshSettings(client: ReturnType<typeof useQueryClient>) {
+  return Promise.all([client.invalidateQueries({ queryKey: keys.settings }), client.invalidateQueries({ queryKey: keys.revisions })]);
+}
+
+/** Publishes a document as a new revision on top of `base`; a 409 means a newer one exists. */
+export function usePublish() {
+  const api = useApi();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (publication: { base: number | null; document: SettingsDocument; note?: string }) =>
+      api.request<Published>("revisions", { method: "POST", body: publication }),
+    onSettled: () => refreshSettings(client),
+  });
+}
+
+/** Publishes an older revision's document again, on top of `base`. */
+export function useRollback() {
+  const api = useApi();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, base }: { id: number; base: number | null }) => api.request<Published>(`revisions/${id}/rollback`, { method: "POST", body: { base } }),
+    onSettled: () => refreshSettings(client),
+  });
+}
+
+/** Stores a logo given in base64; resolves to its SHA-256. */
+export function useUploadAsset() {
+  const api = useApi();
+  return useMutation({
+    mutationFn: async (data: string) => (await api.request<{ sha256: string }>("assets", { method: "POST", body: { data } })).sha256,
+  });
 }
