@@ -84,7 +84,9 @@ nothing loads from a CDN.
 | `queries.ts` | One hook per API resource; lists refresh every 3 s while the tab is visible. |
 | `app/App.tsx` | Providers, routes, and the rule that any `401` leads to the sign-in page, then back. |
 | `app/Shell.tsx`, `app/Sidebar.tsx` | The signed-in frame: navigation, the control plane's state and version, the account and sign-out. |
-| `pages/` | Sign-in, Sessions (with stop), Accounts (add, delete, own password). |
+| `pages/` | Sign-in, Embedding (origins, visitor limits), Theme, Sessions (with stop), Revisions (diff, YAML, rollback), Accounts (add, delete, own password). |
+| `useDraft.tsx`, `settings/` | The pending changes: one draft of the whole settings document in the tab's `sessionStorage` (`draft.ts`), moved on top of a revision published meanwhile by a three-way merge (`merge.ts`); the YAML writer (`yaml.ts`) and line diff (`diff.ts`) of the review, the change labels, the YAML download, and the origin and contrast checks. |
+| `components/ReviewDialog.tsx` | The review: changes, YAML diff, dry run, note, and publication of the draft as the next revision. |
 | `format.ts`, `sessions.ts`, `signin.ts`, `navigation.ts` | Pure functions: times and countdowns, the sessions' cells and summary, sign-in messages, the safe page to return to. |
 | `strings.ts`, `theme.ts`, `main.tsx` | Every visible text (English), the Chakra system, and the entry point. |
 
@@ -97,6 +99,12 @@ What it does:
   since the browser would drop the `Secure` cookie.
 - Never shows a session's URL or a visitor's address, which the API does not send anyway;
   tickets show their 6-character prefix.
+- Edits the settings as one draft of the whole document, kept in the browser tab rather than
+  on the server: the API only knows whole documents, so nothing half-edited is ever stored, and
+  every change goes through the same review, dry run and publication. A draft made from an
+  older revision is merged onto the newer one path by path rather than thrown away; where both
+  changed a value, the draft wins and the review shows it, since the operator is looking at
+  that diff when applying.
 
 ### Embed page — `apps/embed`, `packages/tokens`
 

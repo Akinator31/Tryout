@@ -45,6 +45,6 @@ export function signedIn(extra: Routes = {}): Routes {
 /** Renders the admin at `path` over `routes`. */
 export function renderAdmin(path: string, routes: Routes) {
   const { api, calls } = fakeApi(routes);
-  const view = render(<App api={api} initialPath={path} />);
+  const view = render(<App api={api} initialPath={path} draftStorage={null} />);
   return { ...view, calls };
 }

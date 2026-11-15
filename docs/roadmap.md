@@ -212,3 +212,5 @@ the admin UI, and graph queue and session metrics.
   as "Session stopped". See [Admin API](configuration.md#admin-api).
 - **M4:** admin interface, first pages: sign-in, sessions with stop, accounts, served under
   `/admin/` on the admin listener. See [Admin interface](configuration.md#admin-interface).
+- **M4:** admin settings pages: embedding and visitor limits, theme, revisions with rollback
+  and YAML download, through one draft of pending changes reviewed before it is applied.

@@ -1,6 +1,6 @@
 // What the admin API answers, in its own snake_case; see the control plane's
 // admin/http.ts, admin/sessions.ts and admin/settings.ts.
-import type { CapacitySettings } from "./format.ts";
+import type { SettingsDocument } from "./settings/document.ts";
 
 /** `GET me`: the signed-in account and the control plane's version. */
 export interface Me {
@@ -32,5 +32,26 @@ export interface Account {
 /** `GET settings`: the active revision's number and document; null and empty before the first. */
 export interface ActiveSettings {
   revision: number | null;
-  document: CapacitySettings;
+  document: SettingsDocument;
+}
+
+/** One revision of `GET revisions`, without its document; this one field is camelCase. */
+export interface RevisionSummary {
+  id: number;
+  /** The revision it was edited from; null for the first. */
+  parent: number | null;
+  author: string;
+  note: string | null;
+  /** In ms since the epoch. */
+  createdAt: number;
+}
+
+/** `GET revisions/:id`. */
+export interface Revision extends RevisionSummary {
+  document: SettingsDocument;
+}
+
+/** `POST config/validate` when the document passes: what does not prevent applying it. */
+export interface Validation {
+  warnings: string[];
 }

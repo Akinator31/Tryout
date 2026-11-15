@@ -9,8 +9,166 @@ export const strings = {
 
   nav: {
     label: "Admin",
+    embedding: "Embedding",
+    theme: "Theme",
     sessions: "Sessions",
+    revisions: "Revisions",
     accounts: "Accounts",
+  },
+
+  draft: {
+    discard: "Discard",
+    review: (n: number) => (n === 1 ? "Review 1 change" : `Review ${n} changes`),
+    moved: (from: number | null, to: number | null) =>
+      `Revision ${to ?? "—"} was published while you edited revision ${from ?? "—"}. Your changes now apply on top of it.`,
+    conflicts: (n: number) => (n === 1 ? "1 value was changed on both sides; yours is kept." : `${n} values were changed on both sides; yours are kept.`),
+  },
+
+  review: {
+    open: "Review",
+    title: (next: number) => `Review and apply revision ${next}`,
+    summary: (n: number, base: number | null) =>
+      `${n === 1 ? "1 change" : `${n} changes`} since ${base === null ? "the empty settings" : `revision ${base}`}. ` +
+      "New tickets use them at once; running sessions keep their settings.",
+    file: "settings",
+    checking: "Checking…",
+    valid: "Schema and settings valid",
+    invalid: "The settings are refused",
+    checkFailed: "Could not check the settings.",
+    conflict: "changed on both sides",
+    note: "Note",
+    noteHelp: "Shown in the revisions list.",
+    download: "Download YAML",
+    draftSource: (base: number | null) => `draft on top of revision ${base ?? "none"}`,
+    keepEditing: "Keep editing",
+    apply: (next: number) => `Apply revision ${next}`,
+    moved: "A newer revision was published meanwhile. Your changes were moved on top of it: check them and apply again.",
+    nodeInUse: (nodes: string[]) => `Sessions run on ${nodes.join(", ")}: the node cannot be removed or moved now.`,
+    downloadLogo: "Download logo",
+    nothing: "No pending change.",
+  },
+
+  changes: {
+    newEntry: (section: string, name: string) => `${name} (new ${section === "nodes" ? "node" : "project"})`,
+    removedEntry: (section: string, name: string) => `${name} (${section === "nodes" ? "node" : "project"} removed)`,
+    item: (path: string, value: string) => `${path} ${value}`,
+    set: (path: string, value: string) => `${path} = ${value}`,
+    unset: (path: string) => `${path} (removed)`,
+    changed: (path: string, from: string, to: string) => `${path} ${from} → ${to}`,
+  },
+
+  embedding: {
+    title: "Embedding",
+    description: "Which sites may show /embed/<project> in an iframe. Every other parent is refused by Content-Security-Policy frame-ancestors.",
+    origins: {
+      title: "Allowed origins",
+      description: "A scheme and host, with an optional port and leading *. 'self' is always allowed.",
+      always: "always",
+      wildcard: "wildcard label",
+      remove: (origin: string) => `Remove ${origin}`,
+      input: "New origin",
+      placeholder: "https://portfolio.example.org",
+      add: "Add origin",
+      problems: {
+        empty: "Type an origin.",
+        self: "'self' is always allowed.",
+        scheme: (fix: string) => `Add the scheme: ${fix}`,
+        path: (fix: string) => `Remove the path: ${fix}`,
+        invalid: "A scheme (http or https) and a host, with an optional port.",
+        duplicate: "Already allowed.",
+      },
+    },
+    limits: {
+      title: "Visitor limits",
+      description: "Per IP address (IPv6: per /64), across all projects. 0 disables a limit. Beyond it the API answers 429 and the embed page waits.",
+      live: "Live tickets per IP",
+      liveUnit: "tickets",
+      newTickets: "New tickets per IP",
+      newUnit: "tickets",
+      window: "Window",
+      windowHelp: "For example 30s or 1m, at most 5m.",
+      streams: "Event streams per IP",
+      streamsUnit: "streams",
+      streamsHelp: "Per control plane instance.",
+      whole: "A whole number, 0 or more.",
+      duration: "A duration such as 30s or 1m.",
+    },
+    proxies: {
+      title: "Trusted proxies",
+      description: "Only these may report the visitor's address. Without them, every visitor behind your tunnel shares one budget.",
+      readOnly: "Read-only here: set under client_ip in tryout.yaml, applied at restart.",
+    },
+    gateway: {
+      title: "The gateway also checks the parent",
+      body: "Sessions live inside the embed page, so the gateway only allows the control plane's own origin (FRAME_ANCESTORS on each node).",
+    },
+    shared: {
+      title: "Shared addresses share a budget",
+      body: "A school, an office or a mobile carrier puts many visitors behind one IP. Raise the limits if you expect groups.",
+    },
+  },
+
+  theme: {
+    title: "Theme",
+    description: "How the embed page looks in your portfolio. The same theme applies to every project.",
+    accent: {
+      title: "Accent colour",
+      description: "Queue number, spinner, primary button and focus ring. Hover and the text on the accent are derived from it.",
+      label: "theme.accent",
+      picker: "Pick the accent colour",
+      useDefault: (hex: string) => `Use the default (${hex})`,
+      ratio: (ratio: string) => `${ratio}:1 on the card. At least 3:1 is required.`,
+      format: "A colour as #rrggbb.",
+    },
+    logo: {
+      title: "Logo",
+      description: "Shown 20 px high at the top of every status card, never in the session bar. SVG, PNG or WebP, up to 64 KB.",
+      none: "No logo.",
+      upload: "Upload logo",
+      replace: "Replace",
+      remove: "Remove",
+      file: "Logo file",
+      alt: "Alt text",
+      altHelp: "Required with a logo. Screen readers read it instead of the image.",
+      altMissing: "Required with a logo.",
+      tooBig: "The file is over 64 KB.",
+      wrongType: "Use an SVG, PNG or WebP file.",
+      preview: "Logo",
+    },
+    preview: {
+      title: "Preview",
+      description: "The waiting screen with your changes. The real page is generated after you apply.",
+      position: "3",
+      line: "You are 3rd in line",
+      hint: "Keep this tab open. The session starts by itself.",
+    },
+  },
+
+  revisions: {
+    title: "Revisions",
+    description: "Every published version of the settings. The newest one is active; rolling back publishes an older one again.",
+    summary: (id: number, author: string, when: string) => `Revision ${id} is active, published by ${author} ${when}.`,
+    none: "No revision yet.",
+    columns: { id: "#", note: "Note", author: "Author", published: "Published" },
+    active: "active",
+    open: (id: number) => `Show revision ${id}`,
+    detail: {
+      title: (id: number) => `Revision ${id}`,
+      meta: (author: string, when: string, parent: number | null) =>
+        parent === null ? `Published by ${author} ${when}.` : `Published by ${author} ${when}, from revision ${parent}.`,
+      changesFrom: (parent: number | null) => (parent === null ? "Contents" : `Changes from revision ${parent}`),
+      same: "Same settings as its parent.",
+      rollbackHelp: (id: number, next: number) =>
+        `Rolling back publishes a copy of revision ${id} as revision ${next}. Nothing is deleted; new tickets use it at once, running sessions keep their settings.`,
+      rollback: (id: number) => `Roll back to revision ${id}`,
+      isActive: "This revision is active.",
+      draftPending: "Apply or discard your pending changes first.",
+      moved: "A newer revision was published meanwhile. Check it, then try again.",
+      download: "Download YAML",
+      downloadLogo: "Download logo",
+      source: (id: number) => `revision ${id}`,
+      diffLabel: "settings",
+    },
   },
 
   shell: {
@@ -120,7 +278,9 @@ export const strings = {
     none: "—",
     retry: "Try again",
     loadFailed: "Could not load this page.",
+    loading: "Loading…",
     actionFailed: "The action failed. Try again.",
+    downloadFailed: "Download failed.",
   },
 } as const;
 

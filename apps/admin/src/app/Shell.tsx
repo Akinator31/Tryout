@@ -6,6 +6,9 @@ import { Problem } from "../components/Problem.tsx";
 import { paths } from "../navigation.ts";
 import { useMe, useSignOut } from "../queries.ts";
 import { strings } from "../strings.ts";
+import { DraftBanner } from "../components/DraftBanner.tsx";
+import { ReviewDialog } from "../components/ReviewDialog.tsx";
+import { DraftSync, useDraftStore } from "../useDraft.tsx";
 import { Sidebar } from "./Sidebar.tsx";
 
 /**
@@ -17,16 +20,19 @@ export function Shell() {
   const signOut = useSignOut();
   const navigate = useNavigate();
   const client = useQueryClient();
+  const drafts = useDraftStore();
 
   /**
    * Ends the session, then shows the sign-in page, even when the call failed. The cache is
-   * dropped after leaving, so no page of the shell refetches and lands on sign-in with `next`.
+   * dropped after leaving, so no page of the shell refetches and lands on sign-in with `next`;
+   * so is the settings draft, which belongs to this session.
    */
   const onSignOut = () =>
     signOut.mutate(undefined, {
       onSettled: () => {
         navigate(paths.signIn, { replace: true });
         client.clear();
+        drafts.discard();
       },
     });
 
@@ -52,8 +58,11 @@ export function Shell() {
     <Flex minH="100vh">
       <Sidebar onSignOut={onSignOut} />
       <Box as="main" flex="1" minW="0" pb="8">
+        <DraftBanner />
         <Outlet />
       </Box>
+      <DraftSync />
+      <ReviewDialog />
     </Flex>
   );
 }

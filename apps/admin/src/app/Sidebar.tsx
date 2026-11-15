@@ -2,7 +2,7 @@
 // page links with their counts, the control plane's state and version, and
 // the signed-in account with sign-out.
 import { Box, Flex, IconButton, Image, Stack, Text } from "@chakra-ui/react";
-import { Activity, LogOut, User, Users, type LucideIcon } from "lucide-react";
+import { Activity, Globe, History, LogOut, Palette, User, Users, type LucideIcon } from "lucide-react";
 import { useSyncExternalStore } from "react";
 import { NavLink } from "react-router";
 import logo from "../logo.svg";
@@ -102,7 +102,10 @@ export function Sidebar({ onSignOut }: { onSignOut: () => void }) {
       </Flex>
 
       <Stack as="nav" aria-label={strings.nav.label} gap="0.5">
+        <NavItem to={paths.embedding} icon={Globe} label={strings.nav.embedding} />
+        <NavItem to={paths.theme} icon={Palette} label={strings.nav.theme} />
         <NavItem to={paths.sessions} icon={Activity} label={strings.nav.sessions} count={counts ? counts.active + counts.starting : undefined} />
+        <NavItem to={paths.revisions} icon={History} label={strings.nav.revisions} />
         <Box h="3" />
         <NavItem to={paths.accounts} icon={Users} label={strings.nav.accounts} />
       </Stack>
