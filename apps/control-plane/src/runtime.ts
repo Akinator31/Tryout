@@ -1,7 +1,7 @@
 // SessionRuntime adapter for real nodes: agent API over mutual TLS
 // + readiness probe through the gateway. Tests use an in-memory adapter instead.
 import { readCapped, type AgentClient } from "./agents.ts";
-import type { Config } from "./config.ts";
+import type { Settings } from "./config.ts";
 import type { SessionRef, SessionRuntime } from "./queue.ts";
 
 /** Timeout of an agent call that has no signal of its own (stop). */
@@ -31,15 +31,16 @@ const sleep = (ms: number, signal: AbortSignal) =>
   });
 
 /**
- * The runtime for the configured nodes. A start creates the session on the
- * agent, then polls the session URL through the gateway until it answers.
- * The queue aborts the start's signal when the visitor leaves or the start
- * deadline passes.
+ * The runtime for the nodes of the active settings, read at each call: a
+ * start uses the project as it is when it starts. A start creates the session
+ * on the agent, then polls the session URL through the gateway until it
+ * answers. The queue aborts the start's signal when the visitor leaves or the
+ * start deadline passes.
  */
-export function agentRuntime(cfg: Config, clients: Record<string, AgentClient>): SessionRuntime {
+export function agentRuntime(settings: () => Settings, client: (node: string) => AgentClient): SessionRuntime {
   /** Calls the agent's API; a 404 is not an error (stopping an unknown session is a no-op). */
   async function call(node: string, method: string, path: string, body?: unknown, signal?: AbortSignal) {
-    const res = await clients[node].fetch(path, {
+    const res = await client(node).fetch(path, {
       method,
       signal: signal ?? AbortSignal.timeout(AGENT_CALL_TIMEOUT_MS),
       headers: { "content-type": "application/json" },
@@ -54,7 +55,7 @@ export function agentRuntime(cfg: Config, clients: Record<string, AgentClient>):
 
   /** The POST /v1/sessions body (`$defs/session_request` in the schema). */
   function sessionRequest({ sessionId, project }: SessionRef) {
-    const p = cfg.projects[project];
+    const p = settings().projects[project];
     return {
       id: sessionId,
       project,
@@ -88,7 +89,7 @@ export function agentRuntime(cfg: Config, clients: Record<string, AgentClient>):
     async start(session: SessionRef, signal: AbortSignal) {
       await call(session.node, "POST", "/v1/sessions", sessionRequest(session), signal);
 
-      const n = cfg.nodes[session.node];
+      const n = settings().nodes[session.node];
       await waitUntilReachable(fill(n.probe_url ?? n.public_url, session.sessionId), signal);
       return { url: fill(n.public_url, session.sessionId) };
     },

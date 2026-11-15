@@ -83,7 +83,7 @@ test("a missing socket address still yields a key", () => {
 });
 
 test("the stream limiter caps open streams per key and frees a slot on release", () => {
-  const streams = new StreamLimiter(2);
+  const streams = new StreamLimiter(() => 2);
   const a = streams.acquire("k");
   const b = streams.acquire("k");
   assert.ok(a && b);
@@ -98,6 +98,6 @@ test("the stream limiter caps open streams per key and frees a slot on release",
 });
 
 test("a stream limit of zero means no limit", () => {
-  const streams = new StreamLimiter(0);
+  const streams = new StreamLimiter(() => 0);
   for (let i = 0; i < 100; i++) assert.ok(streams.acquire("k"));
 });

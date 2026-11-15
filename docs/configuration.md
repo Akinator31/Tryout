@@ -7,7 +7,15 @@
 | `DATABASE_URL` | Required. PostgreSQL (14 or later) connection string; the schema is created at startup. |
 | `TRYOUT_CONFIG` | Path of the YAML configuration file (default `tryout.yaml`). |
 
-The configuration file (see `deploy/tryout.dev.yaml`):
+The configuration has two parts:
+
+- the **bootstrap**, in `tryout.yaml`: `listen`, `admin_listen`, `agent_tls` and `client_ip`.
+  It is read at startup; a change needs a restart.
+- the **settings**, in PostgreSQL: `embed_frame_ancestors`, `theme`, `limits`, `nodes` and
+  `projects`. They are stored as [revisions](#settings-and-revisions) and applied to every
+  instance without a restart. `tryout.yaml` may hold them too, to seed an empty database.
+
+The configuration file, with both parts (see `deploy/tryout.dev.yaml`):
 
 ```yaml
 # yaml-language-server: $schema=https://akinator31.github.io/Tryout/schema/v1/tryout.schema.json
@@ -67,7 +75,8 @@ than a silently ignored setting: upgrade nodes and the control plane together. T
 keeps its own checks of the fields the hardening depends on (session id, kind, port, reserved
 variables), as defence in depth.
 
-The file is read at startup only; a change needs a restart.
+A stored revision is checked against the same schema (`$defs/settings_document`) and the same
+semantic checks before it is published.
 
 ### Environment variables in values
 
@@ -78,6 +87,58 @@ parsed, so a variable cannot add keys. A substituted value is always a string, s
 string keys such as `image` or `server_name`, not numbers such as `port`. A literal `${` cannot
 be written.
 
+### Settings and revisions
+
+Each revision is a full copy of the settings, with its author, its date and the revision it was
+edited from. The latest revision is the active one. A rollback publishes an older revision's
+settings again, as a new revision.
+
+**At startup**, the settings in `tryout.yaml` (any of `embed_frame_ancestors`, `theme`, `limits`,
+`nodes`, `projects`) are handled this way:
+
+| Database | `tryout.yaml` | Result |
+|---|---|---|
+| No revision | No settings | The control plane starts with no node and no project. |
+| No revision | Settings | They are published as revision 1, by `tryout.yaml`. |
+| Revisions | No settings | The active revision applies. |
+| Revisions | The same settings | The active revision applies; a warning says the file's settings are ignored. |
+| Revisions | Different settings | The control plane refuses to start, so a stale file never hides a change. |
+
+Once the database is seeded, remove the settings from `tryout.yaml`, or keep them in step with
+the active revision. Settings are compared after `${VAR}` substitution, and the logo by its
+content.
+
+**Changing the settings** happens from the command line until the admin interface arrives.
+Run these commands where the control plane runs, with the same `DATABASE_URL`. In the
+published image, from its working directory:
+
+```sh
+node apps/control-plane/src/cli.ts export settings.yaml   # the active settings, logo file beside
+node apps/control-plane/src/cli.ts import settings.yaml   # publish as a new revision
+```
+
+`import` accepts a file written by `export` or a whole `tryout.yaml`, whose bootstrap it ignores.
+It reports every problem with its line, like the startup check, and publishes nothing then.
+It also refuses to remove a node on which sessions are starting or running.
+
+**Every instance applies a new revision within a second** (PostgreSQL `LISTEN/NOTIFY`):
+
+- caps, maximum ages, limits, embedding origins and the theme apply to the next request or
+  promotion; a lower cap evicts nobody;
+- a change of image, port or node applies to sessions that start afterwards; a running
+  session keeps what it started with;
+- a removed project's tickets end and their sessions stop; its visitors see that their session
+  ended;
+- a project with `enabled: false` is paused: new visitors see that it is offline, and those
+  already in line or in a session keep their place.
+
+The gateway's `FRAME_ANCESTORS` is set on each node, not in the settings: when you add a
+portfolio to `embed_frame_ancestors`, add it there too.
+
+Do not put secrets in the settings: they are stored in PostgreSQL in clear, and a project's `env`
+is visible inside its sessions anyway. `${VAR}` values in a seeding file are stored as
+substituted.
+
 ### Top level
 
 | Key | Role |
@@ -86,6 +147,11 @@ be written.
 | `admin_listen` | Optional: `[host]:port` of the admin listener, which serves Prometheus metrics on `/metrics` (see [Health and metrics](deployment.md#health-and-metrics)). Off when left out. Keep it on a private address: it has no authentication. It may equal `listen`, which makes `/metrics` public; the control plane warns about it. Another host on the port of `listen` is refused, since the two servers would overlap. |
 | `agent_tls` | Mutual TLS towards the agents: `ca` (the CA that signs the agents' certificates), `cert` and `key` (the control plane's client certificate, with the `clientAuth` usage). Paths of PEM files, relative to the configuration file. See [Certificates](certificates.md). |
 | `client_ip` | Optional: how to find a visitor's IP address behind proxies. See [Per-IP limits](#per-ip-limits). |
+
+The keys above are the bootstrap; the keys below are the settings, all optional.
+
+| Key | Role |
+|---|---|
 | `limits` | Optional: per-IP limits on tickets and event streams. See [Per-IP limits](#per-ip-limits). |
 | `theme` | Optional: accent colour and logo of the embed page. See [Theme](#theme). |
 | `embed_frame_ancestors` | Origins allowed to embed `/embed/<project>` in an iframe: `https://example.org`, `https://*.example.org`, `http://localhost:3000`. `'self'` is always allowed. |
@@ -108,11 +174,12 @@ theme:
 | Key | Role |
 |---|---|
 | `theme.accent` | Optional: the accent colour as `#rrggbb`. It colours the queue number, the spinner, the primary button and the focus ring. The control plane derives the hover colour and picks black or white text for the button. It refuses an accent with a contrast below 3:1 on the card (`#141414`), the minimum for interface elements. |
-| `theme.logo.file` | The logo, shown 20 px high at the top of every status card, never over a session. An SVG, PNG or WebP file of at most 64 KB, recognised by its content. Prefer an SVG or an image at least 40 px high, for sharp rendering on high-density screens. |
+| `theme.logo.file` | In `tryout.yaml` and imported files: the logo, shown 20 px high at the top of every status card, never over a session. An SVG, PNG or WebP file of at most 64 KB, recognised by its content. Prefer an SVG or an image at least 40 px high, for sharp rendering on high-density screens. |
+| `theme.logo.asset` | In stored revisions: the SHA-256 of the logo, stored in the database. The control plane writes it; `export` turns it back into a file. |
 | `theme.logo.alt` | Required with a logo: the text screen readers say instead of it, such as your name. |
 
-The control plane reads the logo once at startup and serves it, with the accent's stylesheet,
-under `/assets/` with a name derived from its content: change the file and restart. The page
+The control plane stores the logo in the database when the settings are published, and serves
+it, with the accent's stylesheet, under `/assets/` with a name derived from its content. The page
 loads nothing from elsewhere, so its Content-Security-Policy stays as strict as without a
 theme. The fonts and the dark background cannot be changed.
 
@@ -172,6 +239,7 @@ the embed page poll instead, which keeps its place in line.
 
 | Key | Role |
 |---|---|
+| `enabled` | Optional, default `true`. `false` pauses the project: new visitors see that it is offline; those in line or in a session keep their place. |
 | `title` | Optional: the project's name for visitors, up to 40 characters, in the session bar, the starting card ("Starting My CLI…") and the browser tab. Defaults to the project's key. |
 | `node` | Node that runs the project. |
 | `image` | Docker image, preferably pinned by digest. Must exist for the node's architecture. |

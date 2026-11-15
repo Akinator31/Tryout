@@ -1,16 +1,19 @@
-// Tryout control plane entry point: wires configuration, Postgres, the
-// node clients, health checks, the queue and the HTTP listeners. Runs
-// directly on Node >= 24.
+// Tryout control plane entry point: wires the bootstrap file, Postgres, the
+// settings (seeded from the file, then followed in the database), the node
+// clients, health checks, the queue and the HTTP listeners. Runs directly on
+// Node >= 24.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { controlPlaneMetrics, createAdminHandler, createMetricsPage } from "./admin.ts";
-import { agentClients, checkHealth, fetchMetrics } from "./agents.ts";
-import { ConfigError, loadConfig, queueConfig, sameListen, type Config, type Listen } from "./config.ts";
+import { agentPool, checkHealth, fetchMetrics } from "./agents.ts";
+import { ConfigError, loadConfig, queueConfig, sameListen, type Bootstrap, type Config, type Listen, type Seed, type Settings } from "./config.ts";
+import { followSettings, type Active } from "./config-live.ts";
+import { createConfigStore, SeedConflictError, seedSettings, type ConfigStore } from "./config-store.ts";
 import { pgDb } from "./db.ts";
 import { applyTheme, loadEmbed, type EmbedBundle } from "./embed.ts";
 import { createNodeHealth } from "./health.ts";
 import { createHandler, json } from "./http.ts";
 import { log } from "./log.ts";
-import { createQueue, type Queue } from "./queue.ts";
+import { createQueue } from "./queue.ts";
 import { agentRuntime } from "./runtime.ts";
 
 const TICK_INTERVAL_MS = 2000;
@@ -30,14 +33,26 @@ function requireDatabaseUrl(): string {
 }
 
 /** Loads TRYOUT_CONFIG (tryout.yaml by default), logging its warnings; exits on an invalid file. */
-function loadConfigOrExit(): Config {
+function loadConfigOrExit(): { config: Config; seed: Seed | null } {
   try {
     const loaded = loadConfig(process.env.TRYOUT_CONFIG ?? "tryout.yaml");
     for (const w of loaded.warnings) log("configuration warning", { warning: w });
-    return loaded.config;
+    return loaded;
   } catch (e) {
     if (!(e instanceof ConfigError)) throw e;
     log("invalid configuration", { problems: e.problems });
+    process.exit(1);
+  }
+}
+
+/** Applies the startup rule for settings in tryout.yaml (see seedSettings); exits when they conflict with the database. */
+async function seedOrExit(store: ConfigStore, seed: Seed | null): Promise<void> {
+  try {
+    const { warning } = await seedSettings(store, seed);
+    if (warning) log("configuration warning", { warning });
+  } catch (e) {
+    if (!(e instanceof SeedConflictError || e instanceof ConfigError)) throw e;
+    log("cannot seed the settings", { err: e.message });
     process.exit(1);
   }
 }
@@ -72,8 +87,7 @@ function listen(name: string, at: Listen, handle: Handler): void {
  * Serves the public routes on `listen` and the admin routes on `admin_listen`,
  * if set. When both addresses are equal, one server answers both.
  */
-function serve(cfg: Config, queue: Queue, embed: EmbedBundle, admin: AdminHandler): void {
-  const handle = createHandler(cfg, queue, embed, (warning) => log("client address warning", { warning }));
+function serve(cfg: Bootstrap, handle: Handler, admin: AdminHandler): void {
   const notFound = (res: ServerResponse) => json(res, 404, { error: "not found" });
 
   if (sameListen(cfg.listen, cfg.admin_listen)) {
@@ -91,32 +105,59 @@ function serve(cfg: Config, queue: Queue, embed: EmbedBundle, admin: AdminHandle
 }
 
 const databaseUrl = requireDatabaseUrl();
-const cfg = loadConfigOrExit();
-const embed = applyTheme(loadEmbedOrExit(), cfg.theme);
+const { config: bootstrap, seed } = loadConfigOrExit();
+const baseEmbed = loadEmbedOrExit();
 const db = pgDb(databaseUrl);
-const clients = agentClients(cfg);
-const nodes = Object.keys(cfg.nodes);
-const health = createNodeHealth({ nodes, check: (node, signal) => checkHealth(clients[node], signal), log });
+const store = await createConfigStore({ db });
+await seedOrExit(store, seed);
+
+// The active settings and what derives from them; replaced by applySettings on each new revision.
+let settings: Settings;
+let embed: EmbedBundle;
+const current = () => settings;
+const nodeNames = () => Object.keys(settings.nodes);
+
+const agents = agentPool(bootstrap.agent_tls);
+const health = createNodeHealth({ nodes: nodeNames, check: (node, signal) => checkHealth(agents.get(node), signal), log });
 const metrics = controlPlaneMetrics();
 const queue = await createQueue({
   db,
-  config: queueConfig(cfg),
-  runtime: agentRuntime(cfg, clients),
+  config: { nodes: {}, projects: {} },
+  runtime: agentRuntime(current, agents.get),
   log,
   nodeUp: health.isUp,
   onStart: metrics.onStart,
 });
+const tick = () => queue.tick().catch((e) => log("tick failed", { err: String(e) }));
+
+/** Hands a new revision to every part of the instance, then checks its nodes at once. */
+async function applySettings(next: Active): Promise<void> {
+  settings = next.settings;
+  embed = applyTheme(baseEmbed, settings.theme);
+  agents.sync(settings.nodes);
+  await queue.configure(queueConfig(settings));
+  // Nodes are down until checked: promote as soon as the round ends.
+  void health.probe().then(tick);
+}
+
+try {
+  const live = await followSettings({ store, apply: applySettings, log });
+  log("settings loaded", { revision: live.current().revision });
+} catch (e) {
+  if (!(e instanceof ConfigError)) throw e;
+  log("invalid settings in the database", { problems: e.problems });
+  process.exit(1);
+}
 
 const metricsPage = createMetricsPage({
-  nodes,
+  nodes: nodeNames,
   metrics,
   stats: () => queue.stats(),
   health: health.snapshot,
-  fetchNodeMetrics: (node, signal) => fetchMetrics(clients[node], signal),
+  fetchNodeMetrics: (node, signal) => fetchMetrics(agents.get(node), signal),
 });
 
-// Nodes are down until checked: promote as soon as the first round ends.
-void health.probe().then(() => queue.tick().catch((e) => log("tick failed", { err: String(e) })));
 setInterval(() => void health.probe(), HEALTH_INTERVAL_MS);
-setInterval(() => queue.tick().catch((e) => log("tick failed", { err: String(e) })), TICK_INTERVAL_MS);
-serve(cfg, queue, embed, createAdminHandler(metricsPage));
+setInterval(tick, TICK_INTERVAL_MS);
+const handle = createHandler(bootstrap, current, queue, () => embed, (warning) => log("client address warning", { warning }));
+serve(bootstrap, handle, createAdminHandler(metricsPage));

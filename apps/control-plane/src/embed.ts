@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Config } from "./config.ts";
+import type { Settings } from "./config.ts";
 import type { Accent, Theme } from "./config-theme.ts";
 import { frameAncestors } from "./config.ts";
 
@@ -113,7 +113,7 @@ export function embedPage(bundle: EmbedBundle, project: string, title: string | 
  * The embed page's Content-Security-Policy: only its own scripts, styles, fonts and API;
  * session frames only from the nodes' public URLs; framed only by the configured portfolios.
  */
-export function embedCsp(cfg: Config): string {
+export function embedCsp(cfg: Settings): string {
   return [
     "default-src 'none'",
     "script-src 'self'",
@@ -133,7 +133,7 @@ export function embedCsp(cfg: Config): string {
  * the first label of its host (`https://{session}.node.example`) needs a wildcard
  * (`https://*.node.example`); with `{session}` deeper in the host, only the scheme can match.
  */
-export function sessionFrameSources(cfg: Config): string[] {
+export function sessionFrameSources(cfg: Settings): string[] {
   const sources = new Set<string>();
 
   for (const node of Object.values(cfg.nodes)) {

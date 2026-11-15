@@ -1,6 +1,6 @@
 // Queue: the control plane's deep module.
 //
-// Interface: join / poll / watch / release / tick / stats. Behind it: per-project
+// Interface: join / poll / watch / release / tick / configure / stats. Behind it: per-project
 // and per-node caps, node health, per-client limits, FIFO promotion, session start and
 // readiness, heartbeat loss, maximum age, change notifications. State lives in Postgres
 // so several control plane instances can share it; time comes from an
@@ -18,7 +18,8 @@ export { FORGET_ENDED_MS, START_TIMEOUT_MS } from "./queue-timing.ts";
 
 export interface QueueConfig {
   nodes: Record<string, { maxSessions: number }>;
-  projects: Record<string, { node: string; maxSessions: number; maxAgeS: number }>;
+  /** A project with `enabled: false` is paused: it refuses new tickets. */
+  projects: Record<string, { node: string; maxSessions: number; maxAgeS: number; enabled?: boolean }>;
   /** Per-client limits on join; 0 disables a limit. */
   limits?: {
     /** Tickets not yet ended (waiting, starting, active). */
@@ -75,7 +76,7 @@ export interface Queue {
   /**
    * Joins a project's queue. `client` identifies the visitor (an IP address
    * or an IPv6 /64); without it, no per-client limit applies. Throws
-   * UnknownProjectError or RateLimitedError.
+   * UnknownProjectError (also for a paused project) or RateLimitedError.
    */
   join(project: string, client?: string): Promise<TicketView>;
   /** Current state of a ticket; also counts as a heartbeat. Null if unknown. */
@@ -91,6 +92,14 @@ export interface Queue {
   release(ticket: string): Promise<TicketView | null>;
   /** Keeps watched tickets alive, expires tickets, promotes waiting ones. Call every few seconds. */
   tick(): Promise<void>;
+  /**
+   * Applies new settings. Caps, maximum ages and limits apply at once, without
+   * evicting anyone; a moved project starts its next sessions on its new node;
+   * a paused project refuses new tickets but keeps its own. The tickets of a
+   * removed project end, without an error, and their sessions stop. Every
+   * instance calls it with the same settings.
+   */
+  configure(config: QueueConfig): Promise<void>;
   /**
    * Live tickets by project and state, across every instance: each configured
    * project, with zeros, and any project still holding tickets after it left
@@ -148,7 +157,7 @@ async function readUsage(q: Query): Promise<Usage> {
  * both below their caps. A ticket whose project or node left the
  * configuration never starts.
  */
-function takeSlot(config: QueueConfig, nodeUp: (node: string) => boolean, usage: Usage, ticket: Row): boolean {
+function takeSlot(config: QueueConfig, nodeUp: (node: string) => boolean, usage: Usage, ticket: Pick<Row, "project" | "node">): boolean {
   const project = config.projects[ticket.project];
   const node = config.nodes[ticket.node];
   const usedByProject = usage.perProject.get(ticket.project) ?? 0;
@@ -192,7 +201,7 @@ export async function createQueue(deps: QueueDeps): Promise<Queue> {
  */
 class PgQueue implements Queue {
   readonly #db: Db;
-  readonly #config: QueueConfig;
+  #config: QueueConfig;
   readonly #runtime: SessionRuntime;
   readonly #now: () => number;
   readonly #log: (msg: string, extra?: Record<string, unknown>) => void;
@@ -234,7 +243,7 @@ class PgQueue implements Queue {
 
   async join(project: string, client?: string): Promise<TicketView> {
     const p = this.#config.projects[project];
-    if (!p) throw new UnknownProjectError(project);
+    if (!p || p.enabled === false) throw new UnknownProjectError(project);
 
     const inserted = await this.#insertTicket(project, p.node, client);
     await this.#schedule();
@@ -275,6 +284,19 @@ class PgQueue implements Queue {
     await this.#forgetEnded(t);
     await this.#schedule();
     this.#resyncWatchers(t);
+  }
+
+  /** Ends the tickets of projects that left the settings: their own end() stops each session. */
+  async configure(config: QueueConfig): Promise<void> {
+    this.#config = config;
+    const orphans = await this.#db.query<{ id: string }>(
+      `SELECT id FROM tickets
+       WHERE state <> 'ended' AND NOT (project = ANY($1::text[]))`,
+      [Object.keys(config.projects)],
+    );
+
+    for (const o of orphans) await this.#end(o.id);
+    await this.#schedule();
   }
 
   async stats(): Promise<Record<string, ProjectStats>> {
@@ -357,7 +379,8 @@ class PgQueue implements Queue {
    * Inside the scheduling transaction: takes the advisory lock, then walks the
    * waiting tickets in arrival order and moves to `starting` each one whose
    * project and node still have room. A ticket that does not fit is skipped,
-   * so a full project does not block another project's queue.
+   * so a full project does not block another project's queue. A ticket starts
+   * on its project's node at promotion, which may have changed since it joined.
    */
   async #promoteWaiting(q: Query): Promise<Row[]> {
     await q(`SELECT pg_advisory_xact_lock(${SCHEDULER_LOCK})`);
@@ -366,13 +389,14 @@ class PgQueue implements Queue {
 
     const promoted: Row[] = [];
     for (const ticket of waiting) {
-      if (!takeSlot(this.#config, this.#nodeUp, usage, ticket)) continue;
+      const node = this.#config.projects[ticket.project]?.node ?? ticket.node;
+      if (!takeSlot(this.#config, this.#nodeUp, usage, { project: ticket.project, node })) continue;
 
       const [row] = await q<Row>(
-        `UPDATE tickets SET state = 'starting', session_id = $2, start_deadline = $3
+        `UPDATE tickets SET state = 'starting', session_id = $2, start_deadline = $3, node = $4
          WHERE id = $1
          RETURNING *`,
-        [ticket.id, randomId(), this.#now() + START_TIMEOUT_MS],
+        [ticket.id, randomId(), this.#now() + START_TIMEOUT_MS, node],
       );
       promoted.push(row);
     }

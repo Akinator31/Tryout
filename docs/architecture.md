@@ -20,23 +20,25 @@ for graphical ones. Each project is assigned to a node.
 
 | Module | Role |
 |---|---|
-| `queue.ts` | **The core.** Interface: `join`, `poll`, `watch`, `release`, `tick`, `stats`. Behind it: per-project and per-node caps, node health (no promotion to a node that is down), per-IP ticket limits, FIFO promotion, session start, heartbeat loss, maximum age, start timeout, change notifications (`LISTEN/NOTIFY`). State lives in Postgres. |
+| `queue.ts` | **The core.** Interface: `join`, `poll`, `watch`, `release`, `tick`, `configure`, `stats`. Behind it: per-project and per-node caps, node health (no promotion to a node that is down), per-IP ticket limits, FIFO promotion, session start, heartbeat loss, maximum age, start timeout, change notifications (`LISTEN/NOTIFY`). State lives in Postgres. |
 | `queue-*.ts` | The queue's internals: table and migrations (`queue-schema`), per-IP ticket limits (`queue-limits`), stream watchers (`queue-watchers`), delays (`queue-timing`). |
 | `runtime.ts` | `SessionRuntime` adapter for real nodes: agent API over mutual TLS + readiness probe through the gateway. Tests use an in-memory adapter. |
-| `agents.ts` | One mutual TLS client per node, shared by the runtime, the health check and the metrics relay; the agent's `/healthz` and `/metrics` calls, with size-capped answers. |
+| `agents.ts` | One mutual TLS client per node of the active settings, shared by the runtime, the health check and the metrics relay; the agent's `/healthz` and `/metrics` calls, with size-capped answers. |
 | `health.ts` | Node health: checks every node's `/healthz` every 10 s and keeps the last result; the queue starts no session on a node that is not up. |
 | `admin.ts`, `metrics*.ts` | The admin listener: its `/metrics` page (ticket gauges, node health, start counters), the Prometheus text writer (`metrics`) and the strict relay of the agents' metrics (`metrics-relay`). |
 | `db.ts`, `db-listen.ts` | Database port (queries, transactions, `LISTEN`); adapters for node-postgres and, in tests, PGlite; the reconnecting `LISTEN` session. |
 | `client.ts` | The visitor's IP address, read through trusted proxies only, and the cap on open event streams per IP. |
 | `http.ts` | Embed page and its assets, demo page, queue API and its SSE stream. Thin. |
-| `embed.ts` | The built embed page (`apps/embed/dist`), read once at start: its template, its hashed assets, the theme's stylesheet and logo, and its Content-Security-Policy. |
-| `config.ts`, `config-*.ts` | Configuration loading: YAML validated against the shared JSON Schema, then semantic checks; values (`config-values`), error reporting (`config-report`), agent TLS files (`config-tls`), theme (`config-theme`). |
+| `embed.ts` | The built embed page (`apps/embed/dist`), read once at start: its template, its hashed assets, the theme's stylesheet and logo (applied again with each revision), and its Content-Security-Policy. |
+| `config.ts`, `config-*.ts` | Configuration: `tryout.yaml` validated against the shared JSON Schema (`config-schema`), then semantic checks; the settings checks shared by the file and stored revisions (`config-settings`); revisions and assets in Postgres (`config-store`); the active revision, followed on every instance (`config-live`); values (`config-values`), error reporting (`config-report`), agent TLS files (`config-tls`), theme (`config-theme`). |
+| `cli.ts` | The operator's command line: `import` and `export` of the settings. |
 | `server.ts` | Wiring. |
 
 What it does:
 
-- Loads the YAML configuration (nodes and projects), validates it against the JSON Schema and
-  refuses to start on any error.
+- Reads its bootstrap from `tryout.yaml` and its settings (nodes, projects, limits, embedding,
+  theme) from Postgres, both validated against the JSON Schema; refuses to start on any error.
+  A new revision of the settings applies to every instance without a restart.
 - Manages **tickets**: a visitor joins a project's queue and waits for a free slot.
 - Enforces two caps: sessions per project and sessions per node.
 - Checks each node's health every 10 s and starts no session on a node that does not answer;
@@ -239,6 +241,29 @@ transaction commits.
   stream and resynchronises the page's countdown.
 - Each instance holds one extra Postgres connection for `LISTEN`. The trigger uses
   `CREATE OR REPLACE TRIGGER`, hence PostgreSQL 14 or later.
+
+### Settings in Postgres
+
+An admin interface changes nodes and projects while visitors use them, so the settings live in
+Postgres, not in a file that every instance reads at startup. The file keeps what an instance
+needs before it can reach the database or that touches its own sockets: listeners, agent TLS
+files and trusted proxies. No secret goes into the database: TLS keys stay files.
+
+- **Revisions are full snapshots**, checked by the same schema and semantic checks as the file.
+  The latest is active; rollback republishes an old one. A publication names the revision it
+  was edited from and is refused if another was published since, so two operators never
+  overwrite each other silently. Publications are serialized by an advisory lock.
+- **One source of truth.** A file's settings only seed an empty database. Once revisions exist,
+  settings in the file that differ from the active revision refuse the start: a forgotten file
+  never brings back old settings after a restart.
+- **Hot apply.** Publishing sends `NOTIFY tryout_config`; every instance reloads the active
+  revision, one at a time, and on each (re)connection of its `LISTEN`, in case it missed one.
+  The queue, the node clients, the health checks, the embed page and the HTTP limits read the
+  active settings at each use. A removed project's tickets end on every instance, which is
+  harmless since ending a ticket is idempotent; a removed node with sessions is refused, since
+  stopping them needs its address. A revision that fails the checks of a newer control plane
+  refuses its start, and is skipped (logged) by a running instance.
+- **Assets** (the logo) are stored by SHA-256, so a revision names its logo without copying it.
 
 ### Health and metrics through the control plane
 

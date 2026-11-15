@@ -3,7 +3,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
 import { clientKeyResolver, StreamLimiter } from "./client.ts";
-import type { Config } from "./config.ts";
+import type { Bootstrap, Settings } from "./config.ts";
 import { embedCsp, embedPage, type EmbedBundle } from "./embed.ts";
 import { RateLimitedError, UnknownProjectError, type LimitName, type Queue, type TicketView } from "./queue.ts";
 
@@ -43,30 +43,38 @@ const limited = (res: ServerResponse, error: string, limit: LimitName, headers: 
  *
  * Per-IP limits: tickets are limited by the queue, across
  * instances; open streams by this instance, which holds the connections.
+ *
+ * `settings` and `embed` are read at each request, so a new revision applies
+ * to the next one.
  */
-export function createHandler(cfg: Config, queue: Queue, embed: EmbedBundle, log: (msg: string) => void = () => {}) {
-  const csp = embedCsp(cfg);
-
+export function createHandler(
+  bootstrap: Bootstrap,
+  settings: () => Settings,
+  queue: Queue,
+  embed: () => EmbedBundle,
+  log: (msg: string) => void = () => {},
+) {
   /**
    * The embed page, framable by the configured portfolios only, and sending no referrer to
    * sessions. An unknown project still gets the page, with a 404 status: its first request
    * fails and the page says the project is unavailable, inside the portfolio's frame.
    */
   function serveEmbed(res: ServerResponse, project: string): void {
-    const known = Object.hasOwn(cfg.projects, project);
+    const { projects } = settings();
+    const known = Object.hasOwn(projects, project);
 
     res.writeHead(known ? 200 : 404, {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-cache",
-      "content-security-policy": csp,
+      "content-security-policy": embedCsp(settings()),
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
     });
-    res.end(embedPage(embed, project, known ? cfg.projects[project].title : null));
+    res.end(embedPage(embed(), project, known ? projects[project].title : null));
   }
 
-  const clientKey = clientKeyResolver(cfg.client_ip, log);
-  const streams = new StreamLimiter(cfg.limits.streams_per_ip);
+  const clientKey = clientKeyResolver(bootstrap.client_ip, log);
+  const streams = new StreamLimiter(() => settings().limits.streams_per_ip);
   const clientOf = (req: IncomingMessage) => clientKey(req.socket.remoteAddress, req.headers);
 
   /** Creates a ticket; 404 for an unknown project, 429 when a per-IP ticket limit refuses it. */
@@ -106,8 +114,8 @@ export function createHandler(cfg: Config, queue: Queue, embed: EmbedBundle, log
     const api = (resource: string) => parts[0] === "api" && parts[1] === resource;
 
     if (isGet && parts[0] === "embed" && parts.length === 2) return serveEmbed(res, parts[1]);
-    if (isGet && parts[0] === "assets" && parts.length === 2) return serveAsset(embed, res, parts[1]);
-    if (isGet && url.pathname === "/demo") return serveDemo(cfg, res);
+    if (isGet && parts[0] === "assets" && parts.length === 2) return serveAsset(embed(), res, parts[1]);
+    if (isGet && url.pathname === "/demo") return serveDemo(settings(), res);
     if (isPost && api("projects") && parts[3] === "tickets") return join(req, res, parts[2]);
     if (isGet && api("tickets") && parts[3] === "events" && parts.length === 4) return openStream(req, res, parts[2]);
     if (isGet && api("tickets") && parts.length === 3) return ticket(res, queue.poll(parts[2]));
@@ -137,7 +145,7 @@ function serveAsset(embed: EmbedBundle, res: ServerResponse, name: string): void
 }
 
 /** The demo page, listing the configured projects with their titles. */
-function serveDemo(cfg: Config, res: ServerResponse): void {
+function serveDemo(cfg: Settings, res: ServerResponse): void {
   const projects = Object.entries(cfg.projects).map(([name, p]) => ({ name, title: p.title }));
 
   res.writeHead(200, { "content-type": "text/html; charset=utf-8" });

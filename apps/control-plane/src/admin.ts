@@ -55,7 +55,8 @@ export function controlPlaneMetrics(): ControlPlaneMetrics {
 }
 
 export interface MetricsPageDeps {
-  nodes: string[];
+  /** The nodes of the active settings, read at each scrape. */
+  nodes: () => string[];
   metrics: ControlPlaneMetrics;
   stats: () => Promise<Record<string, ProjectStats>>;
   health: () => Record<string, NodeStatus>;
@@ -74,7 +75,7 @@ export function createMetricsPage(deps: MetricsPageDeps): () => Promise<string> 
   const { nodes, metrics, stats, health, fetchNodeMetrics } = deps;
 
   /** Each node's metrics text, or null when the fetch failed. */
-  const fetchAll = () =>
+  const fetchAll = (nodes: string[]) =>
     Promise.all(
       nodes.map((node) =>
         fetchNodeMetrics(node, AbortSignal.timeout(NODE_METRICS_TIMEOUT_MS)).then(
@@ -88,13 +89,14 @@ export function createMetricsPage(deps: MetricsPageDeps): () => Promise<string> 
 
   /** One scrape of the database, the health checks and the nodes. */
   async function scrape(): Promise<string> {
-    const [byProject, relayed] = await Promise.all([stats(), fetchAll()]);
+    const current = nodes();
+    const [byProject, relayed] = await Promise.all([stats(), fetchAll(current)]);
     const statuses = health();
 
     const gauges: Gauge[] = [
       ticketsGauge(byProject),
-      nodeGauge(GAUGES.nodeUp, "1 when the node's last health check succeeded, else 0.", nodes, (n) => statuses[n]?.up === true),
-      nodeGauge(GAUGES.nodeMetricsUp, "1 when the node's metrics were relayed in this scrape, else 0.", nodes, (n) =>
+      nodeGauge(GAUGES.nodeUp, "1 when the node's last health check succeeded, else 0.", current, (n) => statuses[n]?.up === true),
+      nodeGauge(GAUGES.nodeMetricsUp, "1 when the node's metrics were relayed in this scrape, else 0.", current, (n) =>
         relayed.some((r) => r.node === n && r.text !== null),
       ),
     ];

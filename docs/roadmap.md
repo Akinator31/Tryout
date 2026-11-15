@@ -200,3 +200,7 @@ the admin UI, and graph queue and session metrics.
   node that does not answer; with `admin_listen`, it serves Prometheus metrics (tickets, node
   health, start counts and times) and relays the agents' metrics with a `node` label. See
   [Health and metrics](deployment.md#health-and-metrics).
+- **M4:** the settings (nodes, projects, limits, embedding, theme) live in Postgres as
+  revisions checked by the JSON Schema, seeded from `tryout.yaml` and applied to every instance
+  without a restart; `import` and `export` commands; a pause switch per project (`enabled`). See
+  [Settings and revisions](configuration.md#settings-and-revisions).

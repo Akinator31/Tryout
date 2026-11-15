@@ -122,3 +122,14 @@ function message(e: ErrorObject): string {
 const unescape = (s: string) => s.replaceAll("~1", "/").replaceAll("~0", "~");
 const escape = (s: string) => s.replaceAll("~", "~0").replaceAll("/", "~1");
 const pointer = (path: Path) => "/" + path.join("/");
+
+/** Every problem found in a configuration, one line each, with its location. */
+export class ConfigError extends Error {
+  readonly problems: string[];
+
+  constructor(source: string, problems: string[]) {
+    super(`invalid configuration ${source}:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
+    this.name = "ConfigError";
+    this.problems = problems;
+  }
+}

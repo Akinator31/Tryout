@@ -1,6 +1,9 @@
 # yaml-language-server: $schema=https://akinator31.github.io/Tryout/schema/v1/tryout.schema.json
 # Control plane configuration: an example to adapt. Reference: docs/configuration.md.
 # Guide: docs/deployment.md. ${NAME} reads an environment variable of the container.
+# The settings (embed_frame_ancestors, theme, limits, nodes, projects) seed the database
+# on the first start; afterwards, change them with the import command, and remove them
+# from this file or keep them in step (docs/configuration.md#settings-and-revisions).
 listen: ":3000"
 
 # Optional: the admin listener, with Prometheus metrics on /metrics. Off when left out.

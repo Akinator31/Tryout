@@ -10,7 +10,7 @@ const report = { version: "v0.2.0", sessions: 1, max_sessions: 4 };
 function setup(results: Record<string, () => Promise<object>>, timeoutMs = 1000) {
   const logs: { msg: string; extra?: Record<string, unknown> }[] = [];
   const health = createNodeHealth({
-    nodes: ["a", "b"],
+    nodes: () => ["a", "b"],
     check: (node) => results[node](),
     timeoutMs,
     now: () => 42_000,
@@ -73,4 +73,20 @@ test("an unknown node is never up", async () => {
   const { health } = setup({ a: async () => report, b: async () => report });
   await health.probe();
   assert.equal(health.isUp("c"), false);
+});
+
+test("checks follow the settings: a new node is down until checked, a removed one is forgotten", async () => {
+  let nodes = ["a"];
+  const health = createNodeHealth({ nodes: () => nodes, check: async () => report });
+  await health.probe();
+
+  nodes = ["b"];
+  assert.equal(health.isUp("a"), false, "a removed node takes no session");
+  assert.equal(health.isUp("b"), false, "a new node is down until checked");
+  assert.deepEqual(Object.keys(health.snapshot()), []);
+
+  await health.probe();
+  assert.deepEqual(Object.keys(health.snapshot()), ["b"]);
+  nodes = ["a", "b"];
+  assert.equal(health.isUp("a"), false, "a node added again starts down");
 });

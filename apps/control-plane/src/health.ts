@@ -18,7 +18,7 @@ export interface NodeStatus {
 export interface NodeHealth {
   /** Whether the node's last check succeeded. A node not yet checked, or unknown, is down. */
   isUp(node: string): boolean;
-  /** The last check of every node checked so far. */
+  /** The last check of every node of the active settings checked so far. */
   snapshot(): Record<string, NodeStatus>;
   /**
    * Checks every node at once and resolves when all are done, each within
@@ -28,7 +28,8 @@ export interface NodeHealth {
 }
 
 export interface NodeHealthDeps {
-  nodes: string[];
+  /** The nodes of the active settings: a node added later is down until its first check. */
+  nodes: () => string[];
   /** Resolves with the node's report when it is healthy; rejects otherwise. */
   check: (node: string, signal: AbortSignal) => Promise<HealthReport>;
   timeoutMs?: number;
@@ -70,13 +71,23 @@ export function createNodeHealth(deps: NodeHealthDeps): NodeHealth {
     }
   }
 
+  /** Forgets the nodes that left the settings, so a node added again under their name starts down. */
+  function forgetRemoved(current: string[]): void {
+    for (const node of statuses.keys()) {
+      if (!current.includes(node)) statuses.delete(node);
+    }
+  }
+
   return {
-    isUp: (node) => statuses.get(node)?.up === true,
-    snapshot: () => Object.fromEntries(statuses),
+    isUp: (node) => nodes().includes(node) && statuses.get(node)?.up === true,
+    snapshot: () => Object.fromEntries([...statuses].filter(([node]) => nodes().includes(node))),
     probe() {
-      round ??= Promise.all(nodes.map(checkOne)).then(() => {
+      round ??= (async () => {
+        const current = nodes();
+        forgetRemoved(current);
+        await Promise.all(current.map(checkOne));
         round = null;
-      });
+      })();
       return round;
     },
   };

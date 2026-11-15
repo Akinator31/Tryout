@@ -156,15 +156,17 @@ function groups(addr: string): number[] {
  */
 export class StreamLimiter {
   private readonly open = new Map<string, number>();
-  private readonly max: number;
+  private readonly max: () => number;
 
-  constructor(max: number) {
+  /** `max` is read at each acquire, so new settings apply to the next stream. */
+  constructor(max: () => number) {
     this.max = max;
   }
 
   acquire(key: string): (() => void) | null {
     const n = this.open.get(key) ?? 0;
-    if (this.max > 0 && n >= this.max) return null;
+    const max = this.max();
+    if (max > 0 && n >= max) return null;
     this.open.set(key, n + 1);
 
     let released = false;

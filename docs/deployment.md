@@ -150,9 +150,16 @@ docker compose up -d
 docker compose logs control-plane     # "control plane listening"
 ```
 
-The control plane exits with every problem of `tryout.yaml` listed if the file is invalid.
-PostgreSQL is on an internal network that only the control plane joins. It holds only the
-queue and live sessions, nothing that needs a backup.
+The control plane exits with every problem of `tryout.yaml` listed if the file is invalid. On
+its first start, it publishes the file's settings (embedding, theme, limits, nodes, projects)
+as revision 1 in PostgreSQL. From then on the database is the source of truth: change the
+settings with the `import` command, and remove them from `tryout.yaml` or keep them in step,
+since different settings in the file refuse the start. See
+[Settings and revisions](configuration.md#settings-and-revisions).
+
+PostgreSQL is on an internal network that only the control plane joins. It holds the queue,
+the live sessions and the settings with their history: back it up, or keep an `export` of the
+settings.
 
 ## 4. Expose the two services
 
@@ -208,8 +215,8 @@ that shows one language can set the page's to match with `lang`:
 `src="https://tryout.example.org/embed/cli-hello?lang=fr"`. A language the page does not speak
 falls back to the browser's, then to English.
 
-To match the portfolio's colours and show your logo on the waiting card, set `theme` in
-`tryout.yaml` and mount the logo next to it; see [Theme](configuration.md#theme).
+To match the portfolio's colours and show your logo on the waiting card, set `theme` in the
+settings, with the logo file next to the imported file; see [Theme](configuration.md#theme).
 
 ## Logs
 
@@ -297,7 +304,11 @@ docker compose pull && docker compose up -d
 ```
 
 Upgrade the nodes and the control plane to the same version. The control plane keeps its queue
-in PostgreSQL across restarts.
+and its settings in PostgreSQL across restarts.
+
+From `v0.1`, the first start of `v0.2` publishes the settings of `tryout.yaml` as revision 1.
+Later changes go through the `import` command, not through the file: see
+[Settings and revisions](configuration.md#settings-and-revisions).
 
 Running sessions survive a node upgrade, with a short interruption. A recreated gateway is no
 longer attached to the session networks: the agent attaches it again and pushes its routes on
