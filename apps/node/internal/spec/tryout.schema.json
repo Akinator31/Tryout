@@ -29,6 +29,16 @@
           "minLength": 32,
           "maxLength": 1024
         },
+        "public_url": {
+          "description": "Origin at which visitors reach this control plane, as scheme://host[:port] with no path (https://tryout.example.org). The admin uses it to show the address to embed and to run the project preview; without it, the admin shows /embed/<project> alone and no preview.",
+          "type": "string",
+          "pattern": "^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$|^https?://\\[[0-9A-Fa-f:.]+\\](:[0-9]{1,5})?$"
+        },
+        "admin_preview": {
+          "description": "Whether the admin's project page may run /embed/<project> in a frame, as a visitor would. A preview takes a slot through the queue. Needs public_url, and the admin's origin in embed_frame_ancestors.",
+          "type": "boolean",
+          "default": true
+        },
         "agent_tls": {
           "description": "Mutual TLS towards every agent: the control plane's client certificate and the CA that signs the agents' certificates. Paths are relative to this file's directory.",
           "type": "object",

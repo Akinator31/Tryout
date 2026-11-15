@@ -138,7 +138,9 @@ vault with the original stack study (in French) and its sources.
   YAML diff, Embedding + limits, Theme, Revisions + rollback, YAML download); PR 8b2 (Projects
   list/form/page with pause and remove, Nodes with health and an add/edit drawer whose
   connection test is the dry run; forms checked in the browser by `projects.ts`, `nodes.ts`;
-  home is Projects). Next: 8c (project preview, `public_url`), then `v0.2.0`. Then M5 Hosting
+  home is Projects); PR 8c (bootstrap `public_url` and `admin_preview`, project Preview card
+  framing the real `/embed/<project>` on click, Embed card with address and iframe snippet,
+  `preview.ts`; admin CSP `frame-src` = `public_url`). Next: `v0.2.0`. Then M5 Hosting
   options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.

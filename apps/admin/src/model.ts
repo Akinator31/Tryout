@@ -2,10 +2,14 @@
 // admin/http.ts, admin/sessions.ts and admin/settings.ts.
 import type { SettingsDocument } from "./settings/document.ts";
 
-/** `GET me`: the signed-in account and the control plane's version. */
+/** `GET me`: the signed-in account, the control plane's version, and what the project preview needs. */
 export interface Me {
   name: string;
   version: string;
+  /** The origin visitors reach the control plane at; null when tryout.yaml has no public_url. */
+  public_url: string | null;
+  /** Whether the project preview is on: public_url set and admin_preview not false. */
+  preview: boolean;
 }
 
 /** One live ticket of `GET sessions`; times in ms since the epoch. */

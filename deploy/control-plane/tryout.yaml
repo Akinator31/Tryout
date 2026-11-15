@@ -12,6 +12,10 @@ listen: ":3000"
 # admin_listen: ":9090"
 # Bearer token Prometheus sends to read /metrics; put the value in .env.
 # admin_metrics_token: "${ADMIN_METRICS_TOKEN}"
+# Where visitors reach this control plane, origin only. The admin shows it in the address to
+# embed and runs the project preview from it; add the admin's origin to embed_frame_ancestors
+# for the preview, or turn it off with admin_preview: false.
+# public_url: https://tryout.example.org
 
 # The portfolios allowed to embed /embed/<project> in an iframe.
 embed_frame_ancestors:

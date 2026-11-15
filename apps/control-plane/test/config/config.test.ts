@@ -184,6 +184,22 @@ limits:
   assert.match(negative[0], /^\/limits\/streams_per_ip/);
 });
 
+test("public_url is an origin, and the admin preview is on unless turned off", () => {
+  const none = parseConfig(base, opts).config;
+  assert.equal(none.public_url, undefined);
+  assert.equal(none.admin_preview, true);
+
+  const set = parseConfig(`public_url: "https://Tryout.Example.org:443"\nadmin_preview: false\n${base}`, opts).config;
+  assert.equal(set.public_url, "https://tryout.example.org");
+  assert.equal(set.admin_preview, false);
+  assert.equal(parseConfig(`public_url: "http://[::1]:3000"\n${base}`, opts).config.public_url, "http://[::1]:3000");
+
+  for (const bad of ["https://tryout.example.org/", "https://tryout.example.org/embed", "tryout.example.org", "ftp://tryout.example.org"]) {
+    assert.match(problems(`public_url: "${bad}"\n${base}`)[0], /^\/public_url \(line 1\)/, bad);
+  }
+  assert.match(problems(`public_url: "https://tryout.example.org:99999"\n${base}`)[0], /^\/public_url \(line 1\): must be scheme/);
+});
+
 test("admin_listen is off unless set, and warns when /metrics is open beyond loopback", () => {
   assert.equal(parseConfig(base, opts).config.admin_listen, undefined);
 

@@ -88,6 +88,10 @@ export interface Bootstrap {
   admin_listen?: Listen;
   /** Bearer token required on the admin /metrics; open when absent. */
   admin_metrics_token?: string;
+  /** The origin visitors reach this control plane at; the admin shows /embed/<project> alone without it. */
+  public_url?: string;
+  /** Whether the admin may run a project's embed page in a frame (needs public_url). */
+  admin_preview: boolean;
   client_ip: ClientIpConfig;
   agent_tls: AgentTls;
 }
@@ -224,9 +228,26 @@ function checkBootstrap(
     listen: listen!,
     ...(adminListen ? { admin_listen: adminListen } : {}),
     ...(typeof file.admin_metrics_token === "string" ? { admin_metrics_token: file.admin_metrics_token } : {}),
+    ...checkPublicUrl(file.public_url, report),
+    admin_preview: file.admin_preview !== false,
     client_ip: checkClientIp(file.client_ip, report),
     agent_tls: loadAgentTls(file.agent_tls, baseDir, now, report, warnings)!,
   };
+}
+
+/**
+ * Reads `public_url`, which the schema has shaped as an origin: kept as the
+ * URL standard writes it (lower-case host, no default port).
+ */
+function checkPublicUrl(v: unknown, report: Report): { public_url?: string } {
+  if (typeof v !== "string") return {};
+
+  const url = URL.parse(v);
+  if (!url || url.origin === "null") {
+    report(["public_url"], "must be scheme://host[:port], such as https://tryout.example.org");
+    return {};
+  }
+  return { public_url: url.origin };
 }
 
 /**

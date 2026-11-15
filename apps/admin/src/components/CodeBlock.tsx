@@ -2,30 +2,13 @@
 // label and a Copy button, then the text in mono.
 import { Box, Button, Flex, Text } from "@chakra-ui/react";
 import { Copy } from "lucide-react";
-import { useEffect, useState } from "react";
 import { strings } from "../strings.ts";
+import { useCopy } from "../useCopy.ts";
 import { Card } from "./Card.tsx";
 
 /** The text under its label, with a Copy button that says when it copied. */
 export function CodeBlock({ label, text }: { label: string; text: string }) {
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    if (!copied) return;
-
-    const timer = setTimeout(() => setCopied(false), 2000);
-    return () => clearTimeout(timer);
-  }, [copied]);
-
-  /** Copies the text; the button says so for two seconds, only when the browser did copy. */
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-    } catch {
-      // No clipboard (plain HTTP) or refused: the text stays there to select.
-    }
-  };
+  const { copied, copy } = useCopy();
 
   return (
     <Card>
@@ -33,7 +16,7 @@ export function CodeBlock({ label, text }: { label: string; text: string }) {
         <Text flex="1" textStyle="text-xs" color="fg.muted">
           {label}
         </Text>
-        <Button variant="ghost" size="xs" color="fg.muted" onClick={copy}>
+        <Button variant="ghost" size="xs" color="fg.muted" onClick={() => copy(text)}>
           <Copy size={14} aria-hidden />
           {copied ? strings.projectForm.copied : strings.projectForm.copy}
         </Button>

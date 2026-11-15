@@ -40,9 +40,10 @@ export function loadAdminUi(dir: string = DEFAULT_ADMIN_DIR): AdminUiBundle {
 
 /**
  * The admin UI's Content-Security-Policy: its own scripts, fonts and API;
- * styles from its stylesheet or carrying the nonce; never framed.
+ * styles from its stylesheet or carrying the nonce; frames from the project
+ * preview's origin only, when there is one; never framed.
  */
-export function adminCsp(nonce: string): string {
+export function adminCsp(nonce: string, previewOrigin?: string): string {
   return [
     "default-src 'none'",
     "script-src 'self'",
@@ -50,6 +51,7 @@ export function adminCsp(nonce: string): string {
     "font-src 'self'",
     "img-src 'self' data: blob:",
     "connect-src 'self'",
+    `frame-src ${previewOrigin ?? "'none'"}`,
     "frame-ancestors 'none'",
     "base-uri 'none'",
     "form-action 'none'",
@@ -63,7 +65,7 @@ export function adminCsp(nonce: string): string {
  * - `GET /admin/assets/:file`: hashed scripts, styles, fonts and images;
  * - `GET /admin` and any other `GET /admin/…` but the API: the app, which routes in the browser.
  */
-export function createAdminUiHandler(bundle: AdminUiBundle) {
+export function createAdminUiHandler(bundle: AdminUiBundle, { previewOrigin }: { previewOrigin?: string } = {}) {
   /** The app's page, with a fresh nonce; never cached, so a new build applies at once. */
   function servePage(res: ServerResponse): void {
     const nonce = randomBytes(16).toString("base64");
@@ -71,7 +73,7 @@ export function createAdminUiHandler(bundle: AdminUiBundle) {
     res.writeHead(200, {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
-      "content-security-policy": adminCsp(nonce),
+      "content-security-policy": adminCsp(nonce, previewOrigin),
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
     });

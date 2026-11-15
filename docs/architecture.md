@@ -84,10 +84,10 @@ nothing loads from a CDN.
 | `queries.ts` | One hook per API resource; lists refresh every 3 s while the tab is visible. |
 | `app/App.tsx` | Providers, routes, and the rule that any `401` leads to the sign-in page, then back. |
 | `app/Shell.tsx`, `app/Sidebar.tsx` | The signed-in frame: navigation, the control plane's state and version, the account and sign-out. |
-| `pages/` | Sign-in, Projects (list, form, project page with pause and remove), Nodes (health, add and edit drawer with a connection test), Embedding (origins, visitor limits), Theme, Sessions (with stop), Revisions (diff, YAML, rollback), Accounts (add, delete, own password). |
+| `pages/` | Sign-in, Projects (list, form, project page with pause, remove, preview and embed snippet), Nodes (health, add and edit drawer with a connection test), Embedding (origins, visitor limits), Theme, Sessions (with stop), Revisions (diff, YAML, rollback), Accounts (add, delete, own password). |
 | `useDraft.tsx`, `settings/` | The pending changes: one draft of the whole settings document in the tab's `sessionStorage` (`draft.ts`), moved on top of a revision published meanwhile by a three-way merge (`merge.ts`); the YAML writer (`yaml.ts`) and line diff (`diff.ts`) of the review, the change labels, the YAML download, and the origin and contrast checks. |
 | `components/ReviewDialog.tsx` | The review: changes, YAML diff, dry run, note, and publication of the draft as the next revision. |
-| `format.ts`, `sessions.ts`, `projects.ts`, `nodes.ts`, `signin.ts`, `navigation.ts` | Pure functions: times and countdowns, the sessions' cells and summary, the projects' states and summary, the project and node forms with their checks, sign-in messages, the safe page to return to. |
+| `format.ts`, `sessions.ts`, `projects.ts`, `nodes.ts`, `preview.ts`, `signin.ts`, `navigation.ts` | Pure functions: times and countdowns, the sessions' cells and summary, the projects' states and summary, the project and node forms with their checks, the embed address and snippet and when the preview may run, sign-in messages, the safe page to return to. |
 | `strings.ts`, `theme.ts`, `main.tsx` | Every visible text (English), the Chakra system, and the entry point. |
 
 What it does:
@@ -109,6 +109,12 @@ What it does:
   wrong while typing; the control plane's dry run in the review stays the judge. Testing a
   node's connection is that same dry run with the node in the settings: no API is needed for
   it, and the control plane, not the browser, reaches the agent.
+- Previews a project with the real embed page from `public_url` in a frame, rather than a
+  special admin session: it tests exactly what a portfolio shows, through the same queue,
+  limits and Content-Security-Policy, and needs no new API. It starts on a click only, since
+  it takes a visitor's slot, and needs the admin's origin among the allowed parents like any
+  portfolio. `public_url` is bootstrap, not a setting: it names where this control plane is
+  served, which only changes with its deployment.
 
 ### Embed page — `apps/embed`, `packages/tokens`
 

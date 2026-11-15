@@ -1,7 +1,7 @@
 // A project's page, from the Figma "Project — cli-hello" and "Project —
 // cli-hello paused" screens, on one page: its load, live sessions and
 // settings, with pause, edit and remove. Pause and remove change the draft and
-// open the review. Preview and embed come with public_url.
+// open the review. The right column previews and embeds it (ProjectEmbed.tsx).
 import { Box, Button, Flex, Grid, Heading, Stack, Table, Text } from "@chakra-ui/react";
 import { Pause, Play, SlidersHorizontal, Trash2 } from "lucide-react";
 import { Link as RouterLink, useNavigate, useParams } from "react-router";
@@ -16,11 +16,12 @@ import { Problem } from "../components/Problem.tsx";
 import { ProjectBadge, StateBadge, TagBadge } from "../components/StateBadge.tsx";
 import { editProjectPath, paths } from "../navigation.ts";
 import { live, loadBy, loadOf, nodesUp, projectState, resources, type Load } from "../projects.ts";
-import { useNodes, useSessions } from "../queries.ts";
+import { useMe, useNodes, useSessions } from "../queries.ts";
 import { deepEqual, type ProjectSettings, type SettingsDocument } from "../settings/document.ts";
 import { sessionRow } from "../sessions.ts";
 import { strings } from "../strings.ts";
 import { useDraft } from "../useDraft.tsx";
+import { EmbedCard, PreviewCard } from "./ProjectEmbed.tsx";
 
 const P = strings.project;
 
@@ -218,6 +219,7 @@ function ProjectPage({ name, project, document, applied }: { name: string; proje
   const { edit, openReview, changes, active } = useDraft();
   const sessions = useSessions().data ?? [];
   const nodes = useNodes().data;
+  const me = useMe().data;
 
   const load = loadOf(loadBy(sessions), name);
   const nodeLoad = loadOf(loadBy(sessions, "node"), project.node);
@@ -259,7 +261,24 @@ function ProjectPage({ name, project, document, applied }: { name: string; proje
           <LiveSessions name={name} />
           <SettingsCard rows={settingsRows(project, defaultRuntime)} source={pending ? P.settings.pending : P.settings.active(active.data?.revision ?? null)} />
         </Stack>
-        <Stack w="380px" flexShrink="0" gap="4">
+        <Stack w="420px" flexShrink="0" gap="6">
+          {me?.public_url && (
+            <PreviewCard
+              key={name}
+              name={name}
+              slots={(running ?? project).max_sessions}
+              input={{
+                publicUrl: me.public_url,
+                preview: me.preview,
+                applied: isApplied,
+                paused: running?.enabled === false,
+                // The embed page answers with the active revision's allowlist, not the draft's.
+                ancestors: applied?.embed_frame_ancestors ?? [],
+                adminOrigin: window.location.origin,
+              }}
+            />
+          )}
+          <EmbedCard name={name} publicUrl={me?.public_url ?? null} ancestors={applied?.embed_frame_ancestors ?? []} />
           <RemoveCard name={name} onRemove={remove} />
         </Stack>
       </Flex>

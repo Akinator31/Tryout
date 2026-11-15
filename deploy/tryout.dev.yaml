@@ -7,8 +7,12 @@ listen: ":3000"
 # Admin listener (admin API and /metrics); compose.dev.yaml publishes it on 127.0.0.1 only.
 admin_listen: ":9090"
 admin_metrics_token: "${ADMIN_METRICS_TOKEN}"
+# Where the browser reaches this control plane; the admin's project preview frames it,
+# so the admin's origin is an allowed parent too.
+public_url: http://localhost:3000
 embed_frame_ancestors:
   - http://localhost:3000
+  - http://localhost:9090
 
 # Per-IP limits (docs/configuration.md). Requests reach the control plane
 # through Docker's port forwarding, from a private address: trusting private

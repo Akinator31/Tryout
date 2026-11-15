@@ -173,3 +173,55 @@ test("a pause still in the draft leaves the project's state as visitors see it",
   expect(screen.getByText("Running")).toBeTruthy();
   expect(screen.queryByText("New visitors see “unavailable”. Sessions running now and visitors already in line carry on.")).toBeNull();
 });
+
+const ME = { name: "alice", version: "0.2.0", public_url: "https://tryout.example.org", preview: true };
+
+test("the preview runs the embed page in a frame on click, once the embed page allows the admin", async () => {
+  const user = userEvent.setup();
+  const allowed = { ...DOC, embed_frame_ancestors: [...DOC.embed_frame_ancestors, window.location.origin] };
+  renderAdmin("/admin/projects/cli-hello", routes(allowed, { "GET me": { status: 200, body: ME } }));
+
+  const card = await screen.findByRole("region", { name: "Preview" });
+  expect(within(card).getByText("Runs /embed/cli-hello here. It goes through the queue and takes one of the 2 slots until you stop it.")).toBeTruthy();
+  expect(card.querySelector("iframe")).toBeNull();
+
+  await user.click(within(card).getByRole("button", { name: "Start preview" }));
+  const frame = within(card).getByTitle("Preview of cli-hello");
+  expect(frame.getAttribute("src")).toBe("https://tryout.example.org/embed/cli-hello");
+  expect(frame.getAttribute("allow")).toContain("fullscreen");
+
+  await user.click(within(card).getByRole("button", { name: "Stop preview" }));
+  expect(card.querySelector("iframe")).toBeNull();
+});
+
+test("the preview says why it cannot start", async () => {
+  renderAdmin("/admin/projects/cli-hello", routes(DOC, { "GET me": { status: 200, body: ME } }));
+
+  const card = await screen.findByRole("region", { name: "Preview" });
+  expect(within(card).getByText(`The embed page refuses this admin as a parent. Add ${window.location.origin} to the allowed origins.`)).toBeTruthy();
+  expect((within(card).getByRole("button", { name: "Start preview" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(within(card).getByRole("link", { name: "Open Embedding" })).toBeTruthy();
+});
+
+test("the embed card gives the address, the allowed parents and the snippet", async () => {
+  const user = userEvent.setup();
+  renderAdmin("/admin/projects/cli-hello", routes(DOC, { "GET me": { status: 200, body: ME } }));
+
+  const card = await screen.findByRole("region", { name: "Embed" });
+  expect(within(card).getByText("https://tryout.example.org/embed/cli-hello")).toBeTruthy();
+  expect(within(card).getByText("'self'")).toBeTruthy();
+  expect(within(card).getByText("https://portfolio.example.org")).toBeTruthy();
+
+  await user.click(within(card).getByRole("button", { name: "Copy iframe snippet" }));
+  expect(await navigator.clipboard.readText()).toMatch(/^<iframe src="https:\/\/tryout\.example\.org\/embed\/cli-hello"/);
+  expect(within(card).getByRole("button", { name: "Copied" })).toBeTruthy();
+});
+
+test("without public_url, the embed card shows the path and there is no preview", async () => {
+  renderAdmin("/admin/projects/cli-hello", routes());
+
+  const embed = await screen.findByRole("region", { name: "Embed" });
+  expect(within(embed).getByText("/embed/cli-hello")).toBeTruthy();
+  expect(within(embed).getByText("Set public_url in tryout.yaml for the full address.")).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "Preview" })).toBeNull();
+});

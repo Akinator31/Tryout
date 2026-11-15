@@ -40,6 +40,10 @@ export interface AdminHandlerDeps {
   clientKey: (req: IncomingMessage) => string;
   /** This control plane's version, reported with the signed-in account. */
   version?: string;
+  /** Where visitors reach this control plane, reported with the signed-in account. */
+  publicUrl?: string;
+  /** Whether the admin may run the project preview, reported with the signed-in account. */
+  preview?: boolean;
   /** More signed-in routes, such as the settings' (see admin/settings.ts). */
   routes?: Routes;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
@@ -108,7 +112,8 @@ function authRefusal(e: unknown): Refusal | null {
  * - `GET /metrics`: Prometheus text, behind the bearer token if set;
  * - `POST /admin/api/login` `{name, password}`: opens a session (cookie);
  * - `POST /admin/api/logout`;
- * - `GET /admin/api/me`: the signed-in account and the control plane's version;
+ * - `GET /admin/api/me`: the signed-in account, the control plane's version,
+ *   its public URL (or null) and whether the project preview is on;
  * - `POST /admin/api/me/password` `{current, password}`: ends the other sessions;
  * - `GET /admin/api/accounts`, `POST /admin/api/accounts` `{name, password}`;
  * - `DELETE /admin/api/accounts/:name`: not the last one;
@@ -122,6 +127,8 @@ export function createAdminHandler({
   metricsToken,
   clientKey,
   version = "dev",
+  publicUrl,
+  preview = false,
   routes: extraRoutes = {},
   log = () => {},
 }: AdminHandlerDeps) {
@@ -198,7 +205,7 @@ export function createAdminHandler({
   /** The routes that need a session: the accounts', then the extra ones. */
   const routes: Routes = {
     "POST logout": logout,
-    "GET me": async ({ account }) => ({ status: 200, body: { ...account, version } }),
+    "GET me": async ({ account }) => ({ status: 200, body: { ...account, version, public_url: publicUrl ?? null, preview } }),
     "POST me/password": changePassword,
     "GET accounts": listAccounts,
     "POST accounts": createAccount,

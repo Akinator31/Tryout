@@ -11,7 +11,7 @@
 The configuration has two parts:
 
 - the **bootstrap**, in `tryout.yaml`: `listen`, `admin_listen`, `admin_metrics_token`,
-  `agent_tls` and `client_ip`.
+  `public_url`, `admin_preview`, `agent_tls` and `client_ip`.
   It is read at startup; a change needs a restart.
 - the **settings**, in PostgreSQL: `embed_frame_ancestors`, `theme`, `limits`, `nodes` and
   `projects`. They are stored as [revisions](#settings-and-revisions) and applied to every
@@ -154,6 +154,8 @@ substituted.
 | `listen` | Optional: `[host]:port` to listen on. Default `:3000` (every interface). |
 | `admin_listen` | Optional: `[host]:port` of the admin listener: the admin API, behind a login (see [Admin accounts](#admin-accounts)), and Prometheus metrics on `/metrics` (see [Health and metrics](deployment.md#health-and-metrics)). Off when left out. Keep it off the Internet. It may equal `listen`, which puts the admin on the public address. Another host on the port of `listen` is refused, since the two servers would overlap. |
 | `admin_metrics_token` | Optional: bearer token, 32 to 1024 characters, that Prometheus must send to read `/metrics`. Write it as `${VAR}` to keep it out of the file. Without it, `/metrics` is open to anyone who reaches `admin_listen`, and the control plane warns unless `admin_listen` is a loopback address. |
+| `public_url` | Optional: the origin at which visitors reach the control plane, `scheme://host[:port]` with no path (`https://tryout.example.org`). The admin interface shows the address to embed with it and runs the project preview from it; without it, the admin shows `/embed/<project>` alone and no preview. |
+| `admin_preview` | Optional: `false` turns off the project preview in the admin interface. Default `true`; it needs `public_url`. |
 | `agent_tls` | Mutual TLS towards the agents: `ca` (the CA that signs the agents' certificates), `cert` and `key` (the control plane's client certificate, with the `clientAuth` usage). Paths of PEM files, relative to the configuration file. See [Certificates](certificates.md). |
 | `client_ip` | Optional: how to find a visitor's IP address behind proxies. See [Per-IP limits](#per-ip-limits). |
 
@@ -314,7 +316,9 @@ With `admin_listen` set, the control plane serves the admin interface on that li
   runtime, capacity, resources, environment) that the browser checks as it is typed, warns when
   a node's projects would ask for more sessions than its cap, and shows the project as YAML.
   A project's page shows its load, live sessions and settings, with *Pause project* (or
-  *Resume*) and *Remove*. The name of a project or a node cannot change once created;
+  *Resume*) and *Remove*, a preview (see below), and the address to embed with the allowed
+  parents and an iframe snippet to copy. The name of a project or a node cannot change once
+  created;
 - **Nodes**: every node with its last health check (agent version, profile, runtime and
   architecture, or why it does not answer) and the projects it runs, a warning for the dev
   profile, and a drawer to add or edit one. *Test connection* runs the dry run with the node in
@@ -350,6 +354,18 @@ If another account publishes a revision meanwhile, the draft moves on top of it:
 changes are kept, and where both changed the same value, the draft's value is kept and the
 review marks it. A rollback waits until the draft is applied or discarded.
 
+**Project preview.** *Start preview* loads the real `/embed/<project>` from `public_url` in a
+frame on the project's page, as a visitor would: it goes through the queue, takes one of the
+project's slots and counts towards the per-IP limits of the admin's address. *Stop preview*
+removes the frame, and the embed page gives its ticket back. Nothing starts until the click.
+Without `public_url` there is no preview card. The preview also needs `admin_preview` left
+on, the project applied and not paused, and the admin's own origin in `embed_frame_ancestors`
+(the embed page refuses other parents); otherwise the card says which is missing. The session inside the preview also needs the
+admin's origin in the node's `FRAME_ANCESTORS`, since browsers check every ancestor of a frame
+(see [Iframes](exposure.md#iframes)); the admin cannot see that setting, so a refused session
+shows as the browser's error inside the preview. The dev stack allows `http://localhost:9090`
+in both.
+
 A logo is stored as soon as it is picked, before the review: a logo picked and then dropped
 stays in the database (64 KB at most each), unused.
 
@@ -358,7 +374,8 @@ After an edit from the admin interface, the settings in the database differ from
 (see the table above). With the dev stack, `down -v` starts again from `tryout.dev.yaml`.
 
 The interface is plain files built into the control plane's image, served with a
-Content-Security-Policy that allows only its own scripts and API and forbids framing it. Its
+Content-Security-Policy that allows only its own scripts and API, frames from `public_url`
+only (none when the preview is off), and forbids framing it. Its
 session is the same cookie as the API's, so it needs HTTPS or `localhost` like the API.
 
 ### Admin API
@@ -370,7 +387,7 @@ changes something.
 
 | Route | Role |
 |---|---|
-| `GET me` | The signed-in account's `name` and the control plane's `version`. |
+| `GET me` | The signed-in account's `name`, the control plane's `version`, its `public_url` (`null` when not set) and `preview`, whether the project preview is on. |
 | `GET settings` | The active revision's id and document; `{revision: null, document: {}}` before the first one. |
 | `POST config/validate` `{document}` | Dry run: runs every check of a publication and publishes nothing. `422` with `problems` when invalid, or when it removes or readdresses a node with sessions (with `nodes` too); otherwise `200` with `warnings`, including each node whose agent does not answer `/healthz` within 3 s, with the reason. An unreachable node does not prevent publishing. |
 | `POST revisions` `{base, document, note?}` | Publishes the document as a new revision, authored by the signed-in account. `base` is the revision it was edited from (`null` for the first one): `409` with `latest` when another was published since. `422` when invalid, `409` with `nodes` when it removes or readdresses a node with sessions. |

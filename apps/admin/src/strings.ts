@@ -127,6 +127,31 @@ export const strings = {
       limits: (memory: number, cpus: number, pids: number, defaults: boolean) =>
         `${memory} MB, ${cpus} CPU, ${pids} PIDs${defaults ? " (defaults)" : ""}`,
     },
+    preview: {
+      title: "Preview",
+      heading: "Try the project as a visitor",
+      body: (name: string, slots: number) =>
+        `Runs /embed/${name} here. It goes through the queue and takes ${slots === 1 ? "its only slot" : `one of the ${slots} slots`} until you stop it.`,
+      start: "Start preview",
+      stop: "Stop preview",
+      frame: (name: string) => `Preview of ${name}`,
+      refused: "Session blank? Add this admin's origin to the node's FRAME_ANCESTORS.",
+      blocked: {
+        off: "Turned off in tryout.yaml (admin_preview: false).",
+        "not-applied": "Apply your pending changes first.",
+        paused: "Unavailable while the project is paused.",
+        parent: (origin: string) => `The embed page refuses this admin as a parent. Add ${origin} to the allowed origins.`,
+      },
+      embedding: "Open Embedding",
+    },
+    embed: {
+      title: "Embed",
+      copyAddress: "Copy address",
+      noUrl: "Set public_url in tryout.yaml for the full address.",
+      parents: "Allowed parents (embed_frame_ancestors)",
+      copySnippet: "Copy iframe snippet",
+      copied: "Copied",
+    },
     remove: {
       title: "Remove project",
       body: (name: string) => `Stops its sessions, empties its queue and removes it from the settings. /embed/${name} then shows “unavailable”.`,
