@@ -14,7 +14,7 @@ import { schema, validateFile, validateSettingsDocument } from "./config-schema.
 import { checkSettingsSections, seedOf, settingsWarnings, SETTINGS_KEYS, type Seed } from "./config-settings.ts";
 import { fileLogos, type Theme } from "./config-theme.ts";
 import { loadAgentTls } from "./config-tls.ts";
-import { interpolate, isObject, parseListen } from "./config-values.ts";
+import { interpolate, isLoopbackHost, isObject, parseListen } from "./config-values.ts";
 import type { QueueConfig } from "./queue.ts";
 
 export { ConfigError } from "./config-report.ts";
@@ -138,7 +138,7 @@ export function parseConfig(
   if (problems.list.length) throw new ConfigError(source, problems.list);
 
   warnings.push(...settingsWarnings(settings));
-  if (bootstrap.admin_listen && !bootstrap.admin_metrics_token && !isLoopback(bootstrap.admin_listen.host)) {
+  if (bootstrap.admin_listen && !bootstrap.admin_metrics_token && !isLoopbackHost(bootstrap.admin_listen.host)) {
     warnings.push("/metrics is open to anyone who reaches admin_listen: set admin_metrics_token, or listen on a loopback address");
   }
   return { config: { ...bootstrap, ...settings }, seed: seedOf(file, settings), warnings };
@@ -247,11 +247,6 @@ function checkClientIp(v: unknown, report: Report): ClientIpConfig {
   });
 
   return { trusted_proxies: trustedProxies, ...(clientIp.header ? { header: clientIp.header } : {}) };
-}
-
-/** Whether a listen host only accepts connections from this machine; an empty host listens everywhere. */
-function isLoopback(host: string): boolean {
-  return host === "localhost" || host === "::1" || /^127\.\d+\.\d+\.\d+$/.test(host);
 }
 
 /** Whether the admin listener shares the public one: then a single server answers both. */

@@ -17,6 +17,7 @@ import {
   type Account,
   type AdminAuth,
 } from "./admin-auth.ts";
+import { isLoopbackHost } from "./config-values.ts";
 import { json } from "./http.ts";
 import { CONTENT_TYPE } from "./metrics.ts";
 
@@ -62,7 +63,9 @@ class Refusal extends Error {
   }
 }
 
+/** Sets the session cookie; it lasts as long as a session can. */
 const setCookie = (token: string) => ({ "set-cookie": `${COOKIE}=${token}; ${COOKIE_ATTRIBUTES}; Max-Age=${SESSION_MAX_MS / 1000}` });
+/** Removes the session cookie from the browser. */
 const clearCookie = { "set-cookie": `${COOKIE}=; ${COOKIE_ATTRIBUTES}; Max-Age=0` };
 
 /** The session token in the request's cookie, or null. */
@@ -85,9 +88,7 @@ function sameSecret(a: string, b: string): boolean {
  * HTTP on localhost, which browsers treat as secure.
  */
 function isSecureOrigin(origin: URL): boolean {
-  if (origin.protocol === "https:") return true;
-  const host = origin.hostname;
-  return origin.protocol === "http:" && (host === "localhost" || host.endsWith(".localhost") || host === "[::1]" || /^127\.\d+\.\d+\.\d+$/.test(host));
+  return origin.protocol === "https:" || (origin.protocol === "http:" && isLoopbackHost(origin.hostname));
 }
 
 /**
@@ -132,6 +133,15 @@ function strings<K extends string>(body: Record<string, unknown>, ...keys: K[]):
     if (typeof body[k] !== "string") throw new Refusal(400, `${k} must be a string`);
   }
   return body as Record<K, string>;
+}
+
+/** Decodes a path segment; a malformed escape is refused. */
+function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    throw new Refusal(400, "malformed path");
+  }
 }
 
 /** Maps the errors of AdminAuth to answers. */
@@ -191,40 +201,70 @@ export function createAdminHandler({ auth, metricsPage, metricsToken, clientKey,
     }
   }
 
-  /** The routes that need a session. */
-  async function signedIn(req: IncomingMessage, route: string, account: Account, token: string): Promise<Reply> {
-    const { method } = req;
+  /** A signed-in request: its session's account and token. */
+  interface SignedIn {
+    req: IncomingMessage;
+    account: Account;
+    token: string;
+  }
 
-    if (method === "POST" && route === "logout") {
-      await auth.logout(token);
-      log("admin logout", { account: account.name });
-      return { status: 204, headers: clearCookie };
-    }
-    if (method === "GET" && route === "me") return { status: 200, body: account };
-    if (method === "POST" && route === "me/password") {
-      const { current, password } = strings(await readBody(req), "current", "password");
-      await auth.changePassword(token, current, password).catch((e) => {
-        throw e instanceof InvalidLoginError ? new Refusal(403, "the current password is wrong") : e;
-      });
-      log("admin password changed", { account: account.name });
-      return { status: 204 };
-    }
-    if (method === "GET" && route === "accounts") {
-      const accounts = await auth.listAccounts();
-      return { status: 200, body: { accounts: accounts.map((a) => ({ name: a.name, created_at: a.createdAt })) } };
-    }
-    if (method === "POST" && route === "accounts") {
-      const { name, password } = strings(await readBody(req), "name", "password");
-      await auth.createAccount(name, password);
-      log("admin account created", { account: name, by: account.name });
-      return { status: 201, body: { name } };
-    }
-    if (method === "DELETE" && route.startsWith("accounts/")) {
-      const name = decodeURIComponent(route.slice("accounts/".length));
-      await auth.deleteAccount(name);
-      log("admin account deleted", { account: name, by: account.name });
-      return { status: 204, headers: name === account.name ? clearCookie : {} };
-    }
+  /** Ends the session. */
+  async function logout({ account, token }: SignedIn): Promise<Reply> {
+    await auth.logout(token);
+    log("admin logout", { account: account.name });
+    return { status: 204, headers: clearCookie };
+  }
+
+  /** Changes the signed-in account's password; a wrong current password is 403, not a lost session. */
+  async function changePassword({ req, account, token }: SignedIn): Promise<Reply> {
+    const { current, password } = strings(await readBody(req), "current", "password");
+    await auth.changePassword(token, current, password).catch((e) => {
+      throw e instanceof InvalidLoginError ? new Refusal(403, "the current password is wrong") : e;
+    });
+
+    log("admin password changed", { account: account.name });
+    return { status: 204 };
+  }
+
+  /** Every account, by name. */
+  async function listAccounts(): Promise<Reply> {
+    const accounts = await auth.listAccounts();
+    return { status: 200, body: { accounts: accounts.map((a) => ({ name: a.name, created_at: a.createdAt })) } };
+  }
+
+  /** Creates an account. */
+  async function createAccount({ req, account }: SignedIn): Promise<Reply> {
+    const { name, password } = strings(await readBody(req), "name", "password");
+    await auth.createAccount(name, password);
+
+    log("admin account created", { account: name, by: account.name });
+    return { status: 201, body: { name } };
+  }
+
+  /** Deletes the account named by the path; deleting one's own also clears the cookie. */
+  async function deleteAccount({ account }: SignedIn, name: string): Promise<Reply> {
+    await auth.deleteAccount(name);
+
+    log("admin account deleted", { account: name, by: account.name });
+    return { status: 204, headers: name === account.name ? clearCookie : {} };
+  }
+
+  /** The routes that need a session, by method and path after /admin/api/. */
+  const ROUTES: Record<string, (r: SignedIn) => Promise<Reply>> = {
+    "POST logout": logout,
+    "GET me": async ({ account }) => ({ status: 200, body: account }),
+    "POST me/password": changePassword,
+    "GET accounts": listAccounts,
+    "POST accounts": createAccount,
+  };
+
+  /** Runs the signed-in route matching the request, or refuses it with 404. */
+  function signedIn(r: SignedIn, route: string): Promise<Reply> {
+    const handler = ROUTES[`${r.req.method} ${route}`];
+    if (handler) return handler(r);
+
+    const [resource, name, ...rest] = route.split("/");
+    if (r.req.method === "DELETE" && resource === "accounts" && name && !rest.length) return deleteAccount(r, decodeSegment(name));
     throw new Refusal(404, "not found");
   }
 
@@ -237,7 +277,7 @@ export function createAdminHandler({ auth, metricsPage, metricsToken, clientKey,
     const account = token ? await auth.authenticate(token) : null;
     if (!token || !account) throw new Refusal(401, "sign in first", clearCookie);
 
-    return signedIn(req, route, account, token);
+    return signedIn({ req, account, token }, route);
   }
 
   return async function handleAdmin(req: IncomingMessage, res: ServerResponse): Promise<boolean> {

@@ -23,6 +23,11 @@ export function parseListen(s: string): { host: string; port: number } | undefin
   return { host: m[1] ?? m[2], port };
 }
 
+/** Whether a host name or address only reaches this machine; IPv6 may be bracketed, as in a URL. */
+export function isLoopbackHost(host: string): boolean {
+  return host === "localhost" || host.endsWith(".localhost") || host === "::1" || host === "[::1]" || /^127\.\d+\.\d+\.\d+$/.test(host);
+}
+
 const VAR = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 
 /**

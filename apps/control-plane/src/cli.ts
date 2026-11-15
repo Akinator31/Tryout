@@ -110,7 +110,7 @@ export async function accountCommand(auth: AdminAuth, args: string[], readPasswo
     await auth.createAccount(name, await readPassword());
     return `created account ${name}`;
   }
-  if (!(await auth.listAccounts()).some((a) => a.name === name)) throw new UnknownAccountError(name);
+  if (!(await auth.hasAccount(name))) throw new UnknownAccountError(name);
   await auth.setPassword(name, await readPassword());
   return `set the password of ${name}; its sessions are closed`;
 }

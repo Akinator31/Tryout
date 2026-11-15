@@ -201,3 +201,26 @@ test("password checks beyond the running and waiting caps are refused at once", 
     ["ok", "ok", AuthBusyError.name],
   );
 });
+
+test("setting a password from the command line unlocks the account", async () => {
+  const { auth } = await setup();
+  await auth.createAccount("alice", PASSWORD);
+  await fail(auth, "alice", "203.0.113.1", 10);
+
+  await auth.setPassword("alice", "a brand new password");
+  assert.ok(await auth.login("alice", "a brand new password", "198.51.100.7"));
+});
+
+test("password lengths count characters, not UTF-16 units", async () => {
+  const { auth } = await setup();
+  await assert.rejects(auth.createAccount("alice", "🔑".repeat(11)), AccountInputError);
+  await auth.createAccount("alice", "🔑".repeat(12));
+});
+
+test("a damaged stored hash refuses the login instead of failing", async () => {
+  const { auth, db } = await setup();
+  await auth.createAccount("alice", PASSWORD);
+  await db.query(`UPDATE admin_accounts SET password_hash = 'scrypt$1024$8$1$AAAA$AAAA'`);
+
+  await assert.rejects(auth.login("alice", PASSWORD, "203.0.113.1"), InvalidLoginError);
+});

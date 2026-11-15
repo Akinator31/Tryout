@@ -290,12 +290,15 @@ account, unlike the admin API.
 - **Failed logins** are limited to 10 per account name (known or not) and 20 per client address
   in 15 minutes, across instances. Beyond that, logins get `429` with `Retry-After`, even with
   the right password. The address is read through `client_ip.trusted_proxies`, like the per-IP
-  limits.
+  limits. Whoever reaches the admin listener can therefore keep an account locked by failing on
+  purpose: keep the listener private, and use `set-password`, which also clears the account's
+  failures, to get back in.
 
 The browser keeps the session in a `__Host-` cookie marked `Secure`, which browsers accept over
 HTTPS and on `localhost` only. Reach the admin over HTTPS, through a reverse proxy, or over an
 SSH tunnel to `localhost`: elsewhere, a login over plain HTTP is refused with a message saying
-so. A reverse proxy must keep the `Host` header: requests that change something must come from
+so. The control plane decides from the `Origin` the browser sends: `https://…`, or `http://` on
+`localhost`, `127.0.0.0/8` or `[::1]`. A reverse proxy must keep the `Host` header: requests that change something must come from
 a page of the same origin.
 
 ## Agent

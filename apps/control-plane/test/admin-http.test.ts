@@ -24,9 +24,10 @@ async function setup(t: TestContext, { metricsToken }: { metricsToken?: string }
     clientKey: () => "203.0.113.1",
   });
   const server = createServer((req, res) => {
-    void handle(req, res).then((handled) => {
-      if (!handled) res.writeHead(404).end();
-    });
+    handle(req, res).then(
+      (handled) => void (handled || res.writeHead(404).end()),
+      () => void res.writeHead(500).end(),
+    );
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => server.close());
@@ -195,6 +196,7 @@ test("the API refuses malformed bodies and unknown routes under /admin/api", asy
   assert.equal(bad.status, 400);
   assert.equal((await call("/admin/api/login", { method: "POST", body: { name: 1, password: [] } })).status, 400);
   assert.equal((await call("/admin/api/nothing", { cookie })).status, 404);
+  assert.equal((await call("/admin/api/accounts/%E0", { method: "DELETE", cookie })).status, 400);
   assert.equal((await call("/elsewhere")).status, 404, "left to the caller");
 });
 

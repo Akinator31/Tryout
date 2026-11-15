@@ -41,9 +41,9 @@ export async function verifyPassword(password: string, hash: string | null, dumm
   const [scheme, N, r, p, salt, key] = (hash ?? dummyHash(dummy)).split("$");
   if (scheme !== "scrypt") return false;
 
-  const expected = Buffer.from(key, "base64");
-  const actual = await derive(password, Buffer.from(salt, "base64"), { N: Number(N), r: Number(r), p: Number(p) });
-  return hash !== null && timingSafeEqual(actual, expected);
+  const expected = Buffer.from(key ?? "", "base64");
+  const actual = await derive(password, Buffer.from(salt ?? "", "base64"), { N: Number(N), r: Number(r), p: Number(p) });
+  return hash !== null && expected.length === actual.length && timingSafeEqual(actual, expected);
 }
 
 /** Too many password hashes are running or waiting on this instance. */

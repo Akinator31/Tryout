@@ -68,14 +68,17 @@ export class LoginLimitedError extends Error {
   }
 }
 
+/** A name or a password that breaks the rules; the message says which rule. */
 export class AccountInputError extends Error {}
 
+/** Another account has this name. */
 export class AccountExistsError extends Error {
   constructor(name: string) {
     super(`account ${name} already exists`);
   }
 }
 
+/** No account has this name. */
 export class UnknownAccountError extends Error {
   constructor(name: string) {
     super(`no account named ${name}`);
@@ -119,7 +122,12 @@ export interface AdminAuth {
    * another one).
    */
   deleteAccount(name: string, options?: { allowLast?: boolean }): Promise<void>;
-  /** Replaces an account's password and ends all its sessions (the command line's recovery). */
+  /** Whether an account has this name. */
+  hasAccount(name: string): Promise<boolean>;
+  /**
+   * Replaces an account's password, ends all its sessions and clears its
+   * failed logins: the command line's way back in, also after a lock.
+   */
   setPassword(name: string, password: string): Promise<void>;
   /**
    * Replaces the password of the session's account, after checking the
@@ -135,6 +143,7 @@ export interface AdminAuth {
   login(name: string, password: string, clientKey: string): Promise<{ token: string; account: Account }>;
   /** The account of a session token, or null when the token opens no session; a use keeps the session alive. */
   authenticate(token: string): Promise<Account | null>;
+  /** Ends a session; an unknown token is ignored. */
   logout(token: string): Promise<void>;
 }
 
@@ -159,15 +168,20 @@ export function checkAccountName(name: string): void {
   }
 }
 
-/** Throws AccountInputError when a password breaks the rules. */
+/** Throws AccountInputError when a password breaks the rules; its length counts characters (code points). */
 function checkPassword(password: string): void {
-  if (password.length < PASSWORD_LENGTH.min || password.length > PASSWORD_LENGTH.max) {
+  const length = [...password].length;
+  if (length < PASSWORD_LENGTH.min || length > PASSWORD_LENGTH.max) {
     throw new AccountInputError(`passwords have ${PASSWORD_LENGTH.min} to ${PASSWORD_LENGTH.max} characters`);
   }
 }
 
-/** Whether a database error is a unique constraint violation. */
-const isUniqueViolation = (e: unknown) => (e as { code?: string })?.code === "23505";
+/** SQLSTATE codes of the constraint violations handled here. */
+const PG_UNIQUE_VIOLATION = "23505";
+const PG_FOREIGN_KEY_VIOLATION = "23503";
+
+/** The SQLSTATE code of a database error, if it has one. */
+const pgErrorCode = (e: unknown) => (e as { code?: string } | null)?.code;
 
 /** Creates or upgrades the tables, then returns the accounts and sessions. */
 export async function createAdminAuth({ db, now = Date.now, scrypt = DEFAULT_SCRYPT, hashing = DEFAULT_HASHING }: AdminAuthOptions): Promise<AdminAuth> {
@@ -230,15 +244,20 @@ export async function createAdminAuth({ db, now = Date.now, scrypt = DEFAULT_SCR
     await db.query(`DELETE FROM admin_login_failures WHERE key = $1`, [keys.account]);
   }
 
-  /** Stores a new password hash; ends the account's sessions, except `keep` (a token hash). Throws UnknownAccountError. */
-  async function storePassword(name: string, password: string, keep: string | null): Promise<void> {
+  /**
+   * Stores a new password hash, ends the account's sessions except the one
+   * whose token hashes to `keepTokenHash`, and clears its failed logins.
+   * Throws UnknownAccountError.
+   */
+  async function storePassword(name: string, password: string, keepTokenHash: string | null): Promise<void> {
     checkPassword(password);
     const hash = await hashPassword(password, scrypt);
 
     await db.tx(async (q) => {
       const updated = await q(`UPDATE admin_accounts SET password_hash = $2 WHERE name = $1 RETURNING name`, [name, hash]);
       if (!updated.length) throw new UnknownAccountError(name);
-      await q(`DELETE FROM admin_sessions WHERE account = $1 AND token_sha256 IS DISTINCT FROM $2`, [name, keep]);
+      await q(`DELETE FROM admin_sessions WHERE account = $1 AND token_sha256 IS DISTINCT FROM $2`, [name, keepTokenHash]);
+      await q(`DELETE FROM admin_login_failures WHERE key = $1`, [limitKeys(name).account]);
     });
   }
 
@@ -261,7 +280,7 @@ export async function createAdminAuth({ db, now = Date.now, scrypt = DEFAULT_SCR
         now(),
       ]);
     } catch (e) {
-      throw (e as { code?: string })?.code === "23503" ? new InvalidLoginError() : e;
+      throw pgErrorCode(e) === PG_FOREIGN_KEY_VIOLATION ? new InvalidLoginError() : e;
     }
     return token;
   }
@@ -287,13 +306,17 @@ export async function createAdminAuth({ db, now = Date.now, scrypt = DEFAULT_SCR
       try {
         await db.query(`INSERT INTO admin_accounts (name, password_hash, created_at) VALUES ($1, $2, $3)`, [name, hash, now()]);
       } catch (e) {
-        throw isUniqueViolation(e) ? new AccountExistsError(name) : e;
+        throw pgErrorCode(e) === PG_UNIQUE_VIOLATION ? new AccountExistsError(name) : e;
       }
     },
 
     async listAccounts() {
       const rows = await db.query<{ name: string; created_at: number }>(`SELECT name, created_at FROM admin_accounts ORDER BY name`);
       return rows.map((r) => ({ name: r.name, createdAt: r.created_at }));
+    },
+
+    async hasAccount(name) {
+      return (await passwordHashOf(name)) !== null;
     },
 
     async deleteAccount(name, { allowLast = false } = {}) {
