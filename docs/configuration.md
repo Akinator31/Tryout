@@ -307,6 +307,19 @@ a page of the same origin.
 With `admin_listen` set, the control plane serves the admin interface on that listener, at
 `/admin/` (`/` redirects there). It opens on the sign-in page, then:
 
+- **Projects**: every project with its kind, node, sessions out of its cap, queue and state
+  (ready, running, full, paused, node offline, or not applied yet), under a line that sums up
+  the slots, the queues, the paused projects and the nodes down; with no project, the first
+  steps. *New project* and *Edit settings* open a form (identity, image and port, node and
+  runtime, capacity, resources, environment) that the browser checks as it is typed, warns when
+  a node's projects would ask for more sessions than its cap, and shows the project as YAML.
+  A project's page shows its load, live sessions and settings, with *Pause project* (or
+  *Resume*) and *Remove*. The name of a project or a node cannot change once created;
+- **Nodes**: every node with its last health check (agent version, profile, runtime and
+  architecture, or why it does not answer) and the projects it runs, a warning for the dev
+  profile, and a drawer to add or edit one. *Test connection* runs the dry run with the node in
+  the settings, so the control plane tries the agent over mutual TLS. A node that projects
+  still use cannot be removed;
 - **Embedding**: the origins allowed to frame `/embed/<project>`, with a hint when a typed
   origin lacks its scheme or has a path, and the per-IP visitor limits. The trusted proxies
   stay in `tryout.yaml` (`client_ip`);
@@ -320,13 +333,14 @@ With `admin_listen` set, the control plane serves the admin interface on that li
   changing one's own password.
 
 The sidebar shows whether the last call to the control plane got an answer, the control
-plane's version (`TRYOUT_VERSION`) and the active revision. The pages that edit projects and
-nodes come next; until then, change them with `import` or the admin API.
+plane's version (`TRYOUT_VERSION`) and the active revision.
 
 **Pending changes.** Edits on any settings page join one draft of the whole settings, kept
 in the browser tab (it survives a reload, not closing the tab; signing out drops it, and another
 account signing in on the tab never sees it). While
-it holds changes, every settings page shows *Discard* and *Review N changes*. The review lists
+it holds changes, every settings page shows *Discard* and *Review N changes*. Creating or
+saving a project or a node, pausing, resuming and removing put the change in the draft and open
+the review at once. The review lists
 the changes and their YAML diff, runs the dry run (problems block Apply, warnings such as an
 unreachable node do not), takes an optional note, and publishes the draft as the next
 revision. *Download YAML* saves the draft, or a revision, in the format of the `import`

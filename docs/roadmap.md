@@ -214,3 +214,6 @@ the admin UI, and graph queue and session metrics.
   `/admin/` on the admin listener. See [Admin interface](configuration.md#admin-interface).
 - **M4:** admin settings pages: embedding and visitor limits, theme, revisions with rollback
   and YAML download, through one draft of pending changes reviewed before it is applied.
+- **M4:** admin projects and nodes pages: projects list, form, pause and removal; nodes with
+  their health, add and edit with a connection test. See
+  [Admin interface](configuration.md#admin-interface).

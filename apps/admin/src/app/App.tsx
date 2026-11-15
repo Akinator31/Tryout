@@ -9,6 +9,10 @@ import { isRefusal, isSignedOut, type ApiClient } from "../api.ts";
 import { BASE, HOME, paths, signInPath } from "../navigation.ts";
 import { Accounts } from "../pages/Accounts.tsx";
 import { Embedding } from "../pages/Embedding.tsx";
+import { Nodes } from "../pages/Nodes.tsx";
+import { Project } from "../pages/Project.tsx";
+import { ProjectEditor } from "../pages/ProjectEditor.tsx";
+import { Projects } from "../pages/Projects.tsx";
 import { Revisions } from "../pages/Revisions.tsx";
 import { Theme } from "../pages/Theme.tsx";
 import { Sessions } from "../pages/Sessions.tsx";
@@ -71,6 +75,11 @@ function AppRoutes() {
       <Route path={paths.signIn} element={<SignIn />} />
       <Route path={BASE} element={<Shell />}>
         <Route index element={<Navigate to={HOME} replace />} />
+        <Route path={paths.projects} element={<Projects />} />
+        <Route path={paths.newProject} element={<ProjectEditor />} />
+        <Route path={`${paths.projects}/:name`} element={<Project />} />
+        <Route path={`${paths.projects}/:name/edit`} element={<ProjectEditor />} />
+        <Route path={paths.nodes} element={<Nodes />} />
         <Route path={paths.embedding} element={<Embedding />} />
         <Route path={paths.theme} element={<Theme />} />
         <Route path={paths.sessions} element={<Sessions />} />

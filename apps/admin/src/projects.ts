@@ -1,0 +1,308 @@
+// The projects pages' figures and form: each project's state and load, the
+// summary line, and the project form with the checks the browser can make
+// before the server's dry run, which stays the judge.
+import type { NodeView, Session } from "./model.ts";
+import type { ProjectSettings, SettingsDocument } from "./settings/document.ts";
+import { parseDuration, parseWhole } from "./settings/parse.ts";
+import { strings } from "./strings.ts";
+
+type Kind = ProjectSettings["kind"];
+
+/** The resources the agent gives a container of each kind when the project sets none. */
+export const KIND_DEFAULTS: Record<Kind, { memory_mb: number; cpus: number; pids: number }> = {
+  terminal: { memory_mb: 256, cpus: 0.5, pids: 128 },
+  desktop: { memory_mb: 2048, cpus: 1.5, pids: 1024 },
+};
+
+/** The port each kind usually serves: ttyd's, and LinuxServer images'. */
+export const KIND_PORTS: Record<Kind, number> = { terminal: 7681, desktop: 3000 };
+
+/** A project or node name (schema $defs/name). */
+export const NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+/** The longest session a project may set (the control plane's own cap). */
+const MAX_AGE_LIMIT_S = 24 * 3600;
+
+/** Variables the agent sets, which a project cannot (schema $defs/reserved_env). */
+const RESERVED_ENV = new Set([
+  "HOME", "PUID", "PGID", "SUBFOLDER", "HARDEN_DESKTOP", "START_DOCKER", "NO_GAMEPAD",
+  "SELKIES_FILE_TRANSFERS", "SELKIES_MICROPHONE_ENABLED", "SELKIES_WEBCAM_ENABLED",
+  "SELKIES_PRINTING_ENABLED", "SELKIES_GAMEPAD_ENABLED", "SELKIES_SECOND_SCREEN",
+]);
+
+/** Live tickets per state. */
+export interface Load {
+  active: number;
+  starting: number;
+  waiting: number;
+}
+
+const NO_LOAD: Load = { active: 0, starting: 0, waiting: 0 };
+
+/** The live tickets of each project, or of each node with `by: "node"`. */
+export function loadBy(sessions: Session[], by: "project" | "node" = "project"): Map<string, Load> {
+  const loads = new Map<string, Load>();
+
+  for (const s of sessions) {
+    const load = loads.get(s[by]) ?? { ...NO_LOAD };
+    load[s.state]++;
+    loads.set(s[by], load);
+  }
+  return loads;
+}
+
+/** One name's load, zero when it has no ticket. */
+export const loadOf = (loads: Map<string, Load>, name: string): Load => loads.get(name) ?? NO_LOAD;
+
+/** Sessions that hold a slot: running or starting. */
+export const live = (load: Load) => load.active + load.starting;
+
+/**
+ * What a project's badge says, first match wins: not applied yet (only in the
+ * draft), paused, its node down, every slot taken, sessions running, or ready.
+ */
+export type ProjectState = "draft" | "paused" | "offline" | "full" | "running" | "ready";
+
+export interface StateInputs {
+  project: ProjectSettings;
+  /** Whether the active revision has the project; a project only in the draft is not running anywhere. */
+  applied: boolean;
+  /** Whether its node's last check succeeded; undefined while unknown. */
+  nodeUp: boolean | undefined;
+  load: Load;
+}
+
+/** A project's state. */
+export function projectState({ project, applied, nodeUp, load }: StateInputs): ProjectState {
+  if (!applied) return "draft";
+  if (project.enabled === false) return "paused";
+  if (nodeUp === false) return "offline";
+  if (live(load) >= project.max_sessions) return "full";
+  return live(load) > 0 ? "running" : "ready";
+}
+
+/** Whether each node is up, from `GET nodes`. */
+export function nodesUp(nodes: NodeView[] | undefined): Map<string, boolean> {
+  return new Map((nodes ?? []).map((n) => [n.name, n.up]));
+}
+
+/**
+ * The line above the projects table: sessions live out of the slots, then
+ * the projects with a queue, the paused ones and the nodes down, when any.
+ */
+export function projectsSummary(document: SettingsDocument, loads: Map<string, Load>, up: Map<string, boolean>, slots: number): string {
+  const S = strings.projects.summary;
+  const projects = Object.entries(document.projects ?? {});
+  const parts = [S.live([...loads.values()].reduce((n, l) => n + live(l), 0), slots)];
+
+  for (const [name] of projects) {
+    const waiting = loadOf(loads, name).waiting;
+    if (waiting > 0) parts.push(S.waiting(waiting, name));
+  }
+
+  const paused = projects.filter(([, p]) => p.enabled === false).map(([name]) => name);
+  if (paused.length) parts.push(S.paused(paused));
+
+  const down = Object.keys(document.nodes ?? {}).filter((name) => up.get(name) === false);
+  if (down.length) parts.push(S.offline(down));
+
+  return parts.join(" ");
+}
+
+/** The node's cap and the sum of its projects' caps, when the projects ask for more than the node allows. */
+export function overbooking(document: SettingsDocument, node: string): { sum: number; cap: number } | null {
+  const cap = document.nodes?.[node]?.max_sessions;
+  if (cap === undefined) return null;
+
+  const sum = Object.values(document.projects ?? {})
+    .filter((p) => p.node === node)
+    .reduce((n, p) => n + p.max_sessions, 0);
+  return sum > cap ? { sum, cap } : null;
+}
+
+/** The project form: every field as typed; empty optional fields mean the default. */
+export interface ProjectForm {
+  name: string;
+  title: string;
+  kind: Kind;
+  image: string;
+  port: string;
+  stripPrefix: boolean;
+  node: string;
+  /** Empty for the node's default runtime. */
+  runtime: string;
+  maxSessions: string;
+  maxAge: string;
+  memory: string;
+  cpus: string;
+  pids: string;
+  env: { name: string; value: string }[];
+}
+
+/** The form of a new project, on `node` when there is one. */
+export function newProjectForm(node = ""): ProjectForm {
+  return {
+    name: "",
+    title: "",
+    kind: "terminal",
+    image: "",
+    port: String(KIND_PORTS.terminal),
+    stripPrefix: false,
+    node,
+    runtime: "",
+    maxSessions: "1",
+    maxAge: "15m",
+    memory: "",
+    cpus: "",
+    pids: "",
+    env: [],
+  };
+}
+
+/** The form of an existing project. */
+export function projectForm(name: string, p: ProjectSettings): ProjectForm {
+  const text = (v: number | undefined) => (v === undefined ? "" : String(v));
+
+  return {
+    name,
+    title: p.title ?? "",
+    kind: p.kind,
+    image: p.image,
+    port: String(p.port),
+    stripPrefix: p.strip_prefix ?? false,
+    node: p.node,
+    runtime: p.runtime ?? "",
+    maxSessions: String(p.max_sessions),
+    maxAge: p.max_age,
+    memory: text(p.limits?.memory_mb),
+    cpus: text(p.limits?.cpus),
+    pids: text(p.limits?.pids),
+    env: Object.entries(p.env ?? {}).map(([k, v]) => ({ name: k, value: v })),
+  };
+}
+
+/** A positive decimal number such as 0.5 or 2, or undefined. */
+function parseDecimal(text: string): number | undefined {
+  const t = text.trim();
+  return /^\d{1,4}(\.\d{1,3})?$/.test(t) && Number(t) > 0 ? Number(t) : undefined;
+}
+
+/** Seconds in a duration such as 1h30m, or undefined when it does not parse. */
+export function durationSeconds(text: string): number | undefined {
+  const d = parseDuration(text);
+  if (d === undefined) return undefined;
+
+  const [, h = "0", m = "0", s = "0"] = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/.exec(d)!;
+  return Number(h) * 3600 + Number(m) * 60 + Number(s);
+}
+
+/** A field's problem, keyed by field (`env.2.name` for a variable). */
+export type FormProblems = Partial<Record<string, string>>;
+
+/** The checks of the identity, image and placement fields. */
+function checkWorkload(form: ProjectForm, taken: string[], nodes: string[], isNew: boolean, problems: FormProblems): void {
+  const P = strings.projectForm.problems;
+
+  if (isNew) {
+    if (!form.name) problems.name = P.required;
+    else if (!NAME.test(form.name)) problems.name = P.name;
+    else if (taken.includes(form.name)) problems.name = P.nameTaken;
+  }
+  if (form.title.length > 40 || /[\x00-\x1f\x7f]/.test(form.title)) problems.title = P.titleText;
+
+  if (!form.image.trim()) problems.image = P.required;
+  else if (/\s/.test(form.image)) problems.image = P.image;
+
+  const port = parseWhole(form.port);
+  if (port === undefined || port < 1 || port > 65535) problems.port = P.port;
+
+  if (!form.node) problems.node = nodes.length ? P.required : P.noNode;
+  else if (!nodes.includes(form.node)) problems.node = P.unknownNode;
+
+  if (form.runtime && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(form.runtime)) problems.runtime = P.runtime;
+}
+
+/** The checks of the capacity and resource fields. */
+function checkCapacity(form: ProjectForm, problems: FormProblems): void {
+  const P = strings.projectForm.problems;
+
+  const max = parseWhole(form.maxSessions);
+  if (max === undefined || max < 1) problems.maxSessions = P.atLeast(1);
+
+  const age = durationSeconds(form.maxAge);
+  if (age === undefined) problems.maxAge = P.duration;
+  else if (age === 0 || age > MAX_AGE_LIMIT_S) problems.maxAge = P.maxAge;
+
+  /** Whether an optional whole-number field is filled with less than 16, or not a number. */
+  const under16 = (text: string) => text !== "" && (parseWhole(text) ?? 0) < 16;
+
+  if (under16(form.memory)) problems.memory = P.atLeast(16);
+  if (form.cpus && parseDecimal(form.cpus) === undefined) problems.cpus = P.cpus;
+  if (under16(form.pids)) problems.pids = P.atLeast(16);
+}
+
+/** The checks of the environment variables. */
+function checkEnv(form: ProjectForm, problems: FormProblems): void {
+  const P = strings.projectForm.problems;
+  const seen = new Set<string>();
+
+  form.env.forEach(({ name }, i) => {
+    const key = `env.${i}.name`;
+
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) problems[key] = P.envName;
+    else if (name.startsWith("TRYOUT_") || RESERVED_ENV.has(name)) problems[key] = P.envReserved;
+    else if (seen.has(name)) problems[key] = P.envDuplicate;
+    seen.add(name);
+  });
+}
+
+/**
+ * The form's problems, per field: what the schema and the control plane would
+ * refuse. `taken` are the names already used; a new project's name must be
+ * free, an existing one's cannot change.
+ */
+export function checkProjectForm(form: ProjectForm, ctx: { taken: string[]; nodes: string[]; isNew: boolean }): FormProblems {
+  const problems: FormProblems = {};
+
+  checkWorkload(form, ctx.taken, ctx.nodes, ctx.isNew, problems);
+  checkCapacity(form, problems);
+  checkEnv(form, problems);
+  return problems;
+}
+
+/**
+ * The project the form describes; fields left empty are left out, so the
+ * defaults apply. `previous` keeps what the form does not edit (`enabled`).
+ * Call it on a form without problems.
+ */
+export function projectFromForm(form: ProjectForm, previous?: ProjectSettings): ProjectSettings {
+  const limits = {
+    memory_mb: form.memory ? parseWhole(form.memory) : undefined,
+    cpus: form.cpus ? parseDecimal(form.cpus) : undefined,
+    pids: form.pids ? parseWhole(form.pids) : undefined,
+  };
+  const env = Object.fromEntries(form.env.map((v) => [v.name, v.value]));
+
+  return {
+    title: form.title.trim() || undefined,
+    enabled: previous?.enabled,
+    node: form.node,
+    image: form.image.trim(),
+    kind: form.kind,
+    port: parseWhole(form.port)!,
+    runtime: form.runtime || undefined,
+    strip_prefix: form.stripPrefix || undefined,
+    max_sessions: parseWhole(form.maxSessions)!,
+    max_age: form.maxAge.trim(),
+    limits,
+    env,
+  };
+}
+
+/** The resources a project gets: its own limits, else its kind's defaults; `defaults` when it sets none. */
+export function resources(p: ProjectSettings): { memory_mb: number; cpus: number; pids: number; defaults: boolean } {
+  const base = KIND_DEFAULTS[p.kind];
+  const set = p.limits ?? {};
+  const defaults = set.memory_mb === undefined && set.cpus === undefined && set.pids === undefined;
+  return { ...base, ...set, defaults };
+}

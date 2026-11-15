@@ -55,3 +55,25 @@ export interface Revision extends RevisionSummary {
 export interface Validation {
   warnings: string[];
 }
+
+/** What an agent's /healthz said about itself; each field only when the agent sent it. */
+export interface AgentReport {
+  version?: string;
+  profile?: string;
+  arch?: string;
+  default_runtime?: string;
+  runtimes?: string[];
+  sessions?: number;
+  max_sessions?: number;
+}
+
+/** One node of `GET nodes`: a node of the applied settings, its last health check and live tickets. */
+export interface NodeView {
+  name: string;
+  up: boolean;
+  /** When the last check ended, in ms since the epoch; null before the first. */
+  checked_at: number | null;
+  agent?: AgentReport;
+  error?: string;
+  tickets: { waiting: number; starting: number; active: number };
+}
