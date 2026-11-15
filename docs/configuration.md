@@ -109,8 +109,8 @@ Once the database is seeded, remove the settings from `tryout.yaml`, or keep the
 the active revision. Settings are compared after `${VAR}` substitution, and the logo by its
 content.
 
-**Changing the settings** happens from the command line until the admin interface arrives.
-The commands run where the control plane runs, with the same `DATABASE_URL`. With the
+**Changing the settings** happens through the [admin API](#admin-api), or from the command
+line, until the admin interface arrives. The commands run where the control plane runs, with the same `DATABASE_URL`. With the
 production example, the image's own directories are read-only for its user, so work in
 `/tmp` and copy files in and out:
 
@@ -300,6 +300,25 @@ SSH tunnel to `localhost`: elsewhere, a login over plain HTTP is refused with a 
 so. The control plane decides from the `Origin` the browser sends: `https://…`, or `http://` on
 `localhost`, `127.0.0.0/8` or `[::1]`. A reverse proxy must keep the `Host` header: requests that change something must come from
 a page of the same origin.
+
+### Admin API
+
+Signed in, the admin API under `/admin/api/` edits the settings as one whole document, the
+JSON form of the settings sections. The admin UI will use it; scripts can too, with the
+session cookie and an `Origin` naming the host on every request that changes something.
+
+| Route | Role |
+|---|---|
+| `GET settings` | The active revision's id and document; `{revision: null, document: {}}` before the first one. |
+| `POST config/validate` `{document}` | Dry run: runs every check of a publication and publishes nothing. `422` with `problems` when invalid; otherwise `200` with `warnings`, including each node whose agent does not answer `/healthz` within 3 s. An unreachable node does not prevent publishing. |
+| `POST revisions` `{base, document, note?}` | Publishes the document as a new revision, authored by the signed-in account. `base` is the revision it was edited from (`null` for the first one): `409` with `latest` when another was published since. `422` when invalid, `409` with `nodes` when it removes or readdresses a node with sessions. |
+| `GET revisions`, `GET revisions/:id` | Every revision newest first, without its document; one revision with its document. |
+| `POST revisions/:id/rollback` `{base}` | Publishes that revision's document again, as a new revision noted "Rollback to revision N". |
+| `POST assets` `{data}` | Stores a logo given in base64 (SVG, PNG or WebP, at most 64 KB) and answers its `sha256`, to put in `theme.logo.asset`. |
+| `GET assets/:sha256` | A stored logo, for a preview. |
+| `GET nodes` | Each node of the active settings with its last health check, as seen by the instance that answers. |
+
+Each publication, rollback and logo upload is logged with the account name.
 
 ## Agent
 

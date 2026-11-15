@@ -25,7 +25,9 @@ for graphical ones. Each project is assigned to a node.
 | `runtime.ts` | `SessionRuntime` adapter for real nodes: agent API over mutual TLS + readiness probe through the gateway. Tests use an in-memory adapter. |
 | `agents.ts` | One mutual TLS client per node of the active settings, shared by the runtime, the health check and the metrics relay; the agent's `/healthz` and `/metrics` calls, with size-capped answers. |
 | `health.ts` | Node health: checks every node's `/healthz` every 10 s and keeps the last result; the queue starts no session on a node that is not up. |
-| `admin-http.ts` | The admin listener's routes: `/metrics` behind an optional bearer token, and the admin API under `/admin/api/` (login, logout, the signed-in account, accounts), with its session cookie and same-origin checks. |
+| `admin-http.ts` | The admin listener's routes: `/metrics` behind an optional bearer token, and the admin API under `/admin/api/` (login, logout, the signed-in account, accounts, and the routes of `admin-settings`), with its session cookie and same-origin checks. |
+| `admin-settings.ts` | The admin API's settings routes: the active document, the dry run with node reachability, revisions and rollback, logos and the nodes' health. |
+| `admin-request.ts` | What the admin routes share: answers and refusals, the JSON body reader and the route matcher. |
 | `admin-auth.ts`, `admin-password.ts` | Admin accounts, sessions and failed-login limits in Postgres; scrypt password hashes and the cap on hashes running at once. |
 | `admin.ts`, `metrics*.ts` | The `/metrics` page (ticket gauges, node health, start counters), the Prometheus text writer (`metrics`) and the strict relay of the agents' metrics (`metrics-relay`). |
 | `db.ts`, `db-listen.ts` | Database port (queries, transactions, `LISTEN`); adapters for node-postgres and, in tests, PGlite; the reconnecting `LISTEN` session. |
@@ -269,6 +271,12 @@ files and trusted proxies. No secret goes into the database: TLS keys stay files
   is tried again after a few seconds. A revision that fails the checks of a newer control plane
   refuses its start, and is skipped (logged) by a running instance.
 - **Assets** (the logo) are stored by SHA-256, so a revision names its logo without copying it.
+- **Edited as one document.** The admin API reads and publishes the whole settings document,
+  never one project or node at a time: the admin keeps pending changes in the browser, checks
+  them with a dry run, then publishes them in one revision. One path checks every change, and
+  a rollback is a publication like any other. The dry run also calls each node's `/healthz`
+  with a client made for the call, since the node may not be published yet; a node that does
+  not answer is a warning, not an error, as it may come up later.
 
 ### Health and metrics through the control plane
 
