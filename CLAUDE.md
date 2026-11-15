@@ -124,8 +124,10 @@ vault with the original stack study (in French) and its sources.
   as revisions (`config-store.ts`, `config-live.ts`, `cli.ts` import/export; `tryout.yaml`
   keeps the bootstrap and only seeds an empty database); admin accounts (`admin-auth.ts`,
   `admin-http.ts`: scrypt, server-side sessions in a `__Host-` cookie, login limits in
-  Postgres, CLI `create-user`…, bearer `admin_metrics_token` on `/metrics`). Next: admin API
-  (PR 6 of the M4 plan). Then M5 Hosting options.
+  Postgres, CLI `create-user`…, bearer `admin_metrics_token` on `/metrics`); admin settings API
+  (`admin-settings.ts`, `admin-request.ts`: whole-document settings, dry run with node
+  reachability, revisions and rollback, logos, nodes' health). Next: sessions list, forced stop
+  and the embed "stopped" screen (PR 6b of the M4 plan). Then M5 Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module

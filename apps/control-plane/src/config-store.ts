@@ -100,6 +100,12 @@ export interface ConfigStore {
   /** Checks a revision's document with the assets it names. Throws a ConfigError. */
   load(revision: Revision): Promise<Loaded>;
   /**
+   * Runs the checks of `publish` against the active revision without
+   * publishing: resolves with the settings and their warnings, or throws a ConfigError or
+   * NodeInUseError as `publish` would.
+   */
+  check(document: SettingsDocument): Promise<{ settings: Settings; warnings: string[] }>;
+  /**
    * Checks `document` and stores it as the new active revision, then
    * notifies every instance. Throws a ConfigError when it is invalid,
    * RevisionConflictError when `base` is not the active revision any more,
@@ -135,14 +141,33 @@ export async function createConfigStore({ db, now = Date.now }: { db: Db; now?: 
     return new Map(rows.map((r) => [r.sha256, Buffer.from(r.body)]));
   }
 
+  /** The active revision's row, read through `q`. */
+  async function activeRow(q: Query): Promise<RevisionRow | undefined> {
+    const [row] = await q<RevisionRow>(`SELECT * FROM config_revisions ORDER BY id DESC LIMIT 1`);
+    return row;
+  }
+
   /** Checks a document, with its assets read through `q`. */
   async function check(q: Query, document: SettingsDocument, source: string) {
     return checkSettings(document, { assets: await assetsOf(q, document), source });
   }
 
+  /**
+   * Checks a document as the successor of `active` (the active revision's
+   * row, if any): its own checks, then the nodes it would move.
+   */
+  async function checkSuccessor(q: Query, active: RevisionRow | undefined, document: SettingsDocument) {
+    const checked = await check(q, document, "the new revision");
+    if (!active) return checked;
+
+    const before = await check(q, revisionOf(active).document, "the active revision");
+    await refuseMovingBusyNodes(q, before.settings, checked.settings);
+    return checked;
+  }
+
   return {
     async latest() {
-      const [row] = await db.query<RevisionRow>(`SELECT * FROM config_revisions ORDER BY id DESC LIMIT 1`);
+      const row = await activeRow(db.query);
       return row ? revisionOf(row) : null;
     },
 
@@ -162,15 +187,18 @@ export async function createConfigStore({ db, now = Date.now }: { db: Db; now?: 
       return { revision, ...(await check(db.query, revision.document, `revision ${revision.id}`)) };
     },
 
+    async check(document) {
+      return checkSuccessor(db.query, await activeRow(db.query), document);
+    },
+
     publish(document, { author, base, note }) {
       return db.tx(async (q) => {
         await q(`SELECT pg_advisory_xact_lock(${CONFIG_LOCK})`);
-        const [active] = await q<RevisionRow>(`SELECT * FROM config_revisions ORDER BY id DESC LIMIT 1`);
+        const active = await activeRow(q);
         const latest = active ? Number(active.id) : null;
         if (latest !== base) throw new RevisionConflictError(base, latest);
 
-        const checked = await check(q, document, "the new revision");
-        if (active) await refuseMovingBusyNodes(q, (await check(q, revisionOf(active).document, "the active revision")).settings, checked.settings);
+        const checked = await checkSuccessor(q, active, document);
 
         const [row] = await q<RevisionRow>(
           `INSERT INTO config_revisions (id, parent, document, author, note, created_at)

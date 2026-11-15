@@ -102,6 +102,24 @@ export async function checkHealth(client: AgentClient, signal: AbortSignal): Pro
   return report;
 }
 
+/**
+ * Checks a node that may not be published yet, such as one in a settings
+ * dry run: calls its /healthz with a client made for this call, then closes
+ * it. A connection failure names its cause (ECONNREFUSED, a certificate
+ * error...) rather than undici's "fetch failed".
+ */
+export async function probeAgent(tls: AgentTls, node: NodeConfig, signal: AbortSignal): Promise<void> {
+  const client = agentClient(tls, node);
+  try {
+    await checkHealth(client, signal);
+  } catch (e) {
+    const cause = e instanceof Error && e.cause instanceof Error ? e.cause : null;
+    throw cause && !signal.aborted ? new Error(cause.message) : e;
+  } finally {
+    void client.close().catch(() => {});
+  }
+}
+
 /** Fetches the agent's /metrics text; rejects unless it answers 200. */
 export async function fetchMetrics(client: AgentClient, signal: AbortSignal): Promise<string> {
   const res = await client.fetch("/metrics", { signal });

@@ -14,18 +14,15 @@ import {
   LoginLimitedError,
   SESSION_MAX_MS,
   UnknownAccountError,
-  type Account,
   type AdminAuth,
 } from "./admin-auth.ts";
+import { matchRoute, readBody, Refusal, strings, type Reply, type Routes, type SignedIn } from "./admin-request.ts";
 import { isLoopbackHost } from "./config-values.ts";
 import { json } from "./http.ts";
 import { CONTENT_TYPE } from "./metrics.ts";
 
 const COOKIE = "__Host-tryout_admin";
 const COOKIE_ATTRIBUTES = "Path=/; HttpOnly; Secure; SameSite=Strict";
-
-/** Largest request body read; the API only takes small JSON objects. */
-const MAX_BODY_BYTES = 16 * 1024;
 
 /** Headers of every admin API answer: never framed, never sniffed. */
 const API_HEADERS = {
@@ -41,26 +38,9 @@ export interface AdminHandlerDeps {
   metricsToken?: string;
   /** The client key of a request (its address through trusted proxies), for the login limits. */
   clientKey: (req: IncomingMessage) => string;
+  /** More signed-in routes, such as the settings' (see admin-settings.ts). */
+  routes?: Routes;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
-}
-
-/** An answer to send, with an optional cookie to set. */
-interface Reply {
-  status: number;
-  body?: unknown;
-  headers?: Record<string, string>;
-}
-
-/** A request the API refuses, with the status and message to answer. */
-class Refusal extends Error {
-  readonly status: number;
-  readonly headers: Record<string, string>;
-
-  constructor(status: number, message: string, headers: Record<string, string> = {}) {
-    super(message);
-    this.status = status;
-    this.headers = headers;
-  }
 }
 
 /** Sets the session cookie; it lasts as long as a session can. */
@@ -106,50 +86,12 @@ function checkSameOrigin(req: IncomingMessage): URL {
   return origin;
 }
 
-/** Reads the request's JSON object body; an empty body is an empty object. */
-async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of req as AsyncIterable<Buffer>) {
-    size += chunk.length;
-    if (size > MAX_BODY_BYTES) throw new Refusal(413, "body too large");
-    chunks.push(chunk);
-  }
-
-  const text = Buffer.concat(chunks).toString("utf8");
-  if (!text) return {};
-  try {
-    const value: unknown = JSON.parse(text);
-    if (value !== null && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
-  } catch {
-    // answered below
-  }
-  throw new Refusal(400, "the body must be a JSON object");
-}
-
-/** The string fields of a body; a missing or non-string field is refused. */
-function strings<K extends string>(body: Record<string, unknown>, ...keys: K[]): Record<K, string> {
-  for (const k of keys) {
-    if (typeof body[k] !== "string") throw new Refusal(400, `${k} must be a string`);
-  }
-  return body as Record<K, string>;
-}
-
-/** Decodes a path segment; a malformed escape is refused. */
-function decodeSegment(segment: string): string {
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    throw new Refusal(400, "malformed path");
-  }
-}
-
 /** Maps the errors of AdminAuth to answers. */
-function refusalOf(e: unknown): Refusal | null {
+function authRefusal(e: unknown): Refusal | null {
   if (e instanceof Refusal) return e;
   if (e instanceof InvalidLoginError) return new Refusal(401, e.message);
-  if (e instanceof LoginLimitedError) return new Refusal(429, e.message, { "retry-after": String(e.retryAfterS) });
-  if (e instanceof AuthBusyError) return new Refusal(503, e.message, { "retry-after": "1" });
+  if (e instanceof LoginLimitedError) return new Refusal(429, e.message, { headers: { "retry-after": String(e.retryAfterS) } });
+  if (e instanceof AuthBusyError) return new Refusal(503, e.message, { headers: { "retry-after": "1" } });
   if (e instanceof AccountInputError) return new Refusal(400, e.message);
   if (e instanceof AccountExistsError || e instanceof LastAccountError) return new Refusal(409, e.message);
   if (e instanceof UnknownAccountError) return new Refusal(404, e.message);
@@ -167,11 +109,12 @@ function refusalOf(e: unknown): Refusal | null {
  * - `GET /admin/api/me`: the signed-in account;
  * - `POST /admin/api/me/password` `{current, password}`: ends the other sessions;
  * - `GET /admin/api/accounts`, `POST /admin/api/accounts` `{name, password}`;
- * - `DELETE /admin/api/accounts/:name`: not the last one.
+ * - `DELETE /admin/api/accounts/:name`: not the last one;
+ * - the `routes` given, such as the settings' (see admin-settings.ts).
  *
  * Every API route but login needs a session.
  */
-export function createAdminHandler({ auth, metricsPage, metricsToken, clientKey, log = () => {} }: AdminHandlerDeps) {
+export function createAdminHandler({ auth, metricsPage, metricsToken, clientKey, routes: extraRoutes = {}, log = () => {} }: AdminHandlerDeps) {
   /** Answers /metrics, or 401 without the configured token. */
   async function serveMetrics(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1];
@@ -199,13 +142,6 @@ export function createAdminHandler({ auth, metricsPage, metricsToken, clientKey,
       if (e instanceof InvalidLoginError || e instanceof LoginLimitedError) log("admin login refused", { reason: e.message });
       throw e;
     }
-  }
-
-  /** A signed-in request: its session's account and token. */
-  interface SignedIn {
-    req: IncomingMessage;
-    account: Account;
-    token: string;
   }
 
   /** Ends the session. */
@@ -242,30 +178,29 @@ export function createAdminHandler({ auth, metricsPage, metricsToken, clientKey,
   }
 
   /** Deletes the account named by the path; deleting one's own also clears the cookie. */
-  async function deleteAccount({ account }: SignedIn, name: string): Promise<Reply> {
+  async function deleteAccount({ account }: SignedIn, [name]: string[]): Promise<Reply> {
     await auth.deleteAccount(name);
 
     log("admin account deleted", { account: name, by: account.name });
     return { status: 204, headers: name === account.name ? clearCookie : {} };
   }
 
-  /** The routes that need a session, by method and path after /admin/api/. */
-  const ROUTES: Record<string, (r: SignedIn) => Promise<Reply>> = {
+  /** The routes that need a session: the accounts', then the extra ones. */
+  const routes: Routes = {
     "POST logout": logout,
     "GET me": async ({ account }) => ({ status: 200, body: account }),
     "POST me/password": changePassword,
     "GET accounts": listAccounts,
     "POST accounts": createAccount,
+    "DELETE accounts/:name": deleteAccount,
+    ...extraRoutes,
   };
 
   /** Runs the signed-in route matching the request, or refuses it with 404. */
   function signedIn(r: SignedIn, route: string): Promise<Reply> {
-    const handler = ROUTES[`${r.req.method} ${route}`];
-    if (handler) return handler(r);
-
-    const [resource, name, ...rest] = route.split("/");
-    if (r.req.method === "DELETE" && resource === "accounts" && name && !rest.length) return deleteAccount(r, decodeSegment(name));
-    throw new Refusal(404, "not found");
+    const match = matchRoute(routes, r.req.method ?? "", route);
+    if (!match) throw new Refusal(404, "not found");
+    return match.handler(r, match.params);
   }
 
   /** Routes one API request; `route` is the path after /admin/api/. */
@@ -275,7 +210,7 @@ export function createAdminHandler({ auth, metricsPage, metricsToken, clientKey,
 
     const token = sessionToken(req);
     const account = token ? await auth.authenticate(token) : null;
-    if (!token || !account) throw new Refusal(401, "sign in first", clearCookie);
+    if (!token || !account) throw new Refusal(401, "sign in first", { headers: clearCookie });
 
     return signedIn({ req, account, token }, route);
   }
@@ -292,13 +227,13 @@ export function createAdminHandler({ auth, metricsPage, metricsToken, clientKey,
     try {
       reply = await api(req, path.slice("/admin/api/".length));
     } catch (e) {
-      const refusal = refusalOf(e);
+      const refusal = authRefusal(e);
       if (!refusal) throw e;
-      reply = { status: refusal.status, body: { error: refusal.message }, headers: refusal.headers };
+      reply = { status: refusal.status, body: { ...refusal.details, error: refusal.message }, headers: refusal.headers };
     }
 
     if (reply.body === undefined) {
-      res.writeHead(reply.status, { "cache-control": "no-store", ...API_HEADERS, ...reply.headers }).end();
+      res.writeHead(reply.status, { "cache-control": "no-store", ...API_HEADERS, ...reply.headers }).end(reply.raw);
     } else {
       json(res, reply.status, reply.body, { ...API_HEADERS, ...reply.headers });
     }

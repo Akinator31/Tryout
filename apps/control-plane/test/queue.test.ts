@@ -426,6 +426,19 @@ test("stats count every configured project's tickets by state", async () => {
   });
 });
 
+test("stats by node count every configured node's tickets by state", async () => {
+  await using s = await setup({ manual: true });
+  await s.queue.configure({ ...config, nodes: { n1: { maxSessions: 3 }, n2: { maxSessions: 3 } } });
+  const [a] = await s.joinAll(["cli", "cli", "gui"]);
+  s.fake.pending[0].resolve("https://n1.test/s/a/");
+  await s.active(a.ticket);
+
+  assert.deepEqual(await s.queue.stats("node"), {
+    n1: { waiting: 0, starting: 2, active: 1 },
+    n2: { waiting: 0, starting: 0, active: 0 },
+  });
+});
+
 test("every start reports its outcome and duration", async () => {
   const outcomes: StartOutcome[] = [];
   await using s = await setup({ manual: true, onStart: (o) => void outcomes.push(o) });
