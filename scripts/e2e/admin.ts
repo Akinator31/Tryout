@@ -73,8 +73,14 @@ async function checkSettings(cookie: string): Promise<void> {
   if (after.revision !== rolled.revision.id) fail(`active revision ${after.revision}, expected ${rolled.revision.id}`);
 }
 
+/** The fields of a ticket's public view this script reads. */
+interface TicketView {
+  state: string;
+  reason?: string;
+}
+
 /** A ticket's view on the public API, polled until `done` holds or 30 s pass. */
-async function pollUntil(ticket: string, done: (view: { state: string }) => boolean): Promise<any> {
+async function pollUntil(ticket: string, done: (view: TicketView) => boolean): Promise<TicketView> {
   for (let i = 0; i < 60; i++) {
     const view = await (await fetch(`${CP}/api/tickets/${ticket}`)).json();
     if (done(view)) return view;
@@ -94,7 +100,7 @@ async function checkSessions(cookie: string): Promise<void> {
 
   await expect(await call(`/admin/api/sessions/${joined.ticket}/stop`, "POST", cookie, {}), 204, "stop");
   const view = await pollUntil(joined.ticket, (v) => v.state === "ended");
-  if ((view as { reason?: string }).reason !== "stopped") fail(`the visitor does not see a stop: ${JSON.stringify(view)}`);
+  if (view.reason !== "stopped") fail(`the visitor does not see a stop: ${JSON.stringify(view)}`);
 }
 
 cli("create-user", NAME);

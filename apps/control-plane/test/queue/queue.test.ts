@@ -600,3 +600,15 @@ test("a visitor leaving is not reported as stopped", async () => {
   const a = await s.queue.join("cli");
   assert.deepEqual(await s.queue.release(a.ticket), { ticket: a.ticket, state: "ended" });
 });
+
+test("a start the operator stops is reported as stopped, not abandoned", async () => {
+  const outcomes: StartOutcome[] = [];
+  await using s = await setup({ manual: true, onStart: (o) => void outcomes.push(o) });
+  const a = await s.queue.join("cli");
+
+  await s.queue.stop(a.ticket);
+  s.fake.pending[0].resolve("https://n1.test/s/a/");
+  await eventually(async () => outcomes.length, (n) => n === 1);
+
+  assert.equal(outcomes[0].result, "stopped");
+});

@@ -80,15 +80,15 @@ export interface Row {
   started_at: number | null;
   ends_at: number | null;
   /** `stopped` when the operator ended the ticket, or its project was removed. */
-  end_reason: string | null;
+  end_reason: "stopped" | null;
   position: number | null;
 }
 
 /**
- * Reads the tickets whose ids are in `$1` (a text array). A waiting ticket's
- * position is 1 + the waiting tickets of the same project ahead of it.
+ * Reads the tickets matching `where` (on `t`). A waiting ticket's position is
+ * 1 + the waiting tickets of the same project ahead of it.
  */
-export const SELECT_WITH_POSITION = `
+export const selectWithPosition = (where: string) => `
   SELECT t.*,
     CASE WHEN t.state = 'waiting' THEN 1 + (
       SELECT count(*)::int
@@ -96,4 +96,7 @@ export const SELECT_WITH_POSITION = `
       WHERE o.project = t.project AND o.state = 'waiting' AND o.seq < t.seq
     ) END AS position
   FROM tickets t
-  WHERE t.id = ANY($1::text[])`;
+  WHERE ${where}`;
+
+/** Reads the tickets whose ids are in `$1` (a text array), with their position. */
+export const SELECT_WITH_POSITION = selectWithPosition("t.id = ANY($1::text[])");

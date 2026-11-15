@@ -304,8 +304,9 @@ a page of the same origin.
 ### Admin API
 
 Signed in, the admin API under `/admin/api/` edits the settings as one whole document, the
-JSON form of the settings sections, and lists and stops sessions. The admin UI will use it; scripts can too, with the
-session cookie and an `Origin` naming the host on every request that changes something.
+JSON form of the settings sections, and lists and stops sessions. The admin UI will use it;
+scripts can too, with the session cookie and an `Origin` naming the host on every request that
+changes something.
 
 | Route | Role |
 |---|---|

@@ -9,7 +9,7 @@
 import { randomBytes } from "node:crypto";
 import type { Db, Query } from "../db/db.ts";
 import { checkClientLimits } from "./limits.ts";
-import { CHANNEL, migrate, SCHEDULER_LOCK, SELECT_WITH_POSITION, type Row } from "./schema.ts";
+import { CHANNEL, migrate, SCHEDULER_LOCK, SELECT_WITH_POSITION, selectWithPosition, type Row } from "./schema.ts";
 import { FORGET_ENDED_MS, HEARTBEAT_LOST_MS, RESYNC_MS, START_TIMEOUT_MS } from "./timing.ts";
 import { createWatchers, type Watcher } from "./watchers.ts";
 
@@ -54,12 +54,13 @@ export type ProjectStats = Record<Exclude<TicketState, "ended">, number>;
 /**
  * How a session start ended: `ok` (the ticket became active), `error` (the
  * node or the readiness probe failed), `timeout` (the start deadline passed)
- * or `abandoned` (the ticket ended during the start, usually because the
- * visitor left).
+ * `abandoned` (the ticket ended during the start, usually because the
+ * visitor left) or `stopped` (the operator stopped the ticket, or removed
+ * its project).
  */
 export interface StartOutcome {
   project: string;
-  result: "ok" | "error" | "timeout" | "abandoned";
+  result: "ok" | "error" | AbortResult;
   seconds: number;
 }
 
@@ -136,19 +137,28 @@ export interface Queue {
 export class UnknownProjectError extends Error {}
 
 /** End reason of a ticket the operator stopped, or whose project was removed. */
-const STOPPED = "stopped";
+const STOPPED = "stopped" as const;
 
 /** Error shown to the visitor when a session failed or timed out while starting. */
 const START_FAILED = "Could not start the session.";
 
+/** Why a start did not finish: its deadline passed, or its ticket ended (left, or stopped by the operator). */
+type AbortResult = "timeout" | "abandoned" | "stopped";
+
 /** Why a start in flight was aborted; carried as the start signal's reason. */
 class StartAborted extends Error {
-  readonly result: "timeout" | "abandoned";
+  readonly result: AbortResult;
 
-  constructor(result: "timeout" | "abandoned") {
+  constructor(result: AbortResult) {
     super(result === "timeout" ? "start timed out" : "ticket ended");
     this.result = result;
   }
+}
+
+/** Why an ended ticket's start did not finish, from its error and end reason. */
+function abortResult(row: Pick<Row, "error" | "end_reason">): AbortResult {
+  if (row.error === START_FAILED) return "timeout";
+  return row.end_reason === STOPPED ? "stopped" : "abandoned";
 }
 
 /** A session id: 26 base32 chars = 130 bits, since the session id is the credential in the URL. */
@@ -201,7 +211,13 @@ function takeSlot(config: QueueConfig, nodeUp: (node: string) => boolean, usage:
 
 /** A live ticket's row as the operator's summary: only the fields that make sense in its state. */
 function summaryOf(row: Row): TicketSummary {
-  const summary: TicketSummary = { ticket: row.id, project: row.project, node: row.node, state: row.state as TicketSummary["state"], createdAt: row.created_at };
+  const summary: TicketSummary = {
+    ticket: row.id,
+    project: row.project,
+    node: row.node,
+    state: row.state as TicketSummary["state"],
+    createdAt: row.created_at,
+  };
 
   if (row.position != null) summary.position = row.position;
   if (row.state === "active" && row.started_at != null) summary.startedAt = row.started_at;
@@ -359,20 +375,12 @@ class PgQueue implements Queue {
 
 
   async list(): Promise<TicketSummary[]> {
-    const rows = await this.#db.query<Row>(
-      `SELECT t.*,
-         CASE WHEN t.state = 'waiting' THEN
-           row_number() OVER (PARTITION BY t.project, t.state = 'waiting' ORDER BY t.seq)::int
-         END AS position
-       FROM tickets t
-       WHERE t.state <> 'ended'
-       ORDER BY t.project, t.seq`,
-    );
+    const rows = await this.#db.query<Row>(`${selectWithPosition("t.state <> 'ended'")} ORDER BY t.project, t.seq`);
     return rows.map(summaryOf);
   }
 
   async stop(ticket: string): Promise<{ project: string } | null> {
-    const ended = await this.#end(ticket, undefined, STOPPED);
+    const ended = await this.#end(ticket, { reason: STOPPED });
     if (!ended) return null;
 
     await this.#schedule();
@@ -518,7 +526,7 @@ class PgQueue implements Queue {
   /** Ends a ticket whose start failed and frees its slot. The agent may have created the session before failing. */
   async #failStart(ticket: Row, session: SessionRef, e: unknown): Promise<void> {
     this.#log("start failed", { ticket: ticket.id, project: ticket.project, err: String(e) });
-    await this.#end(ticket.id, START_FAILED);
+    await this.#end(ticket.id, { error: START_FAILED });
     await this.#stopSession(session);
     await this.#schedule();
   }
@@ -547,12 +555,12 @@ class PgQueue implements Queue {
   }
 
   /**
-   * Why a ticket ended while its start was running: `timeout` when it was
-   * expired for its start deadline (by any instance), `abandoned` otherwise.
+   * Why a ticket ended while its start was running, by any instance:
+   * `timeout`, `stopped` or `abandoned` (see abortResult).
    */
-  async #whyEnded(ticket: string): Promise<"timeout" | "abandoned"> {
-    const [row] = await this.#db.query<{ error: string | null }>(`SELECT error FROM tickets WHERE id = $1`, [ticket]);
-    return row?.error === START_FAILED ? "timeout" : "abandoned";
+  async #whyEnded(ticket: string): Promise<AbortResult> {
+    const [row] = await this.#db.query<Pick<Row, "error" | "end_reason">>(`SELECT error, end_reason FROM tickets WHERE id = $1`, [ticket]);
+    return row ? abortResult(row) : "abandoned";
   }
 
   /**
@@ -560,21 +568,21 @@ class PgQueue implements Queue {
    * its start if one is in flight here, and stops its session if it had one.
    * Returns the ended row, or undefined when the ticket was unknown or ended already.
    */
-  async #end(ticket: string, error?: string, reason?: string): Promise<Row | undefined> {
+  async #end(ticket: string, { error, reason }: { error?: string; reason?: typeof STOPPED } = {}): Promise<Row | undefined> {
     const [row] = await this.#db.query<Row>(
       `UPDATE tickets SET state = 'ended', error = coalesce($2, error), end_reason = coalesce($4, end_reason), ended_at = $3
        WHERE id = $1 AND state <> 'ended'
        RETURNING *`,
       [ticket, error ?? null, this.#now(), reason ?? null],
     );
-    if (row) await this.#afterEnd(row, error);
+    if (row) await this.#afterEnd(row);
     return row;
   }
 
   /** What follows a ticket's end: the log line, aborting its start if one is in flight here, stopping its session. */
-  async #afterEnd(row: Row, error?: string): Promise<void> {
-    this.#log("ended", { ticket: row.id, project: row.project, error: error ?? null });
-    this.#inFlight.get(row.id)?.abort(new StartAborted(error === START_FAILED ? "timeout" : "abandoned"));
+  async #afterEnd(row: Row): Promise<void> {
+    this.#log("ended", { ticket: row.id, project: row.project, error: row.error, reason: row.end_reason });
+    this.#inFlight.get(row.id)?.abort(new StartAborted(abortResult(row)));
     if (row.session_id) await this.#stopSession(sessionOf(row));
   }
 
@@ -607,7 +615,7 @@ class PgQueue implements Queue {
     );
 
     for (const e of expired) {
-      await this.#end(e.id, e.timed_out ? START_FAILED : undefined);
+      await this.#end(e.id, { error: e.timed_out ? START_FAILED : undefined });
     }
   }
 

@@ -77,5 +77,5 @@ test("the sessions routes need a session and a same-origin request", async (t) =
     body: "{}",
   });
   assert.equal(foreign.status, 403);
-  assert.equal((await queue.poll(a.ticket))?.state !== "ended", true);
+  assert.notEqual((await queue.poll(a.ticket))?.state, "ended");
 });

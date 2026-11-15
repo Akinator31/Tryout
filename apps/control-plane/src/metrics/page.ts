@@ -33,7 +33,7 @@ export function controlPlaneMetrics(): ControlPlaneMetrics {
   const registry = new Registry();
   const starts = registry.counter(
     "tryout_ticket_starts_total",
-    "Session starts run by this instance, by result: ok, error, timeout or abandoned.",
+    "Session starts run by this instance, by result: ok, error, timeout, abandoned or stopped.",
     ["project", "result"],
   );
   const seconds = registry.histogram(
