@@ -6,6 +6,9 @@ export const BASE = "/admin";
 
 export const paths = {
   signIn: `${BASE}/sign-in`,
+  projects: `${BASE}/projects`,
+  newProject: `${BASE}/projects/new`,
+  nodes: `${BASE}/nodes`,
   embedding: `${BASE}/embedding`,
   theme: `${BASE}/theme`,
   sessions: `${BASE}/sessions`,
@@ -13,8 +16,14 @@ export const paths = {
   accounts: `${BASE}/accounts`,
 } as const;
 
+/** A project's page. */
+export const projectPath = (name: string) => `${paths.projects}/${encodeURIComponent(name)}`;
+
+/** A project's edit page. */
+export const editProjectPath = (name: string) => `${projectPath(name)}/edit`;
+
 /** The page shown after signing in when none asked for it. */
-export const HOME = paths.sessions;
+export const HOME = paths.projects;
 
 /**
  * The page to open after signing in: `next` when it is a path of the app

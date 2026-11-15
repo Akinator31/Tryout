@@ -135,8 +135,11 @@ vault with the original stack study (in French) and its sources.
   admin Figma screens (PR 7); admin UI PR 8a (`apps/admin`: sign-in, shell, Sessions + stop,
   Accounts; `version` on `GET me` from `TRYOUT_VERSION`); PR 8b1 (one settings draft in
   `sessionStorage` with three-way merge onto newer revisions, review and apply with dry run and
-  YAML diff, Embedding + limits, Theme, Revisions + rollback, YAML download). Next: 8b2 (projects,
-  nodes), 8c (project preview, `public_url`), then `v0.2.0`. Then M5 Hosting options.
+  YAML diff, Embedding + limits, Theme, Revisions + rollback, YAML download); PR 8b2 (Projects
+  list/form/page with pause and remove, Nodes with health and an add/edit drawer whose
+  connection test is the dry run; forms checked in the browser by `projects.ts`, `nodes.ts`;
+  home is Projects). Next: 8c (project preview, `public_url`), then `v0.2.0`. Then M5 Hosting
+  options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module

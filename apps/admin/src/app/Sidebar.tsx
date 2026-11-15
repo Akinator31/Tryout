@@ -2,7 +2,7 @@
 // page links with their counts, the control plane's state and version, and
 // the signed-in account with sign-out.
 import { Box, Flex, IconButton, Image, Stack, Text } from "@chakra-ui/react";
-import { Activity, Globe, History, LogOut, Palette, User, Users, type LucideIcon } from "lucide-react";
+import { Activity, Box as BoxIcon, Globe, History, LogOut, Palette, Server, User, Users, type LucideIcon } from "lucide-react";
 import { useSyncExternalStore } from "react";
 import { NavLink } from "react-router";
 import logo from "../logo.svg";
@@ -89,10 +89,12 @@ function AccountRow({ onSignOut }: { onSignOut: () => void }) {
   );
 }
 
-/** The sidebar; the Sessions count is the sessions running or starting. */
+/** The sidebar; Projects and Nodes count those of the active settings, Sessions those running or starting. */
 export function Sidebar({ onSignOut }: { onSignOut: () => void }) {
   const sessions = useSessions().data;
   const counts = sessions ? countStates(sessions) : null;
+  const settings = useActiveSettings().data?.document;
+  const count = (section?: object) => (settings ? Object.keys(section ?? {}).length : undefined);
 
   return (
     <Flex as="aside" direction="column" gap="1" w="248px" flexShrink="0" h="100vh" position="sticky" top="0" px="3" py="4" bg="bg.subtle" borderEndWidth="1px" borderColor="border">
@@ -102,6 +104,8 @@ export function Sidebar({ onSignOut }: { onSignOut: () => void }) {
       </Flex>
 
       <Stack as="nav" aria-label={strings.nav.label} gap="0.5">
+        <NavItem to={paths.projects} icon={BoxIcon} label={strings.nav.projects} count={count(settings?.projects)} />
+        <NavItem to={paths.nodes} icon={Server} label={strings.nav.nodes} count={count(settings?.nodes)} />
         <NavItem to={paths.embedding} icon={Globe} label={strings.nav.embedding} />
         <NavItem to={paths.theme} icon={Palette} label={strings.nav.theme} />
         <NavItem to={paths.sessions} icon={Activity} label={strings.nav.sessions} count={counts ? counts.active + counts.starting : undefined} />

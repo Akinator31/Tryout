@@ -21,7 +21,7 @@ test("next refuses anything that leaves the app or loops on sign-in", () => {
 
 test("the sign-in path carries where to come back to", () => {
   assert.equal(signInPath("/admin/accounts"), "/admin/sign-in?next=%2Fadmin%2Faccounts");
-  assert.equal(signInPath("/admin/sessions"), "/admin/sign-in", "home needs no next");
+  assert.equal(signInPath("/admin/projects"), "/admin/sign-in", "home needs no next");
   assert.equal(signInPath("/elsewhere"), "/admin/sign-in");
 });
 

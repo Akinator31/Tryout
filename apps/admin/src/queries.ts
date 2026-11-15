@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext } from "react";
 import type { ApiClient } from "./api.ts";
-import type { Account, ActiveSettings, Me, Revision, RevisionSummary, Session, Validation } from "./model.ts";
+import type { Account, ActiveSettings, Me, NodeView, Revision, RevisionSummary, Session, Validation } from "./model.ts";
 import type { SettingsDocument } from "./settings/document.ts";
 
 /** How often lists refresh while the tab is visible. */
@@ -24,6 +24,7 @@ export const keys = {
   settings: ["settings"],
   sessions: ["sessions"],
   accounts: ["accounts"],
+  nodes: ["nodes"],
   revisions: ["revisions"],
   revision: (id: number) => ["revisions", id],
 } as const;
@@ -46,6 +47,16 @@ export function useSessions() {
   return useQuery({
     queryKey: keys.sessions,
     queryFn: async () => (await api.request<{ sessions: Session[] }>("sessions")).sessions,
+    refetchInterval: POLL_MS,
+  });
+}
+
+/** Every node of the applied settings, with its last health check, as this control plane instance sees it. */
+export function useNodes() {
+  const api = useApi();
+  return useQuery({
+    queryKey: keys.nodes,
+    queryFn: async () => (await api.request<{ nodes: NodeView[] }>("nodes")).nodes,
     refetchInterval: POLL_MS,
   });
 }

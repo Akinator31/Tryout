@@ -1,6 +1,7 @@
-// Inputs that edit the draft: each keeps what is typed, writes it to the
-// draft only once it parses, and says why when it does not. A change from
-// outside (Discard, a newer revision) replaces what is typed.
+// Inputs of the settings pages: DraftField edits the draft as it is typed,
+// keeping the text and writing it only once it parses; a change from outside
+// (Discard, a newer revision) replaces the text. FormField belongs to a form
+// that keeps its own state until it is saved.
 import { Field, Input, InputGroup, Text } from "@chakra-ui/react";
 import { useState } from "react";
 import { deepEqual } from "../settings/document.ts";
@@ -63,6 +64,61 @@ export function DraftField<T>(props: DraftFieldProps<T>) {
   return (
     <Field.Root invalid={error !== undefined}>
       <Field.Label textStyle="label-sm">{label}</Field.Label>
+      {unit ? (
+        <InputGroup endElement={<Text textStyle="text-xs" color="fg.subtle">{unit}</Text>}>{input}</InputGroup>
+      ) : (
+        input
+      )}
+      {error ? (
+        <Field.ErrorText textStyle="text-xs">{error}</Field.ErrorText>
+      ) : (
+        help && (
+          <Field.HelperText textStyle="text-xs" color="fg.subtle">
+            {help}
+          </Field.HelperText>
+        )
+      )}
+    </Field.Root>
+  );
+}
+
+interface FormFieldProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  /** Why the value is refused; replaces the help while set. */
+  error?: string;
+  help?: string;
+  unit?: string;
+  mono?: boolean;
+  placeholder?: string;
+  required?: boolean;
+  disabled?: boolean;
+}
+
+/** A labelled text input of a form that keeps its own state until it is saved. */
+export function FormField(props: FormFieldProps) {
+  const { label, value, onChange, error, help, unit, mono, placeholder, required, disabled } = props;
+  const input = (
+    <Input
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      fontFamily={mono ? "mono" : undefined}
+      h="10"
+      borderColor="border.emphasized"
+      autoComplete="off"
+      spellCheck={false}
+      disabled={disabled}
+    />
+  );
+
+  return (
+    <Field.Root invalid={error !== undefined} required={required}>
+      <Field.Label textStyle="label-sm">
+        {label}
+        {required && <Field.RequiredIndicator />}
+      </Field.Label>
       {unit ? (
         <InputGroup endElement={<Text textStyle="text-xs" color="fg.subtle">{unit}</Text>}>{input}</InputGroup>
       ) : (
