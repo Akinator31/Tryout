@@ -128,8 +128,10 @@ vault with the original stack study (in French) and its sources.
   `admin/http.ts`: scrypt, server-side sessions in a `__Host-` cookie, login limits in
   Postgres, CLI `create-user`…, bearer `admin_metrics_token` on `/metrics`); admin settings API
   (`admin/settings.ts`, `admin/request.ts`: whole-document settings, dry run with node
-  reachability, revisions and rollback, logos, nodes' health). Next: sessions list, forced stop
-  and the embed "stopped" screen (PR 6b of the M4 plan). Then M5 Hosting options.
+  reachability, revisions and rollback, logos, nodes' health); sessions list and forced stop
+  (`admin/sessions.ts`, `Queue.list`/`stop`, `end_reason`), embed "stopped" screen (en, fr).
+  Next: the admin Figma screens (PR 7 of the M4 plan), then the React admin UI. Then M5
+  Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module

@@ -6,6 +6,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { controlPlaneMetrics, createMetricsPage } from "./metrics/page.ts";
 import { createAdminAuth } from "./admin/auth.ts";
 import { createAdminHandler } from "./admin/http.ts";
+import { sessionsRoutes } from "./admin/sessions.ts";
 import { settingsRoutes } from "./admin/settings.ts";
 import { agentPool, checkHealth, fetchMetrics, probeAgent } from "./nodes/agents.ts";
 import { clientKeyResolver } from "./public/client.ts";
@@ -177,14 +178,17 @@ const admin = createAdminHandler({
   metricsPage,
   metricsToken: bootstrap.admin_metrics_token,
   clientKey: (req) => adminClientKey(req.socket.remoteAddress, req.headers),
-  routes: settingsRoutes({
-    store,
-    probeNode: (node, signal) => probeAgent(bootstrap.agent_tls, node, signal),
-    nodeNames,
-    health: health.snapshot,
-    tickets: () => queue.stats("node"),
-    log,
-  }),
+  routes: {
+    ...sessionsRoutes({ queue, log }),
+    ...settingsRoutes({
+      store,
+      probeNode: (node, signal) => probeAgent(bootstrap.agent_tls, node, signal),
+      nodeNames,
+      health: health.snapshot,
+      tickets: () => queue.stats("node"),
+      log,
+    }),
+  },
   log,
 });
 

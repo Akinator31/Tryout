@@ -134,8 +134,8 @@ running, or changes its `agent_url` or `server_name`.
   promotion; a lower cap evicts nobody;
 - a change of image, port or node applies to sessions that start afterwards; a running
   session keeps what it started with;
-- a removed project's tickets end and their sessions stop; its visitors see that their session
-  ended;
+- a removed project's tickets end and their sessions stop; its visitors see that the operator
+  stopped their session;
 - a project with `enabled: false` is paused: new visitors see that it is offline, and those
   already in line or in a session keep their place.
 
@@ -304,8 +304,9 @@ a page of the same origin.
 ### Admin API
 
 Signed in, the admin API under `/admin/api/` edits the settings as one whole document, the
-JSON form of the settings sections. The admin UI will use it; scripts can too, with the
-session cookie and an `Origin` naming the host on every request that changes something.
+JSON form of the settings sections, and lists and stops sessions. The admin UI will use it;
+scripts can too, with the session cookie and an `Origin` naming the host on every request that
+changes something.
 
 | Route | Role |
 |---|---|
@@ -317,9 +318,11 @@ session cookie and an `Origin` naming the host on every request that changes som
 | `POST assets` `{data}` | Stores a logo given in base64 (SVG, PNG or WebP, at most 64 KB) and answers its `sha256`, to put in `theme.logo.asset`. |
 | `GET assets/:sha256` | A stored logo, for a preview. |
 | `GET nodes` | Each node of the active settings with its last health check, as seen by the instance that answers, and its live tickets by state. |
+| `GET sessions` | Every live ticket (waiting, starting or active), by project then queue order: ticket id, project, node, state, position in line, when it was created, when its session started and when it reaches its maximum age. Never the session's URL, which would open the visitor's session, nor the visitor's address. |
+| `POST sessions/:ticket/stop` | Ends the ticket, whatever its state, and stops its session; the slot goes to the next visitor, and the visitor sees that the operator stopped the session. `404` when the ticket is unknown or already ended. |
 
 A settings document may weigh up to 256 KB, a logo upload 128 KB, any other body 16 KB. Each
-publication, rollback and logo upload is logged with the account name.
+publication, rollback, logo upload and stop is logged with the account name.
 
 ## Agent
 

@@ -512,7 +512,7 @@ test("a paused project refuses new tickets and keeps the ones it has", async () 
   assert.equal((await s.active(c.ticket))?.state, "active", "queued visitors still get their turn");
 });
 
-test("removing a project ends its tickets without an error and stops its sessions", async () => {
+test("removing a project ends its tickets as stopped, without an error, and stops its sessions", async () => {
   await using s = await setup();
   const [a, b, c] = await s.joinAll(["cli", "cli", "cli"]);
   const [other] = await s.joinAll(["gui"]);
@@ -520,7 +520,7 @@ test("removing a project ends its tickets without an error and stops its session
   await s.active(b.ticket);
 
   await s.queue.configure({ ...config, projects: { gui: config.projects.gui } });
-  for (const t of [a, b, c]) assert.deepEqual(await s.queue.poll(t.ticket), { ticket: t.ticket, state: "ended" });
+  for (const t of [a, b, c]) assert.deepEqual(await s.queue.poll(t.ticket), { ticket: t.ticket, state: "ended", reason: "stopped" });
   assert.equal(s.fake.running.size, 1, "only the other project's session is left");
   assert.equal((await s.active(other.ticket))?.state, "active");
   await assert.rejects(s.queue.join("cli"), UnknownProjectError);
@@ -551,4 +551,64 @@ test("a project moved to another node starts its next sessions there", async () 
 
   await s.queue.release(a.ticket);
   assert.match((await s.active(c.ticket))?.url ?? "", /^https:\/\/n2\.test\//);
+});
+
+test("the live tickets are listed by project and queue order, without session URLs", async () => {
+  await using s = await setup();
+  const [a, b, c] = await s.joinAll(["cli", "cli", "cli"]);
+  s.clock.advance(1000);
+  const [g] = await s.joinAll(["gui"]);
+  await s.active(a.ticket);
+  await s.active(b.ticket);
+  await s.active(g.ticket);
+  const released = await s.queue.join("cli");
+  await s.queue.release(released.ticket);
+
+  const list = await s.queue.list();
+  assert.deepEqual(
+    list.map((t) => [t.ticket, t.project, t.node, t.state, t.position]),
+    [
+      [a.ticket, "cli", "n1", "active", undefined],
+      [b.ticket, "cli", "n1", "active", undefined],
+      [c.ticket, "cli", "n1", "waiting", 1],
+      [g.ticket, "gui", "n1", "active", undefined],
+    ],
+  );
+  assert.deepEqual(list[0], { ticket: a.ticket, project: "cli", node: "n1", state: "active", createdAt: 1_000_000, startedAt: 1_000_000, endsAt: 1_600_000 });
+  assert.deepEqual(list[2], { ticket: c.ticket, project: "cli", node: "n1", state: "waiting", position: 1, createdAt: 1_000_000 });
+});
+
+test("an operator stop ends a ticket in any live state as stopped and frees its slot", async () => {
+  await using s = await setup({ manual: true });
+  const [a, b, c, d] = await s.joinAll(["cli", "cli", "cli", "cli"]);
+  s.fake.pending[0].resolve("https://n1.test/s/a/");
+  await s.active(a.ticket);
+
+  assert.deepEqual(await s.queue.stop(a.ticket), { project: "cli" }); // active
+  assert.deepEqual(await s.queue.stop(b.ticket), { project: "cli" }); // starting
+  assert.deepEqual(await s.queue.stop(d.ticket), { project: "cli" }); // waiting
+  for (const t of [a, b, d]) assert.deepEqual(await s.queue.poll(t.ticket), { ticket: t.ticket, state: "ended", reason: "stopped" });
+  assert.equal(s.fake.running.size, 0);
+
+  assert.equal((await s.queue.poll(c.ticket))?.state, "starting", "the freed slot goes to the next visitor");
+  assert.equal(await s.queue.stop(a.ticket), null, "already ended");
+  assert.equal(await s.queue.stop("nope"), null);
+});
+
+test("a visitor leaving is not reported as stopped", async () => {
+  await using s = await setup();
+  const a = await s.queue.join("cli");
+  assert.deepEqual(await s.queue.release(a.ticket), { ticket: a.ticket, state: "ended" });
+});
+
+test("a start the operator stops is reported as stopped, not abandoned", async () => {
+  const outcomes: StartOutcome[] = [];
+  await using s = await setup({ manual: true, onStart: (o) => void outcomes.push(o) });
+  const a = await s.queue.join("cli");
+
+  await s.queue.stop(a.ticket);
+  s.fake.pending[0].resolve("https://n1.test/s/a/");
+  await eventually(async () => outcomes.length, (n) => n === 1);
+
+  assert.equal(outcomes[0].result, "stopped");
 });

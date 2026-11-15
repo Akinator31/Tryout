@@ -269,7 +269,7 @@ scrape_configs:
 | `tryout_tickets` | gauge | `project`, `state` | Live tickets: `waiting` (the queue length), `starting`, `active`. Read from PostgreSQL, so every instance reports the same values. |
 | `tryout_node_up` | gauge | `node` | 1 when this instance's last health check of the node succeeded, else 0. |
 | `tryout_node_metrics_up` | gauge | `node` | 1 when the node's metrics were relayed in this scrape, else 0. |
-| `tryout_ticket_starts_total` | counter | `project`, `result` | Session starts run by this instance: `ok`, `error` (the node or the readiness probe failed), `timeout` (no session after 180 s) or `abandoned` (the ticket ended during the start, usually because the visitor left). |
+| `tryout_ticket_starts_total` | counter | `project`, `result` | Session starts run by this instance: `ok`, `error` (the node or the readiness probe failed), `timeout` (no session after 180 s) `abandoned` (the ticket ended during the start, usually because the visitor left) or `stopped` (the operator stopped the ticket, or removed its project, during the start). |
 | `tryout_ticket_start_seconds` | histogram | `project` | Time from a slot being granted to a reachable session, as the visitor waits for it, for successful starts run by this instance. |
 
 Counters belong to the instance that ran the start and restart from zero with it; with several
