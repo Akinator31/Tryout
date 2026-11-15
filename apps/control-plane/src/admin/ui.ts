@@ -4,22 +4,14 @@
 // fresh nonce, the only way the UI's styles, which are inserted at run time,
 // get past the Content-Security-Policy.
 import { randomBytes } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { extname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { json } from "../public/http.ts";
-import type { Asset } from "../public/embed.ts";
+import { readAssets, serveAsset, type Asset } from "../bundle.ts";
 
 /** Where the build lands in the repository and in the image: apps/admin/dist, next to this app. */
 export const DEFAULT_ADMIN_DIR = fileURLToPath(new URL("../../../admin/dist/", import.meta.url));
-
-const CONTENT_TYPES: Record<string, string> = {
-  ".js": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".woff2": "font/woff2",
-  ".svg": "image/svg+xml",
-};
 
 /** Where index.html takes the response's nonce. */
 const NONCE_MARK = "__CSP_NONCE__";
@@ -43,12 +35,7 @@ export function loadAdminUi(dir: string = DEFAULT_ADMIN_DIR): AdminUiBundle {
   }
   if (!template.includes(NONCE_MARK)) throw new Error(`admin UI in ${dir} is older than the control plane; ${REBUILD}`);
 
-  const assets = new Map<string, Asset>();
-  for (const name of readdirSync(join(dir, "assets"))) {
-    const type = CONTENT_TYPES[extname(name)];
-    if (type) assets.set(name, { body: readFileSync(join(dir, "assets", name)), type });
-  }
-  return { template, assets };
+  return { template, assets: readAssets(dir) };
 }
 
 /**
@@ -91,21 +78,6 @@ export function createAdminUiHandler(bundle: AdminUiBundle) {
     res.end(bundle.template.replaceAll(NONCE_MARK, nonce));
   }
 
-  /** A file of the build; its name carries a content hash, so it never changes. */
-  function serveAsset(res: ServerResponse, name: string): void {
-    const asset = bundle.assets.get(name);
-    if (!asset) return json(res, 404, { error: "not found" });
-
-    res.writeHead(200, {
-      "content-type": asset.type,
-      "content-length": asset.body.length,
-      "cache-control": "public, max-age=31536000, immutable",
-      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
-      "x-content-type-options": "nosniff",
-    });
-    res.end(asset.body);
-  }
-
   return async function handleAdminUi(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     if (req.method !== "GET") return false;
     const path = new URL(req.url ?? "/", "http://x").pathname;
@@ -115,7 +87,7 @@ export function createAdminUiHandler(bundle: AdminUiBundle) {
       return true;
     }
     if (path.startsWith("/admin/assets/")) {
-      serveAsset(res, path.slice("/admin/assets/".length));
+      serveAsset(res, bundle.assets, path.slice("/admin/assets/".length));
       return true;
     }
     if (path === "/admin" || (path.startsWith("/admin/") && !path.startsWith("/admin/api/"))) {

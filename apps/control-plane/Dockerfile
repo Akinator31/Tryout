@@ -22,10 +22,12 @@ FROM node:24-alpine
 # ../admin/dist as in development; /app stays the working directory, where tryout.yaml is
 # looked up by default.
 WORKDIR /app/apps/control-plane
-ARG VERSION=dev
-ENV NODE_ENV=production TRYOUT_VERSION=$VERSION
+ENV NODE_ENV=production
 COPY apps/control-plane/package.json apps/control-plane/package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
+# After the dependencies: the version changes with every commit and would rebuild them.
+ARG VERSION=dev
+ENV TRYOUT_VERSION=$VERSION
 COPY apps/control-plane/src ./src
 COPY --from=embed /src/apps/embed/dist /app/apps/embed/dist
 COPY --from=admin /src/apps/admin/dist /app/apps/admin/dist

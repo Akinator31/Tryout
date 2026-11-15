@@ -72,6 +72,7 @@ export function createApiClient(fetchFn: typeof fetch = (...args) => fetch(...ar
     for (const listener of listeners) listener();
   }
 
+  /** Sends one request; no answer at all becomes an ApiError with status 0. */
   async function send(path: string, { method = "GET", body }: RequestOptions): Promise<Response> {
     const hasBody = body !== undefined || method !== "GET";
     try {
@@ -105,6 +106,9 @@ export function createApiClient(fetchFn: typeof fetch = (...args) => fetch(...ar
     },
   };
 }
+
+/** Whether the server refused the request (4xx): sending it again as is would not help. */
+export const isRefusal = (e: unknown) => e instanceof ApiError && e.status >= 400 && e.status < 500;
 
 /** Whether an error means the session is gone and the browser must sign in again. */
 export const isSignedOut = (e: unknown) => e instanceof ApiError && e.status === 401;

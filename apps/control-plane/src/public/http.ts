@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { clientKeyResolver, StreamLimiter } from "./client.ts";
 import type { Bootstrap, Settings } from "../config/config.ts";
 import { embedCsp, embedPage, type EmbedBundle } from "./embed.ts";
+import { serveAsset } from "../bundle.ts";
 import { RateLimitedError, UnknownProjectError, type LimitName, type Queue, type TicketView } from "../queue/queue.ts";
 
 const demoHtml = readFileSync(new URL("./demo.html", import.meta.url), "utf8");
@@ -115,7 +116,7 @@ export function createHandler(
     const api = (resource: string) => parts[0] === "api" && parts[1] === resource;
 
     if (isGet && parts[0] === "embed" && parts.length === 2) return serveEmbed(res, parts[1]);
-    if (isGet && parts[0] === "assets" && parts.length === 2) return serveAsset(embed(), res, parts[1]);
+    if (isGet && parts[0] === "assets" && parts.length === 2) return serveAsset(res, embed().assets, parts[1]);
     if (isGet && url.pathname === "/demo") return serveDemo(settings(), res);
     if (isPost && api("projects") && parts[3] === "tickets") return join(req, res, parts[2]);
     if (isGet && api("tickets") && parts[3] === "events" && parts.length === 4) return openStream(req, res, parts[2]);
@@ -125,24 +126,6 @@ export function createHandler(
 
     json(res, 404, { error: "not found" });
   };
-}
-
-/**
- * A file of the embed build or of the theme. Its name carries a content hash, so it never
- * changes. The CSP and sandbox keep an SVG logo opened on its own from running anything.
- */
-function serveAsset(embed: EmbedBundle, res: ServerResponse, name: string): void {
-  const asset = embed.assets.get(name);
-  if (!asset) return json(res, 404, { error: "not found" });
-
-  res.writeHead(200, {
-    "content-type": asset.type,
-    "content-length": asset.body.length,
-    "cache-control": "public, max-age=31536000, immutable",
-    "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
-    "x-content-type-options": "nosniff",
-  });
-  res.end(asset.body);
 }
 
 /** The demo page, listing the configured projects with their titles. */

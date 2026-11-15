@@ -1,12 +1,12 @@
 // The accounts page, from the Figma "Accounts" screen: the accounts, adding
 // and deleting one, and changing one's own password.
-import { Box, Button, Dialog, Field, Flex, Heading, Input, Portal, Stack, Table, Text } from "@chakra-ui/react";
+import { Box, Button, Dialog, Field, Flex, Heading, Input, Stack, Table, Text } from "@chakra-ui/react";
 import { KeyRound, Plus, Trash2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
-import { ApiError } from "../api.ts";
+import { ApiError, isRefusal } from "../api.ts";
 import { useNow } from "../clock.ts";
 import { Card, Footnote } from "../components/Card.tsx";
-import { ConfirmDialog, DialogFrame } from "../components/ConfirmDialog.tsx";
+import { ConfirmDialog, DialogFrame, DialogShell } from "../components/ConfirmDialog.tsx";
 import { DataCell, DataHeader, DataTable } from "../components/DataTable.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
 import { Problem } from "../components/Problem.tsx";
@@ -21,7 +21,7 @@ const MINUTE = 60_000;
 
 /** The message for a failed account action: the server's own for a refused input, else a generic one. */
 function actionProblem(e: unknown): string {
-  return e instanceof ApiError && e.status >= 400 && e.status < 500 ? e.message : strings.common.actionFailed;
+  return isRefusal(e) && e instanceof ApiError ? e.message : strings.common.actionFailed;
 }
 
 /** One account's row; the signed-in account is marked and cannot delete itself here. */
@@ -123,18 +123,15 @@ function AddDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
     onClose();
   };
 
+  /** Sends the new account; the dialog closes once it exists. */
   function submit(e: FormEvent) {
     e.preventDefault();
     create.mutate({ name: name.trim(), password }, { onSuccess: close });
   }
 
   return (
-    <Dialog.Root open={open} onOpenChange={(e) => !e.open && close()} placement="center" lazyMount unmountOnExit>
-      <Portal>
-        <Dialog.Backdrop bg="blackAlpha.700" />
-        <Dialog.Positioner>
-          <Dialog.Content bg="bg.subtle" borderWidth="1px" borderColor="border.emphasized" borderRadius="l3" maxW="480px" shadow="none">
-            <form onSubmit={submit} noValidate>
+    <DialogShell open={open} onClose={close}>
+      <form onSubmit={submit} noValidate>
               <DialogFrame title={A.addDialog.title}>
                 {create.isError && <Problem title={exists ? A.addDialog.exists : actionProblem(create.error)} />}
                 <TextField label={A.addDialog.name} help={A.addDialog.nameHelp} autoComplete="off" mono value={name} onChange={setName} />
@@ -149,11 +146,8 @@ function AddDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
                   {A.addDialog.confirm}
                 </Button>
               </Dialog.Footer>
-            </form>
-          </Dialog.Content>
-        </Dialog.Positioner>
-      </Portal>
-    </Dialog.Root>
+      </form>
+    </DialogShell>
   );
 }
 
@@ -164,6 +158,7 @@ function PasswordCard() {
   const [next, setNext] = useState("");
   const wrongCurrent = change.error instanceof ApiError && change.error.status === 403;
 
+  /** Sends the change; the fields empty once it is done. */
   function submit(e: FormEvent) {
     e.preventDefault();
     change.mutate(

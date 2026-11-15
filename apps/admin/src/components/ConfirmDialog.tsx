@@ -19,34 +19,43 @@ interface ConfirmDialogProps {
   onClose: () => void;
 }
 
+/** The admin's modal: centred, 480 px, panel background; its content mounts while open only. */
+export function DialogShell({ open, onClose, alert, children }: { open: boolean; onClose: () => void; alert?: boolean; children: ReactNode }) {
+  return (
+    <Dialog.Root open={open} onOpenChange={(e) => !e.open && onClose()} placement="center" role={alert ? "alertdialog" : "dialog"} lazyMount unmountOnExit>
+      <Portal>
+        <Dialog.Backdrop bg="blackAlpha.700" />
+        <Dialog.Positioner>
+          <Dialog.Content bg="bg.subtle" borderWidth="1px" borderColor="border.emphasized" borderRadius="l3" maxW="480px" shadow="none">
+            {children}
+          </Dialog.Content>
+        </Dialog.Positioner>
+      </Portal>
+    </Dialog.Root>
+  );
+}
+
 /** Asks before an action that cannot be undone; closing it does nothing. */
 export function ConfirmDialog(props: ConfirmDialogProps) {
   const { open, title, context, children, confirmLabel, confirmIcon, pending, onConfirm, onClose } = props;
 
   return (
-    <Dialog.Root open={open} onOpenChange={(e) => !e.open && onClose()} placement="center" role="alertdialog" lazyMount unmountOnExit>
-      <Portal>
-        <Dialog.Backdrop bg="blackAlpha.700" />
-        <Dialog.Positioner>
-          <Dialog.Content bg="bg.subtle" borderWidth="1px" borderColor="border.emphasized" borderRadius="l3" maxW="480px" shadow="none">
-            <DialogFrame title={title} context={context}>
-              {children}
-            </DialogFrame>
-            <Dialog.Footer px="6" py="4" gap="2">
-              <Dialog.ActionTrigger asChild>
-                <Button variant="outline" size="sm" h="10" disabled={pending}>
-                  {strings.common.cancel}
-                </Button>
-              </Dialog.ActionTrigger>
-              <Button colorPalette="red" variant="surface" size="sm" h="10" loading={pending} onClick={onConfirm}>
-                {confirmIcon}
-                {confirmLabel}
-              </Button>
-            </Dialog.Footer>
-          </Dialog.Content>
-        </Dialog.Positioner>
-      </Portal>
-    </Dialog.Root>
+    <DialogShell open={open} onClose={onClose} alert>
+      <DialogFrame title={title} context={context}>
+        {children}
+      </DialogFrame>
+      <Dialog.Footer px="6" py="4" gap="2">
+        <Dialog.ActionTrigger asChild>
+          <Button variant="outline" size="sm" h="10" disabled={pending}>
+            {strings.common.cancel}
+          </Button>
+        </Dialog.ActionTrigger>
+        <Button colorPalette="red" variant="surface" size="sm" h="10" loading={pending} onClick={onConfirm}>
+          {confirmIcon}
+          {confirmLabel}
+        </Button>
+      </Dialog.Footer>
+    </DialogShell>
   );
 }
 

@@ -1,4 +1,5 @@
 import { Box, Button, Flex, Text } from "@chakra-ui/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useNavigate } from "react-router";
 import { isSignedOut } from "../api.ts";
 import { Problem } from "../components/Problem.tsx";
@@ -15,9 +16,19 @@ export function Shell() {
   const me = useMe();
   const signOut = useSignOut();
   const navigate = useNavigate();
+  const client = useQueryClient();
 
-  /** Ends the session, then shows the sign-in page, even when the call failed. */
-  const onSignOut = () => signOut.mutate(undefined, { onSettled: () => navigate(paths.signIn, { replace: true }) });
+  /**
+   * Ends the session, then shows the sign-in page, even when the call failed. The cache is
+   * dropped after leaving, so no page of the shell refetches and lands on sign-in with `next`.
+   */
+  const onSignOut = () =>
+    signOut.mutate(undefined, {
+      onSettled: () => {
+        navigate(paths.signIn, { replace: true });
+        client.clear();
+      },
+    });
 
   if (me.isPending || isSignedOut(me.error)) {
     return (

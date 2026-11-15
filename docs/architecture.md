@@ -36,6 +36,7 @@ Sources live in `src/`, one folder per area; `test/` mirrors it.
 | `db/db.ts`, `db/listen.ts` | Database port (queries, transactions, `LISTEN`); adapters for node-postgres and, in tests, PGlite; the reconnecting `LISTEN` session. |
 | `public/client.ts` | The visitor's IP address, read through trusted proxies only, and the cap on open event streams per IP. |
 | `public/http.ts` | Embed page and its assets, demo page, queue API and its SSE stream. Thin. |
+| `bundle.ts` | What the embed page and the admin interface share as builds served from memory: reading their hashed files, and serving one for good. |
 | `admin/ui.ts` | The built admin interface (`apps/admin/dist`), read once at start: its page for every path under `/admin/` but the API, with a fresh CSP nonce per answer, and its hashed assets. |
 | `public/embed.ts` | The built embed page (`apps/embed/dist`), read once at start: its template, its hashed assets, the theme's stylesheet and logo (applied again with each revision), and its Content-Security-Policy. |
 | `config/*.ts` | Configuration: `tryout.yaml` validated against the shared JSON Schema (`schema`), then semantic checks (`config`); the settings checks shared by the file and stored revisions (`settings`); revisions and assets in Postgres (`store`); the active revision, followed on every instance (`live`); values (`values`), error reporting (`report`), agent TLS files (`tls`), theme (`theme`). |

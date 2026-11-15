@@ -1,6 +1,9 @@
 // Every text of the admin UI, in English. Short and factual: state the fact,
 // no padding. Functions build the texts that carry values.
 
+/** The password rule, under every new-password field. */
+const PASSWORD_HELP = "12 characters or more.";
+
 export const strings = {
   brand: { name: "Tryout", badge: "admin" },
 
@@ -35,7 +38,7 @@ export const strings = {
       detail: "Over plain HTTP, the browser drops the session cookie. Use HTTPS or localhost.",
     },
     busy: { title: "The server is busy", detail: "Try again in a moment." },
-    failed: { title: "Sign-in failed", detail: "The control plane did not answer. Try again." },
+    failed: { title: "Sign-in failed", detail: "Try again." },
   },
 
   sessions: {
@@ -90,7 +93,7 @@ export const strings = {
       name: "Account name",
       nameHelp: "Lowercase letters, digits, dot, dash and underscore.",
       password: "Password",
-      passwordHelp: "12 characters or more.",
+      passwordHelp: PASSWORD_HELP,
       confirm: "Add account",
       exists: "An account with this name exists.",
     },
@@ -104,7 +107,7 @@ export const strings = {
       description: "Changing it signs out your other sessions.",
       current: "Current password",
       next: "New password",
-      help: "12 characters or more.",
+      help: PASSWORD_HELP,
       submit: "Change password",
       wrongCurrent: "The current password is wrong.",
       changed: "Password changed. Your other sessions are signed out.",

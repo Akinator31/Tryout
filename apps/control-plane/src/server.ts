@@ -191,7 +191,7 @@ const adminApi = createAdminHandler({
   metricsPage,
   metricsToken: bootstrap.admin_metrics_token,
   clientKey: (req) => adminClientKey(req.socket.remoteAddress, req.headers),
-  version: process.env.TRYOUT_VERSION || "dev",
+  version: process.env.TRYOUT_VERSION || undefined,
   routes: {
     ...sessionsRoutes({ queue, log }),
     ...settingsRoutes({

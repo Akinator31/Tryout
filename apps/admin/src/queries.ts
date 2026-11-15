@@ -104,12 +104,8 @@ export function useSignIn() {
   });
 }
 
-/** Ends the session; every cached answer is dropped. */
+/** Ends the session; the caller leaves the signed-in pages, then drops the cached answers. */
 export function useSignOut() {
   const api = useApi();
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: () => api.request<void>("logout", { method: "POST" }),
-    onSettled: () => client.clear(),
-  });
+  return useMutation({ mutationFn: () => api.request<void>("logout", { method: "POST" }) });
 }

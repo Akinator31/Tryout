@@ -5,8 +5,8 @@ import { CacheProvider, type EmotionCache } from "@emotion/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { BrowserRouter, MemoryRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
-import { ApiError, isSignedOut, type ApiClient } from "../api.ts";
-import { HOME, paths, signInPath } from "../navigation.ts";
+import { isRefusal, isSignedOut, type ApiClient } from "../api.ts";
+import { BASE, HOME, paths, signInPath } from "../navigation.ts";
 import { Accounts } from "../pages/Accounts.tsx";
 import { Sessions } from "../pages/Sessions.tsx";
 import { SignIn } from "../pages/SignIn.tsx";
@@ -16,7 +16,7 @@ import { Shell } from "./Shell.tsx";
 
 /** Retries a failed query twice, unless the server refused it (4xx): asking again would not help. */
 function retry(failures: number, e: unknown): boolean {
-  if (e instanceof ApiError && e.status >= 400 && e.status < 500) return false;
+  if (isRefusal(e)) return false;
   return failures < 2;
 }
 
@@ -42,12 +42,13 @@ function SignedOutRedirect({ client }: { client: QueryClient }) {
       navigate(signInPath(location.pathname + location.search + location.hash), { replace: true });
     }
 
-    const unsubscribeQueries = client.getQueryCache().subscribe((event) => {
-      if (event.type === "updated" && event.action.type === "error") check(event.action.error);
-    });
-    const unsubscribeMutations = client.getMutationCache().subscribe((event) => {
-      if (event.type === "updated" && event.action.type === "error") check(event.action.error);
-    });
+    /** Checks the error of a query or mutation that just failed. */
+    const onEvent = (event: { type: string; action?: { type: string; error?: unknown } }) => {
+      if (event.type === "updated" && event.action?.type === "error") check(event.action.error);
+    };
+
+    const unsubscribeQueries = client.getQueryCache().subscribe(onEvent);
+    const unsubscribeMutations = client.getMutationCache().subscribe(onEvent);
 
     return () => {
       unsubscribeQueries();
@@ -63,7 +64,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path={paths.signIn} element={<SignIn />} />
-      <Route path="/admin" element={<Shell />}>
+      <Route path={BASE} element={<Shell />}>
         <Route index element={<Navigate to={HOME} replace />} />
         <Route path={paths.sessions} element={<Sessions />} />
         <Route path={paths.accounts} element={<Accounts />} />
