@@ -19,9 +19,15 @@
           "default": ":3000"
         },
         "admin_listen": {
-          "description": "Address of the admin listener (/metrics), as [host]:port. Leave it out to turn the admin listener off. It may equal listen, which makes /metrics public.",
+          "description": "Address of the admin listener (admin API behind a login, and /metrics), as [host]:port. Leave it out to turn the admin listener off. It may equal listen, which puts the admin on the public address.",
           "type": "string",
           "pattern": "^(\\[[0-9A-Fa-f:.]+\\]|[A-Za-z0-9.-]*):[0-9]{1,5}$"
+        },
+        "admin_metrics_token": {
+          "description": "Bearer token Prometheus must send to read /metrics on the admin listener; write it as ${VAR}. Without it, /metrics is open to anyone who reaches admin_listen.",
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 1024
         },
         "agent_tls": {
           "description": "Mutual TLS towards every agent: the control plane's client certificate and the CA that signs the agents' certificates. Paths are relative to this file's directory.",

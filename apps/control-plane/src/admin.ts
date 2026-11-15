@@ -1,10 +1,9 @@
-// The admin listener (`admin_listen`): for now its /metrics page, which joins
+// The admin listener's /metrics page (routes in admin-http.ts), which joins
 // the control plane's own metrics, each node's health and the agents' metrics
 // relayed over mutual TLS, so Prometheus scrapes one target and nodes open no
-// new port. Off when admin_listen is unset.
-import type { IncomingMessage, ServerResponse } from "node:http";
+// new port.
 import type { NodeStatus } from "./health.ts";
-import { CONTENT_TYPE, Registry, type Gauge } from "./metrics.ts";
+import { Registry, type Gauge } from "./metrics.ts";
 import { relayMetrics } from "./metrics-relay.ts";
 import type { ProjectStats, StartOutcome } from "./queue.ts";
 
@@ -129,23 +128,4 @@ function ticketsGauge(byProject: Record<string, ProjectStats>): Gauge {
 /** A 0/1 gauge per node. */
 function nodeGauge(name: string, help: string, nodes: string[], up: (node: string) => boolean): Gauge {
   return { name, help, labels: ["node"], samples: nodes.map((node) => ({ labels: { node }, value: up(node) ? 1 : 0 })) };
-}
-
-/**
- * The admin listener's routes; resolves to false for any other request, so
- * the caller can fall through to the public routes when both listeners share
- * one address.
- *
- * - `GET /metrics`: Prometheus text.
- */
-export function createAdminHandler(metricsPage: () => Promise<string>) {
-  return async function handleAdmin(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
-    const path = new URL(req.url ?? "/", "http://x").pathname;
-    if (req.method !== "GET" || path !== "/metrics") return false;
-
-    const body = await metricsPage();
-    res.writeHead(200, { "content-type": CONTENT_TYPE, "cache-control": "no-store" });
-    res.end(body);
-    return true;
-  };
 }

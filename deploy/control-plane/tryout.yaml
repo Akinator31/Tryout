@@ -6,9 +6,12 @@
 # from this file or keep them in step (docs/configuration.md#settings-and-revisions).
 listen: ":3000"
 
-# Optional: the admin listener, with Prometheus metrics on /metrics. Off when left out.
-# Keep it off the Internet: publish it on a private address only (see compose.yaml).
+# Optional: the admin listener: the admin API (accounts made with the create-user command)
+# and Prometheus metrics on /metrics. Off when left out. Keep it off the Internet: publish it
+# on a private address only (see compose.yaml), and reach it over HTTPS or an SSH tunnel.
 # admin_listen: ":9090"
+# Bearer token Prometheus sends to read /metrics; put the value in .env.
+# admin_metrics_token: "${ADMIN_METRICS_TOKEN}"
 
 # The portfolios allowed to embed /embed/<project> in an iframe.
 embed_frame_ancestors:

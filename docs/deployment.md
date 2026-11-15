@@ -158,8 +158,18 @@ since different settings in the file refuse the start. See
 [Settings and revisions](configuration.md#settings-and-revisions).
 
 PostgreSQL is on an internal network that only the control plane joins. It holds the queue,
-the live sessions and the settings with their history: back it up, or keep an `export` of the
-settings.
+the live sessions, the settings with their history and the admin accounts: back it up, or keep
+an `export` of the settings.
+
+To use the admin API, set `admin_listen`, publish it on a private address (see the comments of
+`compose.yaml`) and create the first account; the password is asked without echo:
+
+```bash
+docker compose exec control-plane node apps/control-plane/src/cli.ts create-user alice
+```
+
+Reach the admin over HTTPS or an SSH tunnel to `localhost`, since its session cookie is
+`Secure`. See [Admin accounts](configuration.md#admin-accounts).
 
 ## 4. Expose the two services
 
@@ -241,12 +251,15 @@ call the control plane.
 With `admin_listen` set (see [Configuration](configuration.md#top-level)), the control plane
 serves Prometheus metrics on `/metrics` of that listener: its own, then every agent's, which it
 fetches over mutual TLS at each scrape and labels with `node`. Prometheus scrapes one target
-per control plane instance and needs no certificate, and nodes open no new port. Keep the admin
-listener on a private address or behind your own access control: it has no authentication.
+per control plane instance and needs no certificate, and nodes open no new port. Set
+`admin_metrics_token` so that only Prometheus reads it, and keep the admin listener off the
+Internet: it also serves the admin API (see [Admin accounts](configuration.md#admin-accounts)).
 
 ```yaml
 scrape_configs:
   - job_name: tryout
+    authorization:
+      credentials_file: /etc/prometheus/tryout-token   # the value of admin_metrics_token
     static_configs:
       - targets: ["127.0.0.1:9090"]
 ```

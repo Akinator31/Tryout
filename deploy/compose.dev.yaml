@@ -75,6 +75,7 @@ services:
     environment:
       TRYOUT_CONFIG: /app/tryout.yaml
       DATABASE_URL: postgres://tryout:tryout@postgres:5432/tryout
+      ADMIN_METRICS_TOKEN: dev-metrics-token-0123456789abcdef   # dev only; scripts/e2e-metrics.ts sends it
     volumes:
       - ./tryout.dev.yaml:/app/tryout.yaml:ro
       - { type: volume, source: pki, target: /app/pki, read_only: true, volume: { subpath: control-plane } }

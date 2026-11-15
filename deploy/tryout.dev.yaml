@@ -4,8 +4,9 @@
 # The settings (embed_frame_ancestors, limits, nodes, projects) seed the database on
 # the first start. After an import, `docker compose down -v` starts afresh from this file.
 listen: ":3000"
-# Admin listener (/metrics); compose.dev.yaml publishes it on 127.0.0.1 only.
+# Admin listener (admin API and /metrics); compose.dev.yaml publishes it on 127.0.0.1 only.
 admin_listen: ":9090"
+admin_metrics_token: "${ADMIN_METRICS_TOKEN}"
 embed_frame_ancestors:
   - http://localhost:3000
 

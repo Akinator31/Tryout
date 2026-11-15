@@ -3,8 +3,11 @@
 // clients, health checks, the queue and the HTTP listeners. Runs directly on
 // Node >= 24.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { controlPlaneMetrics, createAdminHandler, createMetricsPage } from "./admin.ts";
+import { controlPlaneMetrics, createMetricsPage } from "./admin.ts";
+import { createAdminAuth } from "./admin-auth.ts";
+import { createAdminHandler } from "./admin-http.ts";
 import { agentPool, checkHealth, fetchMetrics } from "./agents.ts";
+import { clientKeyResolver } from "./client.ts";
 import { ConfigError, loadConfig, queueConfig, sameListen, type Bootstrap, type Config, type Listen, type Seed, type Settings } from "./config.ts";
 import { followSettings, type Active } from "./config-live.ts";
 import { agentAddress, createConfigStore, SeedConflictError, seedSettings, type ConfigStore } from "./config-store.ts";
@@ -166,7 +169,17 @@ const metricsPage = createMetricsPage({
   fetchNodeMetrics: (node, signal) => fetchMetrics(agents.get(node), signal),
 });
 
+const warnClientAddress = (warning: string) => log("client address warning", { warning });
+const adminClientKey = clientKeyResolver(bootstrap.client_ip, warnClientAddress);
+const admin = createAdminHandler({
+  auth: await createAdminAuth({ db }),
+  metricsPage,
+  metricsToken: bootstrap.admin_metrics_token,
+  clientKey: (req) => adminClientKey(req.socket.remoteAddress, req.headers),
+  log,
+});
+
 setInterval(() => void health.probe(), HEALTH_INTERVAL_MS);
 setInterval(tick, TICK_INTERVAL_MS);
-const handle = createHandler(bootstrap, current, queue, () => embed, (warning) => log("client address warning", { warning }));
-serve(bootstrap, handle, createAdminHandler(metricsPage));
+const handle = createHandler(bootstrap, current, queue, () => embed, warnClientAddress);
+serve(bootstrap, handle, admin);
