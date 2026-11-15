@@ -1,11 +1,13 @@
 // End-to-end check of node health and metrics: the admin listener reports the
 // node up, relays the agent's metrics with a node label and counts the starts
 // of earlier tests; the public listener does not serve /metrics.
+// /metrics needs the bearer token of the dev stack (admin_metrics_token).
 // Run after e2e-cli.ts, which starts a session.
-// Usage: node scripts/e2e-metrics.ts [admin-url] [control-plane-url] [node]
+// Usage: ADMIN_METRICS_TOKEN=... node scripts/e2e-metrics.ts [admin-url] [control-plane-url] [node]
 const ADMIN = process.argv[2] ?? "http://localhost:9090";
 const CP = process.argv[3] ?? "http://localhost:3000";
 const NODE = process.argv[4] ?? "local";
+const TOKEN = process.env.ADMIN_METRICS_TOKEN ?? "dev-metrics-token-0123456789abcdef";
 
 /** Lines the admin /metrics page must contain, as regular expressions. */
 const EXPECTED = [
@@ -24,7 +26,10 @@ function fail(msg: string): never {
   process.exit(1);
 }
 
-const res = await fetch(`${ADMIN}/metrics`);
+const anonymous = await fetch(`${ADMIN}/metrics`);
+if (anonymous.status !== 401) fail(`admin /metrics answered ${anonymous.status} without the token`);
+
+const res = await fetch(`${ADMIN}/metrics`, { headers: { authorization: `Bearer ${TOKEN}` } });
 if (res.status !== 200) fail(`admin /metrics answered ${res.status}`);
 if (!res.headers.get("content-type")?.startsWith("text/plain; version=0.0.4")) fail("wrong content type");
 
@@ -36,4 +41,4 @@ for (const re of EXPECTED) {
 const pub = await fetch(`${CP}/metrics`);
 if (pub.status !== 404) fail(`the public listener answered ${pub.status} on /metrics`);
 
-console.log("OK: node up, agent metrics relayed, starts counted; /metrics is not public");
+console.log("OK: node up, agent metrics relayed, starts counted; /metrics needs the token and is not public");

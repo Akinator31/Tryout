@@ -204,3 +204,6 @@ the admin UI, and graph queue and session metrics.
   revisions checked by the JSON Schema, seeded from `tryout.yaml` and applied to every instance
   without a restart; `import` and `export` commands; a pause switch per project (`enabled`). See
   [Settings and revisions](configuration.md#settings-and-revisions).
+- **M4:** admin accounts: made from the command line first, scrypt passwords, server-side
+  sessions in a `__Host-` cookie, failed-login limits across instances; an optional bearer token
+  for `/metrics`. See [Admin accounts](configuration.md#admin-accounts).

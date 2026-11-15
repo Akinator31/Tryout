@@ -86,7 +86,8 @@ function stageConfig(file: string, prefix: string): string {
 }
 
 test("the dev configuration is valid", () => {
-  const { config, warnings } = loadConfig(stageConfig("deploy/tryout.dev.yaml", "tryout-dev-"), {});
+  const env = { ADMIN_METRICS_TOKEN: "dev-metrics-token-0123456789abcdef" };
+  const { config, warnings } = loadConfig(stageConfig("deploy/tryout.dev.yaml", "tryout-dev-"), env);
   assert.equal(config.projects["cli-hello"].max_age_s, 600);
   assert.equal(config.agent_tls.ca, pki.ca);
   assert.deepEqual(warnings, []);
@@ -183,15 +184,25 @@ limits:
   assert.match(negative[0], /^\/limits\/streams_per_ip/);
 });
 
-test("admin_listen is off unless set, and warns when it shares the public listener", () => {
+test("admin_listen is off unless set, and warns when /metrics is open beyond loopback", () => {
   assert.equal(parseConfig(base, opts).config.admin_listen, undefined);
 
   const own = parseConfig(`admin_listen: "127.0.0.1:9090"\n${base}`, opts);
   assert.deepEqual(own.config.admin_listen, { host: "127.0.0.1", port: 9090 });
   assert.deepEqual(own.warnings, []);
+  assert.deepEqual(parseConfig(`admin_listen: "[::1]:9090"\n${base}`, opts).warnings, []);
+  assert.deepEqual(parseConfig(`admin_listen: "localhost:9090"\n${base}`, opts).warnings, []);
 
-  const shared = parseConfig(`listen: ":3000"\nadmin_listen: ":3000"\n${base}`, opts);
-  assert.match(shared.warnings.join("\n"), /admin_listen equals listen: \/metrics is public/);
+  for (const open of [`listen: ":3000"\nadmin_listen: ":3000"`, `admin_listen: "10.0.0.5:9090"`]) {
+    assert.match(parseConfig(`${open}\n${base}`, opts).warnings.join("\n"), /\/metrics is open to anyone who reaches admin_listen/);
+  }
+
+  const env = { ...opts.env, METRICS_TOKEN: "s3cret-token-of-32-characters-xx" };
+  const token = parseConfig(`admin_listen: ":9090"\nadmin_metrics_token: "\${METRICS_TOKEN}"\n${base}`, { ...opts, env });
+  assert.equal(token.config.admin_metrics_token, "s3cret-token-of-32-characters-xx");
+  assert.deepEqual(token.warnings, []);
+  assert.match(problems(`admin_metrics_token: short\n${base}`)[0], /^\/admin_metrics_token \(line 1\)/);
+
   assert.match(problems(`admin_listen: ":0"\n${base}`)[0], /^\/admin_listen \(line 1\): must be \[host\]:port/);
   assert.match(
     problems(`listen: ":3000"\nadmin_listen: "127.0.0.1:3000"\n${base}`)[0],

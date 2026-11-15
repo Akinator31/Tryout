@@ -25,13 +25,15 @@ for graphical ones. Each project is assigned to a node.
 | `runtime.ts` | `SessionRuntime` adapter for real nodes: agent API over mutual TLS + readiness probe through the gateway. Tests use an in-memory adapter. |
 | `agents.ts` | One mutual TLS client per node of the active settings, shared by the runtime, the health check and the metrics relay; the agent's `/healthz` and `/metrics` calls, with size-capped answers. |
 | `health.ts` | Node health: checks every node's `/healthz` every 10 s and keeps the last result; the queue starts no session on a node that is not up. |
-| `admin.ts`, `metrics*.ts` | The admin listener: its `/metrics` page (ticket gauges, node health, start counters), the Prometheus text writer (`metrics`) and the strict relay of the agents' metrics (`metrics-relay`). |
+| `admin-http.ts` | The admin listener's routes: `/metrics` behind an optional bearer token, and the admin API under `/admin/api/` (login, logout, the signed-in account, accounts), with its session cookie and same-origin checks. |
+| `admin-auth.ts`, `admin-password.ts` | Admin accounts, sessions and failed-login limits in Postgres; scrypt password hashes and the cap on hashes running at once. |
+| `admin.ts`, `metrics*.ts` | The `/metrics` page (ticket gauges, node health, start counters), the Prometheus text writer (`metrics`) and the strict relay of the agents' metrics (`metrics-relay`). |
 | `db.ts`, `db-listen.ts` | Database port (queries, transactions, `LISTEN`); adapters for node-postgres and, in tests, PGlite; the reconnecting `LISTEN` session. |
 | `client.ts` | The visitor's IP address, read through trusted proxies only, and the cap on open event streams per IP. |
 | `http.ts` | Embed page and its assets, demo page, queue API and its SSE stream. Thin. |
 | `embed.ts` | The built embed page (`apps/embed/dist`), read once at start: its template, its hashed assets, the theme's stylesheet and logo (applied again with each revision), and its Content-Security-Policy. |
 | `config.ts`, `config-*.ts` | Configuration: `tryout.yaml` validated against the shared JSON Schema (`config-schema`), then semantic checks; the settings checks shared by the file and stored revisions (`config-settings`); revisions and assets in Postgres (`config-store`); the active revision, followed on every instance (`config-live`); values (`config-values`), error reporting (`config-report`), agent TLS files (`config-tls`), theme (`config-theme`). |
-| `cli.ts` | The operator's command line: `import` and `export` of the settings. |
+| `cli.ts` | The operator's command line: `import` and `export` of the settings; admin accounts (`create-user`, `set-password`, `delete-user`, `list-users`). |
 | `server.ts` | Wiring. |
 
 What it does:
@@ -58,7 +60,8 @@ What it does:
   `/assets/`. An unknown project gets the same page with a `404` status, which tells the
   visitor that the project is unavailable inside the portfolio's frame.
 - Serves Prometheus metrics on a separate admin listener (`admin_listen`, off by default): its
-  own, and every agent's, relayed over mutual TLS with a `node` label.
+  own, and every agent's, relayed over mutual TLS with a `node` label. The same listener serves
+  the admin API, behind local accounts.
 
 ### Embed page — `apps/embed`, `packages/tokens`
 
@@ -282,9 +285,32 @@ port. A node runs hostile code, so its metrics are parsed strictly and rebuilt w
 - **Down until checked.** A node counts as down until its first check, so a control plane that
   just started never sends a session to a node it has not reached. The first check runs at
   startup, followed by a promotion pass.
-- **A separate listener.** Metrics tell queue lengths and node versions, and the admin UI will
-  join them on the same listener. Keeping it off by default, on its own address, lets the
+- **A separate listener.** Metrics tell queue lengths and node versions, and the admin API
+  shares the same listener. Keeping it off by default, on its own address, lets the
   operator leave it off the Internet.
+
+### Admin accounts
+
+- **Local accounts, no sign-up.** The first account is made from the command line, which needs
+  access to the database anyway; a signed-in admin makes the next ones. All accounts have the
+  same rights. The tables leave room for other ways to sign in (OIDC, passkeys) later.
+- **Server-side sessions.** A session is a random token in a cookie; the database keeps only
+  its SHA-256, so a copy of the database opens no session, and a session can be ended at once
+  (logout, password change, deleted account), which a signed token could not do.
+- **Cookie rather than a header.** The cookie is `__Host-` (this host only, path `/`),
+  `HttpOnly` (no script reads it) and `SameSite=Strict` (no cross-site request carries it).
+  Requests that change something must also send a JSON body and an `Origin` naming the host,
+  which a cross-site form cannot do; there is no CSRF token to manage.
+- **`Secure` without exception.** Browsers accept the cookie over HTTPS and on `localhost` only.
+  The control plane has no TLS of its own, so the admin is reached through a TLS proxy or an SSH
+  tunnel. A login from any other origin is refused with an explanation, rather than silently
+  losing the cookie.
+- **Limits in Postgres.** Failed logins are counted per account name and per client address in
+  the database, so limits hold across instances. An unknown name is checked against a dummy
+  hash and limited like a known one, so neither timing nor locks tell which names exist. scrypt
+  costs about 128 MB per check, so each instance runs two at once and queues a few.
+- **A token for Prometheus.** Prometheus cannot hold a session, so `/metrics` takes an optional
+  bearer token from `tryout.yaml`: the bootstrap holds secrets, the settings never do.
 
 ### One log format
 

@@ -10,7 +10,8 @@ services:
       TRYOUT_CONFIG: /etc/tryout/tryout.yaml
       # Generate a URL-safe password (openssl rand -hex 32): it is part of a URL.
       DATABASE_URL: postgres://tryout:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/tryout
-      # Add here the variables that tryout.yaml reads with ${NAME}.
+      # Add here the variables that tryout.yaml reads with ${NAME}, such as:
+      # ADMIN_METRICS_TOKEN: ${ADMIN_METRICS_TOKEN:?set ADMIN_METRICS_TOKEN in .env}   # openssl rand -hex 32
     volumes:
       - ./tryout.yaml:/etc/tryout/tryout.yaml:ro
       # The control plane's certificates (pki/control-plane/ from tryout-certs), readable by uid 1000.

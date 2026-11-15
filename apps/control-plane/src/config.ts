@@ -84,8 +84,10 @@ export interface Listen {
 /** Read from tryout.yaml at startup; changing it needs a restart. */
 export interface Bootstrap {
   listen: Listen;
-  /** The admin listener (/metrics); off when absent. */
+  /** The admin listener (admin API and /metrics); off when absent. */
   admin_listen?: Listen;
+  /** Bearer token required on the admin /metrics; open when absent. */
+  admin_metrics_token?: string;
   client_ip: ClientIpConfig;
   agent_tls: AgentTls;
 }
@@ -136,8 +138,8 @@ export function parseConfig(
   if (problems.list.length) throw new ConfigError(source, problems.list);
 
   warnings.push(...settingsWarnings(settings));
-  if (sameListen(bootstrap.listen, bootstrap.admin_listen)) {
-    warnings.push("admin_listen equals listen: /metrics is public; give the admin listener its own address to keep it private");
+  if (bootstrap.admin_listen && !bootstrap.admin_metrics_token && !isLoopback(bootstrap.admin_listen.host)) {
+    warnings.push("/metrics is open to anyone who reaches admin_listen: set admin_metrics_token, or listen on a loopback address");
   }
   return { config: { ...bootstrap, ...settings }, seed: seedOf(file, settings), warnings };
 }
@@ -221,6 +223,7 @@ function checkBootstrap(
   return {
     listen: listen!,
     ...(adminListen ? { admin_listen: adminListen } : {}),
+    ...(typeof file.admin_metrics_token === "string" ? { admin_metrics_token: file.admin_metrics_token } : {}),
     client_ip: checkClientIp(file.client_ip, report),
     agent_tls: loadAgentTls(file.agent_tls, baseDir, now, report, warnings)!,
   };
@@ -244,6 +247,11 @@ function checkClientIp(v: unknown, report: Report): ClientIpConfig {
   });
 
   return { trusted_proxies: trustedProxies, ...(clientIp.header ? { header: clientIp.header } : {}) };
+}
+
+/** Whether a listen host only accepts connections from this machine; an empty host listens everywhere. */
+function isLoopback(host: string): boolean {
+  return host === "localhost" || host === "::1" || /^127\.\d+\.\d+\.\d+$/.test(host);
 }
 
 /** Whether the admin listener shares the public one: then a single server answers both. */

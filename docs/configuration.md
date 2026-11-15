@@ -9,7 +9,8 @@
 
 The configuration has two parts:
 
-- the **bootstrap**, in `tryout.yaml`: `listen`, `admin_listen`, `agent_tls` and `client_ip`.
+- the **bootstrap**, in `tryout.yaml`: `listen`, `admin_listen`, `admin_metrics_token`,
+  `agent_tls` and `client_ip`.
   It is read at startup; a change needs a restart.
 - the **settings**, in PostgreSQL: `embed_frame_ancestors`, `theme`, `limits`, `nodes` and
   `projects`. They are stored as [revisions](#settings-and-revisions) and applied to every
@@ -150,7 +151,8 @@ substituted.
 | Key | Role |
 |---|---|
 | `listen` | Optional: `[host]:port` to listen on. Default `:3000` (every interface). |
-| `admin_listen` | Optional: `[host]:port` of the admin listener, which serves Prometheus metrics on `/metrics` (see [Health and metrics](deployment.md#health-and-metrics)). Off when left out. Keep it on a private address: it has no authentication. It may equal `listen`, which makes `/metrics` public; the control plane warns about it. Another host on the port of `listen` is refused, since the two servers would overlap. |
+| `admin_listen` | Optional: `[host]:port` of the admin listener: the admin API, behind a login (see [Admin accounts](#admin-accounts)), and Prometheus metrics on `/metrics` (see [Health and metrics](deployment.md#health-and-metrics)). Off when left out. Keep it off the Internet. It may equal `listen`, which puts the admin on the public address. Another host on the port of `listen` is refused, since the two servers would overlap. |
+| `admin_metrics_token` | Optional: bearer token, 32 to 1024 characters, that Prometheus must send to read `/metrics`. Write it as `${VAR}` to keep it out of the file. Without it, `/metrics` is open to anyone who reaches `admin_listen`, and the control plane warns unless `admin_listen` is a loopback address. |
 | `agent_tls` | Mutual TLS towards the agents: `ca` (the CA that signs the agents' certificates), `cert` and `key` (the control plane's client certificate, with the `clientAuth` usage). Paths of PEM files, relative to the configuration file. See [Certificates](certificates.md). |
 | `client_ip` | Optional: how to find a visitor's IP address behind proxies. See [Per-IP limits](#per-ip-limits). |
 
@@ -257,6 +259,44 @@ the embed page poll instead, which keeps its place in line.
 | `strip_prefix` | Optional: strip `/s/<id>` before forwarding, for an application that cannot serve under a base path. |
 | `limits` | Optional: `memory_mb`, `cpus`, `pids`. Defaults: 256 MB / 0.5 CPU / 128 PIDs for terminals, 2 GB / 1.5 CPU / 1024 PIDs for desktops. |
 | `env` | Optional: project environment variables, as strings (quote numbers: `WIDTH: "1920"`). Reserved variables are rejected: `TRYOUT_*`, `SUBFOLDER`, `PUID`, `PGID`, `HOME`, and the Selkies security settings. |
+
+### Admin accounts
+
+The admin API, on `admin_listen`, needs an account. There is no sign-up: accounts are made from
+the command line, then by a signed-in admin. Every account has the same rights. The commands
+run where the control plane runs, with the same `DATABASE_URL`:
+
+```sh
+docker compose exec control-plane node apps/control-plane/src/cli.ts create-user alice
+docker compose exec control-plane node apps/control-plane/src/cli.ts list-users
+docker compose exec control-plane node apps/control-plane/src/cli.ts set-password alice
+docker compose exec control-plane node apps/control-plane/src/cli.ts delete-user alice
+```
+
+On a terminal, the password is asked twice, without echo. Otherwise it is read from the first
+line of the standard input (`printf '%s\n' "$PASSWORD" | docker compose exec -T …`), never from
+the arguments, which other users of the machine can see. `set-password` is the way back in when
+every password is lost; it closes the account's sessions. `delete-user` may delete the last
+account, unlike the admin API.
+
+- **Names** have 1 to 64 lower-case letters, digits, dots, dashes or underscores. They appear
+  as the author of settings revisions and in logs.
+- **Passwords** have 12 to 1024 characters, with no other rule. They are hashed with scrypt
+  (N = 2^17, r = 8, p = 1: about 128 MB and a few hundred milliseconds per check). An instance
+  runs two checks at once and queues 16; beyond that, a login gets `503`.
+- **Sessions** end after 12 hours without a request, and 7 days after login in any case.
+  Changing one's password closes one's other sessions; deleting an account closes all of its
+  sessions.
+- **Failed logins** are limited to 10 per account name (known or not) and 20 per client address
+  in 15 minutes, across instances. Beyond that, logins get `429` with `Retry-After`, even with
+  the right password. The address is read through `client_ip.trusted_proxies`, like the per-IP
+  limits.
+
+The browser keeps the session in a `__Host-` cookie marked `Secure`, which browsers accept over
+HTTPS and on `localhost` only. Reach the admin over HTTPS, through a reverse proxy, or over an
+SSH tunnel to `localhost`: elsewhere, a login over plain HTTP is refused with a message saying
+so. A reverse proxy must keep the `Host` header: requests that change something must come from
+a page of the same origin.
 
 ## Agent
 

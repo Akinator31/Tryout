@@ -243,6 +243,8 @@ jobs:
         run: node scripts/e2e-cli.ts
       - name: Node health and metrics on the admin listener
         run: node scripts/e2e-metrics.ts
+      - name: Admin accounts, login and logout
+        run: node scripts/e2e-admin.ts
       - name: Queue, promotion and heartbeat loss
         run: node scripts/e2e-queue.ts
       - name: SSE stream, push and heartbeat
