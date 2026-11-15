@@ -109,17 +109,23 @@ the active revision. Settings are compared after `${VAR}` substitution, and the 
 content.
 
 **Changing the settings** happens from the command line until the admin interface arrives.
-Run these commands where the control plane runs, with the same `DATABASE_URL`. In the
-published image, from its working directory:
+The commands run where the control plane runs, with the same `DATABASE_URL`. With the
+production example, the image's own directories are read-only for its user, so work in
+`/tmp` and copy files in and out:
 
 ```sh
-node apps/control-plane/src/cli.ts export settings.yaml   # the active settings, logo file beside
-node apps/control-plane/src/cli.ts import settings.yaml   # publish as a new revision
+docker compose exec control-plane node apps/control-plane/src/cli.ts export /tmp/settings.yaml
+docker compose cp control-plane:/tmp/settings.yaml .    # and the logo file, if any
+# edit settings.yaml, then:
+docker compose cp settings.yaml control-plane:/tmp/settings.yaml
+docker compose exec control-plane node apps/control-plane/src/cli.ts import /tmp/settings.yaml
 ```
 
-`import` accepts a file written by `export` or a whole `tryout.yaml`, whose bootstrap it ignores.
-It reports every problem with its line, like the startup check, and publishes nothing then.
-It also refuses to remove a node on which sessions are starting or running.
+`import` accepts a file written by `export` or a whole `tryout.yaml`, whose bootstrap it ignores
+(its `${VAR}` included). A logo file is read relative to the imported file. It reports every
+problem with its line, like the startup check, and publishes nothing then. It refuses a file
+with no settings at all, and a revision that removes a node on which sessions are starting or
+running, or changes its `agent_url` or `server_name`.
 
 **Every instance applies a new revision within a second** (PostgreSQL `LISTEN/NOTIFY`):
 

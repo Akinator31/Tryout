@@ -90,3 +90,24 @@ test("checks follow the settings: a new node is down until checked, a removed on
   nodes = ["a", "b"];
   assert.equal(health.isUp("a"), false, "a node added again starts down");
 });
+
+test("a readdressed node is forgotten at once, and a check of its old address still running is ignored", async () => {
+  let answer: (r: object) => void = () => {};
+  let calls = 0;
+  const health = createNodeHealth({
+    nodes: () => ["a"],
+    check: () => (++calls === 2 ? new Promise((r) => (answer = r)) : Promise.resolve(report)),
+  });
+  await health.probe();
+  assert.equal(health.isUp("a"), true);
+
+  const oldRound = health.probe(); // the check of the old address hangs
+  const recheck = health.recheck(["a"]);
+  assert.equal(health.isUp("a"), false, "forgotten at once");
+
+  answer(report);
+  await oldRound;
+  assert.equal(health.isUp("a"), false, "the old address's answer does not count");
+  await recheck;
+  assert.equal(health.isUp("a"), true, "checked again after the old round");
+});

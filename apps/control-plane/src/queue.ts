@@ -286,16 +286,17 @@ class PgQueue implements Queue {
     this.#resyncWatchers(t);
   }
 
-  /** Ends the tickets of projects that left the settings: their own end() stops each session. */
+  /** Ends the tickets of projects that left the settings in one statement, then stops their sessions together. */
   async configure(config: QueueConfig): Promise<void> {
     this.#config = config;
-    const orphans = await this.#db.query<{ id: string }>(
-      `SELECT id FROM tickets
-       WHERE state <> 'ended' AND NOT (project = ANY($1::text[]))`,
-      [Object.keys(config.projects)],
+    const orphans = await this.#db.query<Row>(
+      `UPDATE tickets SET state = 'ended', ended_at = $2
+       WHERE state <> 'ended' AND NOT (project = ANY($1::text[]))
+       RETURNING *`,
+      [Object.keys(config.projects), this.#now()],
     );
 
-    for (const o of orphans) await this.#end(o.id);
+    await Promise.all(orphans.map((row) => this.#afterEnd(row)));
     await this.#schedule();
   }
 
@@ -496,10 +497,13 @@ class PgQueue implements Queue {
        RETURNING *`,
       [ticket, error ?? null, this.#now()],
     );
-    if (!row) return;
+    if (row) await this.#afterEnd(row, error);
+  }
 
-    this.#log("ended", { ticket: ticket, project: row.project, error: error ?? null });
-    this.#inFlight.get(ticket)?.abort(new StartAborted(error === START_FAILED ? "timeout" : "abandoned"));
+  /** What follows a ticket's end: the log line, aborting its start if one is in flight here, stopping its session. */
+  async #afterEnd(row: Row, error?: string): Promise<void> {
+    this.#log("ended", { ticket: row.id, project: row.project, error: error ?? null });
+    this.#inFlight.get(row.id)?.abort(new StartAborted(error === START_FAILED ? "timeout" : "abandoned"));
     if (row.session_id) await this.#stopSession(sessionOf(row));
   }
 

@@ -6,7 +6,7 @@ import { ConfigError } from "./config-report.ts";
 import { checkSettings, type Seed, type SettingsDocument } from "./config-settings.ts";
 import { assetHash, imageFormat, MAX_LOGO_BYTES } from "./config-theme.ts";
 import { isObject } from "./config-values.ts";
-import type { Settings } from "./config.ts";
+import type { NodeConfig, Settings } from "./config.ts";
 import type { Db, Query } from "./db.ts";
 import { migrate as migrateTickets } from "./queue-schema.ts";
 
@@ -64,12 +64,12 @@ export class RevisionConflictError extends Error {
   }
 }
 
-/** The revision removes nodes that still run sessions. */
+/** The revision removes or readdresses nodes that still run sessions. */
 export class NodeInUseError extends Error {
   readonly nodes: string[];
 
   constructor(nodes: string[]) {
-    super(`nodes still running sessions cannot be removed: ${nodes.join(", ")}`);
+    super(`nodes still running sessions cannot be removed nor change agent_url or server_name: ${nodes.join(", ")}`);
     this.nodes = nodes;
   }
 }
@@ -103,7 +103,8 @@ export interface ConfigStore {
    * Checks `document` and stores it as the new active revision, then
    * notifies every instance. Throws a ConfigError when it is invalid,
    * RevisionConflictError when `base` is not the active revision any more,
-   * NodeInUseError when it removes a node with sessions starting or running.
+   * NodeInUseError when it removes or readdresses a node with sessions
+   * starting or running.
    */
   publish(document: SettingsDocument, options: PublishOptions): Promise<Loaded>;
   /** Stores a logo (SVG, PNG or WebP, at most 64 KB) and returns its SHA-256. Throws a ConfigError otherwise. */
@@ -169,7 +170,7 @@ export async function createConfigStore({ db, now = Date.now }: { db: Db; now?: 
         if (latest !== base) throw new RevisionConflictError(base, latest);
 
         const checked = await check(q, document, "the new revision");
-        await refuseRemovingBusyNodes(q, active ? Object.keys(nodesOf(active.document)) : [], checked.settings);
+        if (active) await refuseMovingBusyNodes(q, (await check(q, revisionOf(active).document, "the active revision")).settings, checked.settings);
 
         const [row] = await q<RevisionRow>(
           `INSERT INTO config_revisions (id, parent, document, author, note, created_at)
@@ -234,11 +235,14 @@ export async function seedSettings(store: ConfigStore, seed: Seed | null): Promi
 
 /**
  * Refuses a revision that removes nodes on which sessions are starting or
- * running: stopping them needs the node's address. Waiting tickets never
- * hold a removed node, since their project must have moved or gone too.
+ * running, or changes their agent address: stopping those sessions needs the
+ * address they started on. Waiting tickets never hold a removed node, since
+ * their project must have moved or gone too.
  */
-async function refuseRemovingBusyNodes(q: Query, before: string[], next: Settings): Promise<void> {
-  const removed = before.filter((n) => !Object.hasOwn(next.nodes, n));
+async function refuseMovingBusyNodes(q: Query, before: Settings, next: Settings): Promise<void> {
+  const removed = Object.entries(before.nodes)
+    .filter(([name, n]) => !Object.hasOwn(next.nodes, name) || agentAddress(n) !== agentAddress(next.nodes[name]))
+    .map(([name]) => name);
   if (removed.length === 0) return;
 
   const busy = await q<{ node: string }>(
@@ -276,14 +280,11 @@ function revisionOf(row: RevisionRow): Revision {
   return { ...summaryOf(row), document };
 }
 
-/** The nodes of a stored document. */
-function nodesOf(document: SettingsDocument | string): Record<string, unknown> {
-  const doc = typeof document === "string" ? JSON.parse(document) : document;
-  return isObject(doc.nodes) ? doc.nodes : {};
-}
+/** What reaching a node's agent depends on: its URL and the name in its certificate. */
+export const agentAddress = (n: NodeConfig) => `${n.agent_url} ${n.server_name ?? ""}`;
 
 /** The asset a document's logo names, if any. */
-function logoAsset(document: SettingsDocument): string | undefined {
+export function logoAsset(document: SettingsDocument): string | undefined {
   const theme = isObject(document.theme) ? document.theme : {};
   const logo = isObject(theme.logo) ? theme.logo : {};
   return typeof logo.asset === "string" ? logo.asset : undefined;

@@ -8,9 +8,8 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { stringify } from "yaml";
 import { ConfigError, parseSettingsFile, type SettingsDocument } from "./config.ts";
-import { createConfigStore, NodeInUseError, RevisionConflictError, type ConfigStore } from "./config-store.ts";
+import { createConfigStore, logoAsset, NodeInUseError, RevisionConflictError, type ConfigStore } from "./config-store.ts";
 import { imageFormat } from "./config-theme.ts";
-import { isObject } from "./config-values.ts";
 import { pgDb } from "./db.ts";
 
 const USAGE = "usage: node src/cli.ts import <file> | export <file>";
@@ -39,15 +38,15 @@ export async function importSettings(store: ConfigStore, path: string): Promise<
 export async function exportSettings(store: ConfigStore, path: string): Promise<number | null> {
   const latest = await store.latest();
   const document: SettingsDocument = structuredClone(latest?.document ?? {});
-  const theme = isObject(document.theme) ? document.theme : {};
-  const logo = isObject(theme.logo) ? theme.logo : null;
+  const sha256 = logoAsset(document);
 
-  if (logo && typeof logo.asset === "string") {
-    const body = (await store.getAsset(logo.asset))!;
-    const file = `logo-${logo.asset.slice(0, 12)}.${imageFormat(body)!.ext}`;
+  if (sha256) {
+    const body = (await store.getAsset(sha256))!;
+    const file = `logo-${sha256.slice(0, 12)}.${imageFormat(body)!.ext}`;
+    const theme = document.theme as { logo: Record<string, unknown> };
 
     writeFileSync(join(dirname(path), file), body);
-    theme.logo = { file, alt: logo.alt };
+    theme.logo = { file, alt: theme.logo.alt };
   }
 
   const header = `# Tryout settings, revision ${latest?.id ?? "none"}. Publish changes with the import command (docs/configuration.md)\n`;

@@ -201,3 +201,17 @@ test("instances starting together seed the database once", async () => {
   assert.equal((await store.list()).length, 1);
   await db.close();
 });
+
+test("a node running sessions cannot change its agent address", async () => {
+  const { db, store } = await setup();
+  const { runtime } = fakeRuntime();
+  await store.publish(settings(), { ...by, base: null });
+  const queue = await createQueue({ db, runtime, config: { nodes: { n1: { maxSessions: 2 } }, projects: { cli: { node: "n1", maxSessions: 1, maxAgeS: 900 } } } });
+  const ticket = await queue.join("cli");
+  await eventually(() => queue.poll(ticket.ticket), (v) => v?.state === "active");
+
+  const moved = settings({ nodes: { n1: { ...node(), agent_url: "https://n1-new.example:7000" } } });
+  await assert.rejects(store.publish(moved, { ...by, base: 1 }), NodeInUseError);
+  await store.publish(settings({ nodes: { n1: node(5) } }), { ...by, base: 1 });
+  await db.close();
+});

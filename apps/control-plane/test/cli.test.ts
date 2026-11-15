@@ -69,3 +69,25 @@ test("an invalid file is refused with its lines, and publishes nothing", async (
   assert.equal(await store.latest(), null);
   await db.close();
 });
+
+test("a file without settings is refused rather than emptying the settings", async () => {
+  const db = await freshDb();
+  const store = await createConfigStore({ db });
+  const dir = mkdtempSync(join(tmpdir(), "tryout-cli-"));
+  writeFileSync(join(dir, "boot.yaml"), 'listen: ":3000"\nagent_tls: { ca: a, cert: b, key: c }\n');
+
+  await assert.rejects(importSettings(store, join(dir, "boot.yaml")), /no settings/);
+  assert.equal(await store.latest(), null);
+  await db.close();
+});
+
+test("variables of the ignored bootstrap need not be set", async () => {
+  const db = await freshDb();
+  const store = await createConfigStore({ db });
+  const dir = mkdtempSync(join(tmpdir(), "tryout-cli-"));
+  writeFileSync(join(dir, "me.png"), PNG);
+  writeFileSync(join(dir, "tryout.yaml"), `agent_tls: { ca: "\${UNSET_CA}", cert: b, key: c }\n${settingsYaml}`);
+
+  assert.equal((await importSettings(store, join(dir, "tryout.yaml"))).revision, 1);
+  await db.close();
+});

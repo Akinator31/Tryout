@@ -11,7 +11,7 @@ import { LineCounter, parseDocument } from "yaml";
 import { parseCidr, type ClientIpConfig } from "./client.ts";
 import { ConfigError, createProblems, lineLocator, reportSchemaErrors, type Problems, type Report } from "./config-report.ts";
 import { schema, validateFile, validateSettingsDocument } from "./config-schema.ts";
-import { checkSettingsSections, seedOf, settingsWarnings, type Seed } from "./config-settings.ts";
+import { checkSettingsSections, seedOf, settingsWarnings, SETTINGS_KEYS, type Seed } from "./config-settings.ts";
 import { fileLogos, type Theme } from "./config-theme.ts";
 import { loadAgentTls } from "./config-tls.ts";
 import { interpolate, isObject, parseListen } from "./config-values.ts";
@@ -146,15 +146,19 @@ export function parseConfig(
  * Parses and checks a file of settings to publish (the import command): the
  * settings sections of a tryout.yaml, whose bootstrap is ignored, or a file
  * written by the export command. Logo files are relative to `baseDir`. Throws
- * a ConfigError listing every problem; returns the settings as a document to
- * publish, with the logo it names, and warnings.
+ * a ConfigError listing every problem, or when the file has no settings at
+ * all: publishing that would remove every node and project. Returns the
+ * settings as a document to publish, with the logo it names, and warnings.
  */
 export function parseSettingsFile(
   text: string,
   { source = "settings", env = process.env, baseDir = process.cwd() }: { source?: string; env?: NodeJS.ProcessEnv; baseDir?: string } = {},
 ): { seed: Seed; warnings: string[] } {
-  const { raw, problems } = readYaml(text, source, env);
-  const file = Object.fromEntries(Object.entries(isObject(raw) ? raw : {}).filter(([k]) => !BOOTSTRAP_KEYS.includes(k)));
+  const { raw, problems } = readYaml(text, source, env, BOOTSTRAP_KEYS);
+  const file = isObject(raw) ? raw : {};
+  if (!SETTINGS_KEYS.some((k) => Object.hasOwn(file, k))) {
+    throw new ConfigError(source, ["no settings: the file has none of embed_frame_ancestors, theme, limits, nodes, projects"]);
+  }
 
   problems.nextPass();
   if (!validateSettingsDocument(file)) reportSchemaErrors(validateSettingsDocument.errors ?? [], problems.report);
@@ -163,7 +167,7 @@ export function parseSettingsFile(
   const settings = checkSettingsSections(file, { report: problems.report, readLogo: fileLogos(baseDir) });
   if (problems.list.length) throw new ConfigError(source, problems.list);
 
-  return { seed: seedOf(file, settings) ?? { document: {}, assets: new Map() }, warnings: settingsWarnings(settings) };
+  return { seed: seedOf(file, settings)!, warnings: settingsWarnings(settings) };
 }
 
 /** The keys of the bootstrap, which only tryout.yaml holds. */
@@ -171,10 +175,11 @@ const BOOTSTRAP_KEYS = Object.keys(schema.$defs.bootstrap.properties);
 
 /**
  * The first pass, shared by every YAML file: parses `text` (a syntax error
- * throws at once, with its line) and replaces ${VAR}. Returns the value and
- * the problems collected so far, located by line.
+ * throws at once, with its line), drops the top-level keys in `ignored`, and
+ * replaces ${VAR} in the rest. Returns the value and the problems collected
+ * so far, located by line.
  */
-function readYaml(text: string, source: string, env: NodeJS.ProcessEnv): { raw: unknown; problems: Problems } {
+function readYaml(text: string, source: string, env: NodeJS.ProcessEnv, ignored: string[] = []): { raw: unknown; problems: Problems } {
   const lines = new LineCounter();
   const doc = parseDocument(text, { lineCounter: lines, prettyErrors: false });
   if (doc.errors.length) {
@@ -182,7 +187,9 @@ function readYaml(text: string, source: string, env: NodeJS.ProcessEnv): { raw: 
   }
 
   const problems = createProblems(lineLocator(doc, lines));
-  const raw = interpolate(doc.toJS(), [], env, (path, name) =>
+  const parsed: unknown = doc.toJS();
+  const kept = isObject(parsed) ? Object.fromEntries(Object.entries(parsed).filter(([k]) => !ignored.includes(k))) : parsed;
+  const raw = interpolate(kept, [], env, (path, name) =>
     problems.report(path, `environment variable ${name} is not set`),
   );
   return { raw, problems };

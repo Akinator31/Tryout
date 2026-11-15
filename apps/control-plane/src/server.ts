@@ -7,7 +7,7 @@ import { controlPlaneMetrics, createAdminHandler, createMetricsPage } from "./ad
 import { agentPool, checkHealth, fetchMetrics } from "./agents.ts";
 import { ConfigError, loadConfig, queueConfig, sameListen, type Bootstrap, type Config, type Listen, type Seed, type Settings } from "./config.ts";
 import { followSettings, type Active } from "./config-live.ts";
-import { createConfigStore, SeedConflictError, seedSettings, type ConfigStore } from "./config-store.ts";
+import { agentAddress, createConfigStore, SeedConflictError, seedSettings, type ConfigStore } from "./config-store.ts";
 import { pgDb } from "./db.ts";
 import { applyTheme, loadEmbed, type EmbedBundle } from "./embed.ts";
 import { createNodeHealth } from "./health.ts";
@@ -114,8 +114,9 @@ await seedOrExit(store, seed);
 // The active settings and what derives from them; replaced by applySettings on each new revision.
 let settings: Settings;
 let embed: EmbedBundle;
+let nodeList: string[] = [];
 const current = () => settings;
-const nodeNames = () => Object.keys(settings.nodes);
+const nodeNames = () => nodeList;
 
 const agents = agentPool(bootstrap.agent_tls);
 const health = createNodeHealth({ nodes: nodeNames, check: (node, signal) => checkHealth(agents.get(node), signal), log });
@@ -130,14 +131,22 @@ const queue = await createQueue({
 });
 const tick = () => queue.tick().catch((e) => log("tick failed", { err: String(e) }));
 
-/** Hands a new revision to every part of the instance, then checks its nodes at once. */
-async function applySettings(next: Active): Promise<void> {
+/**
+ * Hands a new revision to every part of the instance, then checks its nodes
+ * at once: a new or readdressed node is down until checked. Safe to call
+ * again with the same revision.
+ */
+async function applySettings(next: Active, previous: Active | null): Promise<void> {
+  const readdressed = Object.entries(next.settings.nodes)
+    .filter(([name, n]) => previous?.settings.nodes[name] && agentAddress(previous.settings.nodes[name]) !== agentAddress(n))
+    .map(([name]) => name);
+
   settings = next.settings;
+  nodeList = Object.keys(settings.nodes);
   embed = applyTheme(baseEmbed, settings.theme);
   agents.sync(settings.nodes);
+  void health.recheck(readdressed).then(tick);
   await queue.configure(queueConfig(settings));
-  // Nodes are down until checked: promote as soon as the round ends.
-  void health.probe().then(tick);
 }
 
 try {

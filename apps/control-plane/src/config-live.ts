@@ -2,7 +2,7 @@
 // loaded at startup and reloaded on every publication, from any instance.
 // Each new revision is handed to `apply`, which updates the queue, the node
 // clients and the embed page without a restart.
-import { checkSettings, type Settings } from "./config.ts";
+import { checkSettings, ConfigError, type Settings } from "./config.ts";
 import type { ConfigStore } from "./config-store.ts";
 
 export interface Active {
@@ -15,20 +15,30 @@ export interface LiveSettings {
   current(): Active;
 }
 
+/** Delay before trying again to apply a revision whose application failed. */
+const RETRY_MS = 5000;
+
 export interface LiveSettingsDeps {
   store: ConfigStore;
-  /** Applies settings to the running instance: once at startup, then after each new revision, one at a time. */
+  /**
+   * Applies settings to the running instance: once at startup, then after each
+   * new revision, one at a time. Must be safe to call again with the same
+   * revision: a failed application is tried again.
+   */
   apply: (next: Active, previous: Active | null) => Promise<void> | void;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
+  /** Delay before trying again after a failed application. */
+  retryMs?: number;
 }
 
 /**
  * Loads and applies the active revision (empty settings when there is none),
  * then follows publications. A revision that fails today's checks (stored by
  * an older version, say) refuses the start with a ConfigError; later on, it is
- * logged and the instance keeps its settings.
+ * logged and the instance keeps its settings. A failed application (a
+ * database error, say) is tried again after a few seconds.
  */
-export async function followSettings({ store, apply, log = () => {} }: LiveSettingsDeps): Promise<LiveSettings> {
+export async function followSettings({ store, apply, log = () => {}, retryMs = RETRY_MS }: LiveSettingsDeps): Promise<LiveSettings> {
   let active = await loadActive(store, log);
   await apply(active, null);
 
@@ -48,11 +58,15 @@ export async function followSettings({ store, apply, log = () => {} }: LiveSetti
     log("settings applied", { revision: latest.id });
   }
 
-  await store.watch(() => {
-    reloading = reloading
-      .then(reload)
-      .catch((e) => log("cannot apply settings", { err: String(e instanceof Error ? e.message : e) }));
-  });
+  /** Queues a reload behind the running one. */
+  function trigger(): void {
+    reloading = reloading.then(reload).catch((e) => {
+      log("cannot apply settings", { err: String(e instanceof Error ? e.message : e) });
+      if (!(e instanceof ConfigError)) setTimeout(trigger, retryMs).unref();
+    });
+  }
+
+  await store.watch(trigger);
 
   return { current: () => active };
 }

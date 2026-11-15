@@ -4,6 +4,7 @@
 // Nodes run hostile code, so what they answer is size-capped before it is read.
 import { Agent, fetch as agentFetch, type Response } from "undici";
 import type { AgentTls, NodeConfig } from "./config.ts";
+import { agentAddress } from "./config-store.ts";
 import type { HealthReport } from "./health.ts";
 
 /** Largest /healthz answer read from an agent. */
@@ -40,12 +41,13 @@ export function agentClient(tls: AgentTls, node: Pick<NodeConfig, "agent_url" | 
 
 /** The clients of the active settings' nodes. */
 export interface AgentPool {
-  /** The client of a node; throws for a node that is not in the settings. */
+  /** The client of a node, or of a removed node (to stop what still runs there); throws for a node never known. */
   get(node: string): AgentClient;
   /**
    * Follows new settings: a new node, or one whose address changed, gets a
-   * new client; the client of a removed or changed node is closed, once its
-   * requests in flight are done.
+   * new client, and the old client of a changed node is closed once its
+   * requests in flight are done. A removed node's client is kept: an instance
+   * that applied the revision late may still have to stop a session there.
    */
   sync(nodes: Record<string, NodeConfig>): void;
 }
@@ -64,21 +66,18 @@ export function agentPool(tls: AgentTls): AgentPool {
     sync(nodes) {
       for (const [name, entry] of clients) {
         const n = nodes[name];
-        if (n && addressOf(n) === entry.address) continue;
+        if (!n || agentAddress(n) === entry.address) continue;
 
         clients.delete(name);
         void entry.client.close().catch(() => {});
       }
 
       for (const [name, n] of Object.entries(nodes)) {
-        if (!clients.has(name)) clients.set(name, { address: addressOf(n), client: agentClient(tls, n) });
+        if (!clients.has(name)) clients.set(name, { address: agentAddress(n), client: agentClient(tls, n) });
       }
     },
   };
 }
-
-/** What a client depends on: the agent's URL and the name in its certificate. */
-const addressOf = (n: NodeConfig) => `${n.agent_url} ${n.server_name ?? ""}`;
 
 /**
  * Calls the agent's /healthz: resolves with its report when it answers 200

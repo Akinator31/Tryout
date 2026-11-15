@@ -91,3 +91,20 @@ test("a stored revision that fails today's checks refuses the start, and is skip
   assert.equal(live.current().revision, 1);
   await db.close();
 });
+
+test("a failed application is tried again until it succeeds", async () => {
+  const db = await freshDb();
+  const store = await createConfigStore({ db });
+  let failures = 1;
+  const live = await followSettings({
+    store,
+    retryMs: 10,
+    apply: (next) => {
+      if (next.revision === 1 && failures-- > 0) throw new Error("database gone");
+    },
+  });
+
+  await store.publish(doc(1), by(null));
+  assert.equal((await eventually(async () => live.current(), (a) => a.revision === 1, 100)).revision, 1);
+  await db.close();
+});

@@ -260,8 +260,10 @@ files and trusted proxies. No secret goes into the database: TLS keys stay files
   revision, one at a time, and on each (re)connection of its `LISTEN`, in case it missed one.
   The queue, the node clients, the health checks, the embed page and the HTTP limits read the
   active settings at each use. A removed project's tickets end on every instance, which is
-  harmless since ending a ticket is idempotent; a removed node with sessions is refused, since
-  stopping them needs its address. A revision that fails the checks of a newer control plane
+  harmless since ending a ticket is idempotent. Removing a node with sessions, or changing its
+  agent address, is refused, since stopping them needs the address they started on; a removed
+  node's client is kept, for an instance that applied the revision late. A failed application
+  is tried again after a few seconds. A revision that fails the checks of a newer control plane
   refuses its start, and is skipped (logged) by a running instance.
 - **Assets** (the logo) are stored by SHA-256, so a revision names its logo without copying it.
 
