@@ -119,29 +119,18 @@ vault with the original stack study (in French) and its sources.
     control-plane image is built from the repository root), English and French, theme from the
     YAML (`theme.accent`, `theme.logo`, per-project `title`); Tryout logo in the README, docs
     site and embed favicon.
+  - M4 Operate, released as `v0.2.0`: JSON logs (ids shortened to a 6-character prefix);
+    agent `/metrics` (`internal/metrics`) and `/healthz`, version injected at build time
+    (`internal/version`); control plane node health (`nodes/health.ts`) and `/metrics` with the
+    agents' metrics relayed (`metrics/`); settings in Postgres as revisions (`config/store.ts`,
+    `config/live.ts`, `cli.ts` import/export; `tryout.yaml` keeps the bootstrap and only seeds
+    an empty database); admin accounts (`admin/auth.ts`, `admin/http.ts`); admin API
+    (`admin/settings.ts`, `admin/sessions.ts`); admin UI (`apps/admin`: Projects with preview
+    and embed snippet, Nodes, Embedding, Theme, Revisions, Sessions with stop, Accounts; one
+    settings draft reviewed with a dry run before it is applied). Exit criteria checked on the
+    dev stack.
 
-  In progress: M4 Operate (plan in `docs/roadmap.md`), released as `v0.2.0`. Done so far: JSON logs on every component, ids shortened to a
-  6-character prefix; agent `/metrics` (hand-written Prometheus format, `internal/metrics`) and
-  a richer `/healthz`, version injected at build time (`internal/version`); control plane
-  health checks (`nodes/health.ts`, no promotion to a down node), admin listener `admin_listen` with
-  `/metrics` relaying the agents' metrics (`metrics/page.ts`, `metrics/relay.ts`); settings in Postgres
-  as revisions (`config/store.ts`, `config/live.ts`, `cli.ts` import/export; `tryout.yaml`
-  keeps the bootstrap and only seeds an empty database); admin accounts (`admin/auth.ts`,
-  `admin/http.ts`: scrypt, server-side sessions in a `__Host-` cookie, login limits in
-  Postgres, CLI `create-user`…, bearer `admin_metrics_token` on `/metrics`); admin settings API
-  (`admin/settings.ts`, `admin/request.ts`: whole-document settings, dry run with node
-  reachability, revisions and rollback, logos, nodes' health); sessions list and forced stop
-  (`admin/sessions.ts`, `Queue.list`/`stop`, `end_reason`), embed "stopped" screen (en, fr);
-  admin Figma screens (PR 7); admin UI PR 8a (`apps/admin`: sign-in, shell, Sessions + stop,
-  Accounts; `version` on `GET me` from `TRYOUT_VERSION`); PR 8b1 (one settings draft in
-  `sessionStorage` with three-way merge onto newer revisions, review and apply with dry run and
-  YAML diff, Embedding + limits, Theme, Revisions + rollback, YAML download); PR 8b2 (Projects
-  list/form/page with pause and remove, Nodes with health and an add/edit drawer whose
-  connection test is the dry run; forms checked in the browser by `projects.ts`, `nodes.ts`;
-  home is Projects); PR 8c (bootstrap `public_url` and `admin_preview`, project Preview card
-  framing the real `/embed/<project>` on click, Embed card with address and iframe snippet,
-  `preview.ts`; admin CSP `frame-src` = `public_url`). Next: `v0.2.0`. Then M5 Hosting
-  options.
+  Next: M5 Hosting options (`docs/roadmap.md`).
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module
