@@ -28,17 +28,23 @@ export type RouteHandler = (r: SignedIn, params: string[]) => Promise<Reply>;
 /** Routes keyed by method and path pattern after /admin/api/, as in `GET revisions/:id`. */
 export type Routes = Record<string, RouteHandler>;
 
+/** Extra headers of a refusal, and extra fields of its JSON body beside `error`. */
+interface RefusalOptions {
+  headers?: Record<string, string>;
+  details?: Record<string, unknown>;
+}
+
 /** A request the API refuses, with the status, message and extra fields to answer. */
 export class Refusal extends Error {
   readonly status: number;
   readonly headers: Record<string, string>;
   readonly details: Record<string, unknown>;
 
-  constructor(status: number, message: string, { headers = {}, details = {} }: { headers?: Record<string, string>; details?: Record<string, unknown> } = {}) {
+  constructor(status: number, message: string, options: RefusalOptions = {}) {
     super(message);
     this.status = status;
-    this.headers = headers;
-    this.details = details;
+    this.headers = options.headers ?? {};
+    this.details = options.details ?? {};
   }
 }
 

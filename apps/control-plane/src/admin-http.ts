@@ -87,7 +87,7 @@ function checkSameOrigin(req: IncomingMessage): URL {
 }
 
 /** Maps the errors of AdminAuth to answers. */
-function refusalOf(e: unknown): Refusal | null {
+function authRefusal(e: unknown): Refusal | null {
   if (e instanceof Refusal) return e;
   if (e instanceof InvalidLoginError) return new Refusal(401, e.message);
   if (e instanceof LoginLimitedError) return new Refusal(429, e.message, { headers: { "retry-after": String(e.retryAfterS) } });
@@ -227,9 +227,9 @@ export function createAdminHandler({ auth, metricsPage, metricsToken, clientKey,
     try {
       reply = await api(req, path.slice("/admin/api/".length));
     } catch (e) {
-      const refusal = refusalOf(e);
+      const refusal = authRefusal(e);
       if (!refusal) throw e;
-      reply = { status: refusal.status, body: { error: refusal.message, ...refusal.details }, headers: refusal.headers };
+      reply = { status: refusal.status, body: { ...refusal.details, error: refusal.message }, headers: refusal.headers };
     }
 
     if (reply.body === undefined) {

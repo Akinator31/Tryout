@@ -101,11 +101,11 @@ export interface Queue {
    */
   configure(config: QueueConfig): Promise<void>;
   /**
-   * Live tickets by project and state, across every instance: each configured
-   * project, with zeros, and any project still holding tickets after it left
-   * the configuration.
+   * Live tickets by project (or by node) and state, across every instance:
+   * each configured project (or node), with zeros, and any other still
+   * holding tickets after it left the configuration.
    */
-  stats(): Promise<Record<string, ProjectStats>>;
+  stats(by?: "project" | "node"): Promise<Record<string, ProjectStats>>;
 }
 
 export class UnknownProjectError extends Error {}
@@ -300,19 +300,22 @@ class PgQueue implements Queue {
     await this.#schedule();
   }
 
-  async stats(): Promise<Record<string, ProjectStats>> {
-    const rows = await this.#db.query<{ project: string; state: keyof ProjectStats; n: number }>(
-      `SELECT project, state, count(*)::int AS n
+  async stats(by: "project" | "node" = "project"): Promise<Record<string, ProjectStats>> {
+    const column = by === "node" ? "node" : "project";
+    const rows = await this.#db.query<{ key: string; state: keyof ProjectStats; n: number }>(
+      `SELECT ${column} AS key, state, count(*)::int AS n
        FROM tickets
        WHERE state <> 'ended'
-       GROUP BY project, state`,
+       GROUP BY ${column}, state`,
     );
 
     const zero = (): ProjectStats => ({ waiting: 0, starting: 0, active: 0 });
-    const stats = Object.fromEntries(Object.keys(this.#config.projects).map((p) => [p, zero()]));
-    for (const r of rows) (stats[r.project] ??= zero())[r.state] = r.n;
+    const configured = Object.keys(by === "node" ? this.#config.nodes : this.#config.projects);
+    const stats = Object.fromEntries(configured.map((k) => [k, zero()]));
+    for (const r of rows) (stats[r.key] ??= zero())[r.state] = r.n;
     return stats;
   }
+
 
   /** What the visitor may see of a ticket: only the fields that make sense in its state. */
   #view(row: Row): TicketView {

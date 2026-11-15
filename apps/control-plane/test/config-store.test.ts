@@ -229,9 +229,9 @@ test("check runs the publication's checks without publishing", async () => {
   await eventually(() => queue.poll(ticket.ticket), (v) => v?.state === "active");
 
   const overbooked = settings({ projects: { cli: project, other: { ...project, max_sessions: 2 } } });
-  assert.deepEqual(await store.check(overbooked), {
-    warnings: ["node n1: its projects allow 3 sessions, the node caps them at 2"],
-  });
+  const checked = await store.check(overbooked);
+  assert.deepEqual(checked.warnings, ["node n1: its projects allow 3 sessions, the node caps them at 2"]);
+  assert.deepEqual(Object.keys(checked.settings.projects), ["cli", "other"]);
   await assert.rejects(store.check({ nodes: { n1: { agent_url: 3 } } }), ConfigError);
   await assert.rejects(store.check({ projects: {} }), NodeInUseError);
 
@@ -241,7 +241,7 @@ test("check runs the publication's checks without publishing", async () => {
 
 test("check accepts any valid document when nothing was published yet", async () => {
   const { db, store } = await setup();
-  assert.deepEqual(await store.check(settings()), { warnings: [] });
+  assert.deepEqual((await store.check(settings())).warnings, []);
   assert.equal(await store.latest(), null);
   await db.close();
 });

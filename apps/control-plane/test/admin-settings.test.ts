@@ -8,7 +8,7 @@ import { createAdminAuth } from "../src/admin-auth.ts";
 import { createAdminHandler } from "../src/admin-http.ts";
 import { settingsRoutes, type SettingsRoutesDeps } from "../src/admin-settings.ts";
 import type { NodeConfig, SettingsDocument } from "../src/config.ts";
-import { createConfigStore } from "../src/config-store.ts";
+import { createConfigStore, NodeInUseError } from "../src/config-store.ts";
 import type { NodeStatus } from "../src/health.ts";
 import { fakeClock, freshDb } from "./support.ts";
 
@@ -26,10 +26,12 @@ interface Options {
   /** The nodes of the active settings, as the instance applied them. */
   nodeNames?: string[];
   health?: Record<string, NodeStatus>;
+  /** Live tickets by node and state. */
+  tickets?: Record<string, { waiting: number; starting: number; active: number }>;
 }
 
 /** An admin listener with the settings routes, one account (alice), and a session for it. */
-async function setup(t: TestContext, { unreachable = [], hanging = false, nodeNames = [], health = {} }: Options = {}) {
+async function setup(t: TestContext, { unreachable = [], hanging = false, nodeNames = [], health = {}, tickets = {} }: Options = {}) {
   const db = await freshDb();
   t.after(() => db.close());
   const clock = fakeClock();
@@ -38,6 +40,7 @@ async function setup(t: TestContext, { unreachable = [], hanging = false, nodeNa
   await auth.createAccount("alice", PASSWORD);
 
   const probed: string[] = [];
+  const logs: [string, Record<string, unknown> | undefined][] = [];
   const deps: SettingsRoutesDeps = {
     store,
     probeNode: async (n: NodeConfig, signal: AbortSignal) => {
@@ -47,6 +50,8 @@ async function setup(t: TestContext, { unreachable = [], hanging = false, nodeNa
     },
     nodeNames: () => nodeNames,
     health: () => health,
+    tickets: async () => tickets,
+    log: (msg, extra) => void logs.push([msg, extra]),
     probeTimeoutMs: 50,
   };
   const handle = createAdminHandler({
@@ -85,7 +90,7 @@ async function setup(t: TestContext, { unreachable = [], hanging = false, nodeNa
     return { status: res.status, body: type.startsWith("application/json") ? JSON.parse(text) : text, headers: res.headers };
   };
 
-  return { base, call, store, probed, clock };
+  return { base, call, store, probed, clock, logs };
 }
 
 test("the active settings are empty until a revision is published by the signed-in account", async (t) => {
@@ -258,7 +263,9 @@ test("nodes show their last health check, with only the known fields of the agen
       n1: { up: true, checkedAt: 5000, report },
       n2: { up: false, checkedAt: 6000, error: "agent 503: docker: unreachable" },
     },
+    tickets: { n1: { waiting: 3, starting: 0, active: 2 }, gone: { waiting: 0, starting: 0, active: 1 } },
   });
+  const none = { waiting: 0, starting: 0, active: 0 };
 
   assert.deepEqual((await call("/admin/api/nodes")).body, {
     nodes: [
@@ -267,9 +274,31 @@ test("nodes show their last health check, with only the known fields of the agen
         up: true,
         checked_at: 5000,
         agent: { version: "0.2.0", profile: "strict", arch: "arm64", default_runtime: "runsc", runtimes: ["runsc"], sessions: 1, max_sessions: 4 },
+        tickets: { waiting: 3, starting: 0, active: 2 },
       },
-      { name: "n2", up: false, checked_at: 6000, error: "agent 503: docker: unreachable" },
-      { name: "n3", up: false, checked_at: null },
+      { name: "n2", up: false, checked_at: 6000, error: "agent 503: docker: unreachable", tickets: none },
+      { name: "n3", up: false, checked_at: null, tickets: none },
     ],
   });
+});
+
+test("validate refuses removing a node with sessions as an invalid document", async (t) => {
+  const { call, store } = await setup(t);
+  await call("/admin/api/revisions", { method: "POST", body: { base: null, document: settings() } });
+  store.check = async () => {
+    throw new NodeInUseError(["n1"]);
+  };
+
+  const res = await call("/admin/api/config/validate", { method: "POST", body: { document: {} } });
+  assert.equal(res.status, 422);
+  assert.deepEqual(res.body.nodes, ["n1"]);
+  assert.match(res.body.problems[0], /n1/);
+});
+
+test("a rollback is logged with the revision it brings back", async (t) => {
+  const { call, logs } = await setup(t);
+  await call("/admin/api/revisions", { method: "POST", body: { base: null, document: settings() } });
+  await call("/admin/api/revisions/1/rollback", { method: "POST", body: { base: 1 } });
+
+  assert.deepEqual(logs.at(-1), ["admin revision published", { revision: 2, by: "alice", rollback_of: 1 }]);
 });

@@ -182,6 +182,7 @@ const admin = createAdminHandler({
     probeNode: (node, signal) => probeAgent(bootstrap.agent_tls, node, signal),
     nodeNames,
     health: health.snapshot,
+    tickets: () => queue.stats("node"),
     log,
   }),
   log,

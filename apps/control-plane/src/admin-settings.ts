@@ -6,9 +6,15 @@
 import type { Account } from "./admin-auth.ts";
 import { Refusal, readBody, type Reply, type RouteHandler, type Routes, type SignedIn } from "./admin-request.ts";
 import { ConfigError, type NodeConfig, type SettingsDocument } from "./config.ts";
-import { imageFormat, MAX_LOGO_BYTES } from "./config-theme.ts";
+import { imageFormat } from "./config-theme.ts";
 import { NodeInUseError, RevisionConflictError, type ConfigStore, type Revision } from "./config-store.ts";
 import type { HealthReport, NodeStatus } from "./health.ts";
+import type { ProjectStats } from "./queue.ts";
+
+/** Live tickets of one node, by state. */
+type TicketCounts = ProjectStats;
+
+const NO_TICKETS: TicketCounts = { waiting: 0, starting: 0, active: 0 };
 
 export interface SettingsRoutesDeps {
   store: ConfigStore;
@@ -18,6 +24,8 @@ export interface SettingsRoutesDeps {
   nodeNames: () => string[];
   /** The last health check of each node checked so far. */
   health: () => Record<string, NodeStatus>;
+  /** Live tickets by node and state, across every instance. */
+  tickets: () => Promise<Record<string, TicketCounts>>;
   /** How long the dry run waits for each node; 3 s by default. */
   probeTimeoutMs?: number;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
@@ -29,9 +37,12 @@ const MAX_DOCUMENT_BYTES = 256 * 1024;
 /** Largest logo upload: a logo of MAX_LOGO_BYTES in base64, with room for the JSON around it. */
 const MAX_ASSET_BODY_BYTES = 128 * 1024;
 
-/** Headers of a served logo: its own type, and an SVG cannot run scripts nor load anything. */
+/**
+ * Headers of a served logo: its own type; an SVG cannot run scripts, load
+ * anything nor be framed. Its URL names its content, so the browser may keep it.
+ */
 const ASSET_HEADERS = {
-  "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+  "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox; frame-ancestors 'none'",
   "cache-control": "private, max-age=86400, immutable",
 };
 
@@ -49,23 +60,16 @@ const REPORT_FIELDS: Record<string, (v: unknown) => boolean> = {
 /** How long the dry run waits for a node's agent by default. */
 const PROBE_TIMEOUT_MS = 3000;
 
-/** What a published revision answers: its summary and the warnings of its settings. */
-interface Published {
-  revision: Omit<Revision, "document">;
-  warnings: string[];
-}
-
 /** The known, well-typed fields of an agent's report. */
 function agentFields(report: HealthReport): Record<string, unknown> {
   return Object.fromEntries(Object.entries(report).filter(([k, v]) => Object.hasOwn(REPORT_FIELDS, k) && REPORT_FIELDS[k](v)));
 }
 
-/** A node as the admin sees it: down with `checked_at: null` until its first check. */
-function nodeView(name: string, status: NodeStatus | undefined): Record<string, unknown> {
-  if (!status) return { name, up: false, checked_at: null };
+/** A node's last check as the admin sees it: down with `checked_at: null` until the first one. */
+function healthView(status: NodeStatus | undefined): Record<string, unknown> {
+  if (!status) return { up: false, checked_at: null };
 
   return {
-    name,
     up: status.up,
     checked_at: status.checkedAt,
     ...(status.report ? { agent: agentFields(status.report) } : {}),
@@ -73,8 +77,15 @@ function nodeView(name: string, status: NodeStatus | undefined): Record<string, 
   };
 }
 
+/** What a publication is based on and says about itself; `rollbackOf` names the revision a rollback brings back. */
+interface PublishRequest {
+  base: number | null;
+  note?: string;
+  rollbackOf?: number;
+}
+
 /** Maps the errors of the settings store to answers. */
-function refusalOf(e: unknown): Refusal | null {
+function settingsRefusal(e: unknown): Refusal | null {
   if (e instanceof ConfigError) return new Refusal(422, "invalid settings", { details: { problems: e.problems } });
   if (e instanceof RevisionConflictError) return new Refusal(409, e.message, { details: { latest: e.latest } });
   if (e instanceof NodeInUseError) return new Refusal(409, e.message, { details: { nodes: e.nodes } });
@@ -85,7 +96,7 @@ function refusalOf(e: unknown): Refusal | null {
 function refusing(handler: RouteHandler): RouteHandler {
   return (r, params) =>
     handler(r, params).catch((e) => {
-      throw refusalOf(e) ?? e;
+      throw settingsRefusal(e) ?? e;
     });
 }
 
@@ -138,9 +149,9 @@ function noteOf(body: Record<string, unknown>): string | undefined {
  * - `POST revisions/:id/rollback` `{base}`: publishes that revision's document again;
  * - `POST assets` `{data}`: stores a logo given in base64, answers its `sha256`;
  * - `GET assets/:sha256`: a stored logo, for a preview;
- * - `GET nodes`: the last health check of each node of the applied settings.
+ * - `GET nodes`: each node of the applied settings, its last health check and live tickets.
  */
-export function settingsRoutes({ store, probeNode, nodeNames, health, probeTimeoutMs = PROBE_TIMEOUT_MS, log = () => {} }: SettingsRoutesDeps): Routes {
+export function settingsRoutes({ store, probeNode, nodeNames, health, tickets, probeTimeoutMs = PROBE_TIMEOUT_MS, log = () => {} }: SettingsRoutesDeps): Routes {
   /** A warning when the node's agent does not answer within the deadline, or null. */
   async function reachability(name: string, node: NodeConfig): Promise<string | null> {
     const controller = new AbortController();
@@ -160,12 +171,15 @@ export function settingsRoutes({ store, probeNode, nodeNames, health, probeTimeo
   /**
    * Runs the publication's checks on the body's document, then probes its
    * nodes together. An unreachable node is a warning: it may come up later.
+   * A node it would move while sessions run there is one more problem.
    */
   async function validate({ req }: SignedIn): Promise<Reply> {
     const document = documentOf(await readBody(req, MAX_DOCUMENT_BYTES));
-    const { warnings } = await store.check(document);
+    const { settings, warnings } = await store.check(document).catch((e) => {
+      throw e instanceof NodeInUseError ? new Refusal(422, "invalid settings", { details: { problems: [e.message], nodes: e.nodes } }) : e;
+    });
 
-    const nodes = Object.entries((document.nodes ?? {}) as Record<string, NodeConfig>);
+    const nodes = Object.entries(settings.nodes);
     const unreachable = await Promise.all(nodes.map(([name, node]) => reachability(name, node)));
     return { status: 200, body: { warnings: [...warnings, ...unreachable.filter((w) => w !== null)] } };
   }
@@ -177,18 +191,18 @@ export function settingsRoutes({ store, probeNode, nodeNames, health, probeTimeo
   }
 
   /** Publishes a document and logs it as an admin action. */
-  async function publish(document: SettingsDocument, account: Account, base: number | null, note?: string): Promise<Reply> {
+  async function publish(document: SettingsDocument, account: Account, { base, note, rollbackOf }: PublishRequest): Promise<Reply> {
     const { revision, warnings } = await store.publish(document, { author: account.name, base, note });
     const { document: _, ...summary } = revision;
 
-    log("admin revision published", { revision: revision.id, by: account.name });
-    return { status: 201, body: { revision: summary, warnings } satisfies Published };
+    log("admin revision published", { revision: revision.id, by: account.name, ...(rollbackOf ? { rollback_of: rollbackOf } : {}) });
+    return { status: 201, body: { revision: summary, warnings } };
   }
 
   /** Publishes the body's document as a new revision. */
   async function publishRevision({ req, account }: SignedIn): Promise<Reply> {
     const body = await readBody(req, MAX_DOCUMENT_BYTES);
-    return publish(documentOf(body), account, baseOf(body), noteOf(body));
+    return publish(documentOf(body), account, { base: baseOf(body), note: noteOf(body) });
   }
 
   /** A stored revision; 404 when there is none with that id. */
@@ -212,7 +226,7 @@ export function settingsRoutes({ store, probeNode, nodeNames, health, probeTimeo
   async function rollback({ req, account }: SignedIn, [id]: string[]): Promise<Reply> {
     const base = baseOf(await readBody(req));
     const target = await revision(id);
-    return publish(target.document, account, base, `Rollback to revision ${target.id}`);
+    return publish(target.document, account, { base, note: `Rollback to revision ${target.id}`, rollbackOf: target.id });
   }
 
   /** Stores the body's logo; its SHA-256 then goes in the theme's `logo.asset`. */
@@ -235,7 +249,10 @@ export function settingsRoutes({ store, probeNode, nodeNames, health, probeTimeo
   /** Every node of the applied settings with its last check, as seen by this instance. */
   async function listNodes(): Promise<Reply> {
     const statuses = health();
-    return { status: 200, body: { nodes: nodeNames().map((name) => nodeView(name, statuses[name])) } };
+    const counts = await tickets();
+
+    const nodes = nodeNames().map((name) => ({ name, ...healthView(statuses[name]), tickets: counts[name] ?? NO_TICKETS }));
+    return { status: 200, body: { nodes } };
   }
 
   const routes: Routes = {
@@ -249,5 +266,6 @@ export function settingsRoutes({ store, probeNode, nodeNames, health, probeTimeo
     "GET assets/:sha256": getAsset,
     "GET nodes": listNodes,
   };
-  return Object.fromEntries(Object.entries(routes).map(([key, handler]) => [key, refusing(handler)]));
+  const wrapped = Object.entries(routes).map(([key, handler]) => [key, refusing(handler)]);
+  return Object.fromEntries(wrapped);
 }

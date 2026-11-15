@@ -310,15 +310,16 @@ session cookie and an `Origin` naming the host on every request that changes som
 | Route | Role |
 |---|---|
 | `GET settings` | The active revision's id and document; `{revision: null, document: {}}` before the first one. |
-| `POST config/validate` `{document}` | Dry run: runs every check of a publication and publishes nothing. `422` with `problems` when invalid; otherwise `200` with `warnings`, including each node whose agent does not answer `/healthz` within 3 s. An unreachable node does not prevent publishing. |
+| `POST config/validate` `{document}` | Dry run: runs every check of a publication and publishes nothing. `422` with `problems` when invalid, or when it removes or readdresses a node with sessions (with `nodes` too); otherwise `200` with `warnings`, including each node whose agent does not answer `/healthz` within 3 s, with the reason. An unreachable node does not prevent publishing. |
 | `POST revisions` `{base, document, note?}` | Publishes the document as a new revision, authored by the signed-in account. `base` is the revision it was edited from (`null` for the first one): `409` with `latest` when another was published since. `422` when invalid, `409` with `nodes` when it removes or readdresses a node with sessions. |
 | `GET revisions`, `GET revisions/:id` | Every revision newest first, without its document; one revision with its document. |
 | `POST revisions/:id/rollback` `{base}` | Publishes that revision's document again, as a new revision noted "Rollback to revision N". |
 | `POST assets` `{data}` | Stores a logo given in base64 (SVG, PNG or WebP, at most 64 KB) and answers its `sha256`, to put in `theme.logo.asset`. |
 | `GET assets/:sha256` | A stored logo, for a preview. |
-| `GET nodes` | Each node of the active settings with its last health check, as seen by the instance that answers. |
+| `GET nodes` | Each node of the active settings with its last health check, as seen by the instance that answers, and its live tickets by state. |
 
-Each publication, rollback and logo upload is logged with the account name.
+A settings document may weigh up to 256 KB, a logo upload 128 KB, any other body 16 KB. Each
+publication, rollback and logo upload is logged with the account name.
 
 ## Agent
 
