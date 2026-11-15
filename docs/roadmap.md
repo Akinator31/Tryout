@@ -3,7 +3,7 @@
 Tryout moves through ordered milestones. Each milestone has a goal and exit criteria; an item
 moves to [Done](#done) when it ships. There are no dates.
 
-Next: the rest of M4, released as `v0.2.0`.
+Next: M5, more ways to run nodes.
 
 | Milestone | Goal | Status |
 |---|---|---|
@@ -11,7 +11,7 @@ Next: the rest of M4, released as `v0.2.0`.
 | [M1 — Deployable](#m1-deployable) | Run Tryout on real infrastructure without building anything on the node | Done |
 | [M2 — Live](#m2-live) | A first public deployment, a public repository and versioned releases | Done |
 | [M3 — Design](#m3-design) | A dark, clear and robust visitor experience, designed before it is built | Done |
-| [M4 — Operate](#m4-operate) | Set up and control projects from an admin UI; metrics and logs | In progress |
+| [M4 — Operate](#m4-operate) | Set up and control projects from an admin UI; metrics and logs | Done |
 | [M5 — Hosting options](#m5-hosting-options) | More ways to run nodes safely | Planned |
 
 ## M0 — Proof of concept
@@ -110,6 +110,15 @@ can act on it. Released as `v0.2.0`.
 
 **Exit criteria:** an operator can set up a project from scratch, find and stop any session from
 the admin UI, and graph queue and session metrics.
+
+Done. Checked on the dev stack from an empty database, in a browser:
+
+- a new project made from the admin form, reviewed with its dry run and applied, serves
+  visitors from its embed address at once, with no restart;
+- its session shows on the Sessions page; Stop removes it and the visitor sees "Session
+  stopped";
+- a Prometheus server scrapes `/metrics` on the admin listener with the bearer token and graphs
+  tickets by state: two live sessions at the project's cap, a third visitor waiting in line.
 
 ## M5 — Hosting options
 
@@ -217,3 +226,7 @@ the admin UI, and graph queue and session metrics.
 - **M4:** admin projects and nodes pages: projects list, form, pause and removal; nodes with
   their health, add and edit with a connection test. See
   [Admin interface](configuration.md#admin-interface).
+- **M4:** project preview and embed snippet: with `public_url` set, each project page frames its
+  real embed address on demand and shows the iframe snippet to paste; `admin_preview: false`
+  turns the preview off. See [Admin interface](configuration.md#admin-interface).
+- **M4** closed and released as `v0.2.0`, see [above](#m4-operate).

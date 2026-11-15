@@ -59,7 +59,7 @@ projects:
     title: Hello CLI   # shown to visitors; defaults to the key above
     node: cli
     # Pin by digest in production: ghcr.io/<owner>/<image>:<tag>@sha256:...
-    image: ghcr.io/akinator31/tryout-example-cli-hello:0.1.1
+    image: ghcr.io/akinator31/tryout-example-cli-hello:0.2.0
     kind: terminal
     port: 7681
     max_sessions: 2
