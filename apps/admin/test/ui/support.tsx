@@ -34,7 +34,7 @@ export function fakeApi(routes: Routes) {
 /** The routes of a signed-in admin named alice with an empty dev stack. */
 export function signedIn(extra: Routes = {}): Routes {
   return {
-    "GET me": { status: 200, body: { name: "alice", version: "0.2.0" } },
+    "GET me": { status: 200, body: { name: "alice", version: "0.2.0", public_url: null, preview: false } },
     "GET settings": { status: 200, body: { revision: 15, document: { nodes: { local: { max_sessions: 10 } }, projects: { a: { node: "local", max_sessions: 10 } } } } },
     "GET sessions": { status: 200, body: { sessions: [] } },
     "GET accounts": { status: 200, body: { accounts: [] } },

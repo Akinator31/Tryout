@@ -62,7 +62,7 @@ services:
     command: ["tryout-gateway"]
     environment:
       GATEWAY_TOKEN: ${GATEWAY_TOKEN:?set in .env}
-      FRAME_ANCESTORS: ${FRAME_ANCESTORS:-http://localhost:3000}
+      FRAME_ANCESTORS: ${FRAME_ANCESTORS:-http://localhost:3000 http://localhost:9090}
       ADMIN_SOCKET: unix:///run/tryout/gateway.sock
     volumes:
       - gateway-admin:/run/tryout   # admin API: shared with the agent only

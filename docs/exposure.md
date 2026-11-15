@@ -74,6 +74,7 @@ your name and cookies being set on your main domain.
 - `embed_frame_ancestors` (control plane): the origins of your portfolios.
 - `FRAME_ANCESTORS` (gateway): the control plane's origin **and** the origins of your portfolios,
   space-separated. Browsers check `frame-ancestors` against every ancestor of a frame, and the
-  session iframe is nested inside the embed page, itself inside the portfolio.
+  session iframe is nested inside the embed page, itself inside the portfolio. For the admin's
+  project preview, add the admin's origin to both lists.
 - Set the `allow` attribute on the portfolio's iframe: `clipboard-read; clipboard-write;
   autoplay; fullscreen; keyboard-map`.

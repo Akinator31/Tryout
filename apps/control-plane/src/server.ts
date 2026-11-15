@@ -73,11 +73,16 @@ function loadEmbedOrExit(): EmbedBundle {
   }
 }
 
+/** The origin the admin's project preview frames, when the preview is on and public_url set. */
+function previewOrigin(cfg: Bootstrap): string | undefined {
+  return cfg.admin_preview ? cfg.public_url : undefined;
+}
+
 /** Reads the built admin UI when the admin listener is on; exits when it is missing. */
 function adminUiOrExit(cfg: Bootstrap): AdminHandler {
   if (!cfg.admin_listen) return async () => false;
   try {
-    return createAdminUiHandler(loadAdminUi());
+    return createAdminUiHandler(loadAdminUi(), { previewOrigin: previewOrigin(cfg) });
   } catch (e) {
     log(String(e instanceof Error ? e.message : e));
     process.exit(1);
@@ -192,6 +197,8 @@ const adminApi = createAdminHandler({
   metricsToken: bootstrap.admin_metrics_token,
   clientKey: (req) => adminClientKey(req.socket.remoteAddress, req.headers),
   version: process.env.TRYOUT_VERSION || undefined,
+  publicUrl: bootstrap.public_url,
+  preview: previewOrigin(bootstrap) !== undefined,
   routes: {
     ...sessionsRoutes({ queue, log }),
     ...settingsRoutes({

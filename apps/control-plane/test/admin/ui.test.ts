@@ -65,7 +65,12 @@ test("the CSP allows only the app's own sources and is never framed", () => {
   assert.match(csp, /script-src 'self';/);
   assert.match(csp, /style-src 'self' 'nonce-n0nce';/);
   assert.match(csp, /frame-ancestors 'none'/);
+  assert.match(csp, /frame-src 'none';/);
   assert.doesNotMatch(csp, /unsafe/);
+});
+
+test("the CSP frames the preview's origin only", () => {
+  assert.match(adminCsp("n0nce", "https://tryout.example.org"), /frame-src https:\/\/tryout\.example\.org;/);
 });
 
 test("assets are immutable; unknown ones are 404", async (t) => {
