@@ -36,6 +36,7 @@ Sources live in `src/`, one folder per area; `test/` mirrors it.
 | `db/db.ts`, `db/listen.ts` | Database port (queries, transactions, `LISTEN`); adapters for node-postgres and, in tests, PGlite; the reconnecting `LISTEN` session. |
 | `public/client.ts` | The visitor's IP address, read through trusted proxies only, and the cap on open event streams per IP. |
 | `public/http.ts` | Embed page and its assets, demo page, queue API and its SSE stream. Thin. |
+| `admin/ui.ts` | The built admin interface (`apps/admin/dist`), read once at start: its page for every path under `/admin/` but the API, with a fresh CSP nonce per answer, and its hashed assets. |
 | `public/embed.ts` | The built embed page (`apps/embed/dist`), read once at start: its template, its hashed assets, the theme's stylesheet and logo (applied again with each revision), and its Content-Security-Policy. |
 | `config/*.ts` | Configuration: `tryout.yaml` validated against the shared JSON Schema (`schema`), then semantic checks (`config`); the settings checks shared by the file and stored revisions (`settings`); revisions and assets in Postgres (`store`); the active revision, followed on every instance (`live`); values (`values`), error reporting (`report`), agent TLS files (`tls`), theme (`theme`). |
 | `cli.ts` | The operator's command line: `import` and `export` of the settings; admin accounts (`create-user`, `set-password`, `delete-user`, `list-users`). |
@@ -69,6 +70,33 @@ What it does:
   own, and every agent's, relayed over mutual TLS with a `node` label. The same listener serves
   the admin API, behind local accounts.
 
+### Admin interface — `apps/admin`
+
+The operator's pages, built from the Figma mock-ups with React, Chakra UI v3 (its theme made
+from `packages/tokens`), React Router and TanStack Query, then bundled by Vite into
+`apps/admin/dist`. The control plane's image builds it and serves it on the admin listener;
+nothing loads from a CDN.
+
+| Module | Role |
+|---|---|
+| `api.ts` | The admin API client: JSON both ways, errors with status and `Retry-After`, and whether the control plane answered the last call. |
+| `queries.ts` | One hook per API resource; lists refresh every 3 s while the tab is visible. |
+| `app/App.tsx` | Providers, routes, and the rule that any `401` leads to the sign-in page, then back. |
+| `app/Shell.tsx`, `app/Sidebar.tsx` | The signed-in frame: navigation, the control plane's state and version, the account and sign-out. |
+| `pages/` | Sign-in, Sessions (with stop), Accounts (add, delete, own password). |
+| `format.ts`, `sessions.ts`, `signin.ts`, `navigation.ts` | Pure functions: times and countdowns, the sessions' cells and summary, sign-in messages, the safe page to return to. |
+| `strings.ts`, `theme.ts`, `main.tsx` | Every visible text (English), the Chakra system, and the entry point. |
+
+What it does:
+
+- Keeps no state of its own on the server: every page reads the admin API, and a `401` from
+  any call returns to the sign-in page with the current page as `next`, which must be a path
+  of the app.
+- Says before sending a sign-in when the page is plain HTTP on a host other than localhost,
+  since the browser would drop the `Secure` cookie.
+- Never shows a session's URL or a visitor's address, which the API does not send anyway;
+  tickets show their 6-character prefix.
+
 ### Embed page — `apps/embed`, `packages/tokens`
 
 The page a visitor sees inside the portfolio's iframe, built from the Figma mock-ups in
@@ -82,7 +110,7 @@ plane's image builds it and serves it; nothing loads from a CDN.
 | `page.ts` | Renders a phase into `index.html`'s markup, text only; screen reader announcements; the session iframe. |
 | `strings.ts` | Every visible text, one catalogue per language (English, French), and the choice of language. |
 | `api.ts`, `main.ts` | The queue API, and the wiring. |
-| `packages/tokens` | Design tokens kept in step with the Figma variables (colours, spacing, radii, text styles) and IBM Plex fonts cut to Latin by `scripts/subset-fonts.sh`. The embed turns the tokens into CSS custom properties at build time; the admin UI will use them too. |
+| `packages/tokens` | Design tokens kept in step with the Figma variables (colours, spacing, radii, text styles) and IBM Plex fonts cut to Latin by `scripts/subset-fonts.sh`. The embed turns the tokens into CSS custom properties at build time; the admin interface builds its Chakra UI theme from them. |
 
 What it does:
 
@@ -338,7 +366,7 @@ value, rather than relying on each call site.
 - **Go for the node**: static binaries, easy cross-compilation to arm64, low memory on small
   nodes, and a standard-library reverse proxy with WebSocket support.
 - **TypeScript on Node.js ≥ 24 for the control plane**, run directly thanks to native type
-  stripping. The admin UI will use React with Chakra UI. The embed page stays framework-free
+  stripping. The admin interface uses React with Chakra UI. The embed page stays framework-free
   and small, because it loads for every portfolio visitor; both share one module of design
   tokens (`packages/tokens`).
 - **The embed page as hashed static files.** Vite names each script, style and font after its
@@ -346,6 +374,11 @@ value, rather than relying on each call site.
   HTML is filled per project and revalidated. With no inline script or style, the page's
   Content-Security-Policy allows only its own files, its own API, and frames from the nodes'
   public URLs.
+- **The admin interface as hashed static files too**, served by the control plane rather than
+  a separate web server, so it needs no new component or port. Chakra UI inserts its styles at
+  run time; rather than allowing inline styles, the control plane puts a fresh nonce in each
+  HTML answer and its CSP, and the page hands that nonce to Emotion. Scripts stay `'self'` only.
+  The sizes of its scripts and styles are checked against a budget in CI (300 KB compressed).
 - **The theme as more hashed files.** At startup the control plane turns `theme.accent` into a
   small stylesheet that overrides the brand tokens, and serves it and the logo next to the
   build's files, linked from the HTML template. The page paints in the operator's colours from
@@ -366,6 +399,7 @@ value, rather than relying on each call site.
 ```
 apps/control-plane/   control plane (TypeScript, Node ≥ 24, Postgres via node-postgres)
 apps/embed/           embed page (TypeScript, no UI framework, built by Vite)
+apps/admin/           admin interface (React, Chakra UI, built by Vite)
 packages/tokens/      design tokens and bundled IBM Plex fonts, shared by the UIs
 apps/node/            agent + gateway (Go), one binary each, one image
 deploy/               dev compose file and its configuration; node/ and control-plane/: production examples

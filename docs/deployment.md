@@ -168,8 +168,9 @@ To use the admin API, set `admin_listen`, publish it on a private address (see t
 docker compose exec control-plane node apps/control-plane/src/cli.ts create-user alice
 ```
 
-Reach the admin over HTTPS or an SSH tunnel to `localhost`, since its session cookie is
-`Secure`. See [Admin accounts](configuration.md#admin-accounts).
+Then open `/admin/` on that address, over HTTPS or an SSH tunnel to `localhost`, since the
+session cookie is `Secure`. See [Admin interface](configuration.md#admin-interface) and
+[Admin accounts](configuration.md#admin-accounts).
 
 ## 4. Expose the two services
 

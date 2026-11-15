@@ -22,6 +22,7 @@ async function setup(t: TestContext, { metricsToken }: { metricsToken?: string }
     metricsPage: async () => "tryout_up 1\n",
     metricsToken,
     clientKey: () => "203.0.113.1",
+    version: "1.2.3",
   });
   const server = createServer((req, res) => {
     handle(req, res).then(
@@ -83,7 +84,7 @@ test("login sets a host-only, HttpOnly, Secure, SameSite=Strict cookie that open
 
   const me = await call("/admin/api/me", { cookie: cookie.split(";")[0] });
   assert.equal(me.status, 200);
-  assert.deepEqual(await me.json(), { name: "alice" });
+  assert.deepEqual(await me.json(), { name: "alice", version: "1.2.3" });
   assert.equal(me.headers.get("cache-control"), "no-store");
 });
 

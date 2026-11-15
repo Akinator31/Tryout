@@ -6,6 +6,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { controlPlaneMetrics, createMetricsPage } from "./metrics/page.ts";
 import { createAdminAuth } from "./admin/auth.ts";
 import { createAdminHandler } from "./admin/http.ts";
+import { createAdminUiHandler, loadAdminUi } from "./admin/ui.ts";
 import { sessionsRoutes } from "./admin/sessions.ts";
 import { settingsRoutes } from "./admin/settings.ts";
 import { agentPool, checkHealth, fetchMetrics, probeAgent } from "./nodes/agents.ts";
@@ -72,6 +73,17 @@ function loadEmbedOrExit(): EmbedBundle {
   }
 }
 
+/** Reads the built admin UI when the admin listener is on; exits when it is missing. */
+function adminUiOrExit(cfg: Bootstrap): AdminHandler {
+  if (!cfg.admin_listen) return async () => false;
+  try {
+    return createAdminUiHandler(loadAdminUi());
+  } catch (e) {
+    log(String(e instanceof Error ? e.message : e));
+    process.exit(1);
+  }
+}
+
 /** Listens on `at`; a handler failure is logged and answered with a 500 when headers are not sent yet. */
 function listen(name: string, at: Listen, handle: Handler): void {
   const server = createServer((req, res) => {
@@ -112,6 +124,7 @@ function serve(cfg: Bootstrap, handle: Handler, admin: AdminHandler): void {
 const databaseUrl = requireDatabaseUrl();
 const { config: bootstrap, seed } = loadConfigOrExit();
 const baseEmbed = loadEmbedOrExit();
+const adminUi = adminUiOrExit(bootstrap);
 const db = pgDb(databaseUrl);
 const store = await createConfigStore({ db });
 await seedOrExit(store, seed);
@@ -173,11 +186,12 @@ const metricsPage = createMetricsPage({
 
 const warnClientAddress = (warning: string) => log("client address warning", { warning });
 const adminClientKey = clientKeyResolver(bootstrap.client_ip, warnClientAddress);
-const admin = createAdminHandler({
+const adminApi = createAdminHandler({
   auth: await createAdminAuth({ db }),
   metricsPage,
   metricsToken: bootstrap.admin_metrics_token,
   clientKey: (req) => adminClientKey(req.socket.remoteAddress, req.headers),
+  version: process.env.TRYOUT_VERSION || "dev",
   routes: {
     ...sessionsRoutes({ queue, log }),
     ...settingsRoutes({
@@ -191,6 +205,8 @@ const admin = createAdminHandler({
   },
   log,
 });
+
+const admin: AdminHandler = async (req, res) => (await adminApi(req, res)) || adminUi(req, res);
 
 setInterval(() => void health.probe(), HEALTH_INTERVAL_MS);
 setInterval(tick, TICK_INTERVAL_MS);

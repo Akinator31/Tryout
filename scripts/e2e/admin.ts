@@ -5,7 +5,8 @@
 // a node that does not answer, the nodes are up, and the active document is
 // published again then rolled back, which leaves the settings unchanged. A
 // visitor's session then shows in the sessions list, without its URL, and the
-// operator's stop ends it as "stopped". The account is deleted at the end.
+// operator's stop ends it as "stopped". The admin UI is served under /admin/
+// with a fresh CSP nonce, and its assets resolve. The account is deleted at the end.
 // Usage: node scripts/e2e/admin.ts [admin-url] [control-plane-url] [project] -- <command running the control plane's CLI>
 //   default command: docker compose -f deploy/compose.dev.yaml exec -T control-plane node apps/control-plane/src/cli.ts
 import { execFileSync } from "node:child_process";
@@ -103,6 +104,23 @@ async function checkSessions(cookie: string): Promise<void> {
   if (view.reason !== "stopped") fail(`the visitor does not see a stop: ${JSON.stringify(view)}`);
 }
 
+/** The admin UI: / redirects to it, every page carries a nonce matching its CSP, and its assets load. */
+async function checkUi(): Promise<void> {
+  const root = await fetch(`${ADMIN}/`, { redirect: "manual" });
+  if (root.status !== 302 || root.headers.get("location") !== "/admin/") fail(`/ answered ${root.status}`);
+
+  const page = await fetch(`${ADMIN}/admin/sessions`);
+  const html = await page.text();
+  const nonce = /name="csp-nonce" content="([^"]+)"/.exec(html)?.[1] ?? fail("the admin page has no nonce");
+  if (!page.headers.get("content-security-policy")?.includes(`'nonce-${nonce}'`)) fail("the CSP does not carry the page's nonce");
+
+  for (const [, src] of html.matchAll(/(?:src|href)="(\/admin\/assets\/[^"]+)"/g)) {
+    const asset = await fetch(ADMIN + src);
+    if (asset.status !== 200) fail(`${src} answered ${asset.status}`);
+  }
+}
+
+await checkUi();
 cli("create-user", NAME);
 try {
   const login = await call("/admin/api/login", "POST", "", { name: NAME, password: PASSWORD });
@@ -110,7 +128,8 @@ try {
   const cookie = login.headers.get("set-cookie")?.split(";")[0] ?? fail("no cookie");
 
   const me = await call("/admin/api/me", "GET", cookie);
-  if (me.status !== 200 || (await me.json()).name !== NAME) fail(`me answered ${me.status}`);
+  const meBody = me.status === 200 ? await me.json() : null;
+  if (meBody?.name !== NAME || typeof meBody.version !== "string") fail(`me answered ${me.status}: ${JSON.stringify(meBody)}`);
 
   await checkSettings(cookie);
   await checkSessions(cookie);
@@ -125,4 +144,4 @@ try {
   cli("delete-user", NAME);
 }
 
-console.log("OK: an account made with the command line signs in and out; cross-origin requests are refused; the settings API validates, publishes and rolls back; a session is listed and stopped");
+console.log("OK: an account made with the command line signs in and out; cross-origin requests are refused; the settings API validates, publishes and rolls back; a session is listed and stopped; the admin UI is served");
