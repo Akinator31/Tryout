@@ -2,7 +2,7 @@
 // page edits through, and the review dialog's open state, so any page or
 // action can open it.
 import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
-import { useActiveSettings } from "./queries.ts";
+import { useActiveSettings, useMe } from "./queries.ts";
 import type { SettingsDocument } from "./settings/document.ts";
 import { draftChanges, type DraftStore } from "./settings/draft.ts";
 
@@ -70,12 +70,19 @@ export function useDraft() {
 
 /**
  * Keeps the draft on top of the active revision: moves it when a newer one
- * arrives, and asks before the tab closes while it holds changes.
+ * arrives, drops one another account made (after a session expired and
+ * someone else signed in on the tab), and asks before the tab closes while
+ * it holds changes.
  */
 export function DraftSync() {
   const { store } = useDraftContext();
   const active = useActiveSettings().data;
+  const account = useMe().data?.name;
   const draft = useSyncExternalStore(store.subscribe, store.get);
+
+  useEffect(() => {
+    if (account) store.own(account);
+  }, [store, account]);
 
   useEffect(() => {
     if (active) store.rebase(active);

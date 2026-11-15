@@ -80,12 +80,3 @@ export function DraftField<T>(props: DraftFieldProps<T>) {
     </Field.Root>
   );
 }
-
-/** A whole number, 0 or more, or undefined. */
-export const parseWhole = (text: string) => (/^\d{1,9}$/.test(text.trim()) ? Number(text.trim()) : undefined);
-
-/** A duration such as 90s, 15m or 1h30m, or undefined. */
-export const parseDuration = (text: string) => {
-  const t = text.trim();
-  return t.length >= 2 && /^(\d+h)?(\d+m)?(\d+s)?$/.test(t) ? t : undefined;
-};

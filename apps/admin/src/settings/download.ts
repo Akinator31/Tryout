@@ -1,5 +1,6 @@
 // What "Download YAML" saves: the settings in the import command's format,
 // with the logo named as a file beside it, as `cli.ts export` writes them.
+import { BASE } from "../navigation.ts";
 import type { SettingsDocument } from "./document.ts";
 import { LOGO_TYPES } from "./theme.ts";
 import { stringify } from "./yaml.ts";
@@ -25,9 +26,12 @@ export function settingsYaml(document: SettingsDocument, source: string): string
 /** The file name of a revision's settings, or of a draft's. */
 export const yamlFileName = (revision: number | null) => (revision === null ? "tryout-settings-draft.yaml" : `tryout-settings-rev${revision}.yaml`);
 
+/** The URL of a stored logo, for an <img> or a download. */
+export const assetUrl = (sha256: string) => `${BASE}/api/assets/${sha256}`;
+
 /** A stored logo's bytes and type, read straight from the API (the JSON client does not read images). */
 export async function fetchLogo(sha256: string): Promise<Blob> {
-  const res = await fetch(`/admin/api/assets/${sha256}`, { credentials: "same-origin" });
+  const res = await fetch(assetUrl(sha256), { credentials: "same-origin" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.blob();
 }
@@ -45,10 +49,10 @@ export function save(name: string, blob: Blob): void {
  * Saves a document as YAML; with a stored logo, the YAML names it as a file,
  * which the operator downloads beside it.
  */
-export async function downloadSettings(document: SettingsDocument, revision: number | null, source: string): Promise<void> {
-  const asset = document.theme?.logo?.asset;
+export async function downloadSettings(settings: SettingsDocument, revision: number | null, source: string): Promise<void> {
+  const asset = settings.theme?.logo?.asset;
   const logo = asset ? logoFileName(asset, (await fetchLogo(asset)).type) : null;
-  const text = settingsYaml(forFile(document, logo), source);
+  const text = settingsYaml(forFile(settings, logo), source);
 
   save(yamlFileName(revision), new Blob([text], { type: "application/yaml" }));
 }

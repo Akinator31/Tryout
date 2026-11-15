@@ -4,19 +4,20 @@
 import { Box, Button, Flex, Heading, Stack, Table, Text } from "@chakra-ui/react";
 import { ChevronRight, RotateCcw } from "lucide-react";
 import { useNavigate, useParams } from "react-router";
-import { ApiError } from "../api.ts";
 import { useNow } from "../clock.ts";
 import { Card } from "../components/Card.tsx";
 import { DataCell, DataHeader, DataTable } from "../components/DataTable.tsx";
 import { DiffView } from "../components/DiffView.tsx";
 import { DownloadButton } from "../components/DownloadButton.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
+import { PendingActions } from "../components/PendingActions.tsx";
 import { Problem } from "../components/Problem.tsx";
 import { daysAgo } from "../format.ts";
 import type { RevisionSummary } from "../model.ts";
 import { paths } from "../navigation.ts";
 import { useRevision, useRevisions, useRollback } from "../queries.ts";
 import { downloadLogo, downloadSettings } from "../settings/download.ts";
+import { settingsRefusal } from "../settings/refusals.ts";
 import { strings } from "../strings.ts";
 import { useDraft } from "../useDraft.tsx";
 
@@ -53,12 +54,28 @@ function RevisionRow(props: { revision: RevisionSummary; active: boolean; chosen
         {daysAgo(revision.createdAt, now)}
       </DataCell>
       <DataCell w="48px" textAlign="end">
-        <Button variant="ghost" size="xs" aria-label={R.open(revision.id)} onClick={onOpen}>
+        <Button
+          variant="ghost"
+          size="xs"
+          aria-label={R.open(revision.id)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen();
+          }}
+        >
           <ChevronRight size={16} aria-hidden />
         </Button>
       </DataCell>
     </Table.Row>
   );
+}
+
+/** Why a rollback was refused, in words. */
+function rollbackProblem(refusal: ReturnType<typeof settingsRefusal>): string {
+  if (refusal?.kind === "moved") return R.detail.moved;
+  if (refusal?.kind === "nodeInUse") return strings.review.nodeInUse(refusal.nodes);
+  if (refusal?.kind === "invalid") return strings.review.invalid;
+  return strings.common.actionFailed;
 }
 
 /** The chosen revision: its changes from its parent, downloads, and rollback. */
@@ -74,7 +91,7 @@ function RevisionDetail({ id, latest, now }: { id: number; latest: number; now: 
   const r = revision.data;
   const before = r.parent === null ? {} : parent.data?.document;
   const isActive = r.id === latest;
-  const moved = rollback.error instanceof ApiError && rollback.error.status === 409;
+  const refusal = settingsRefusal(rollback.error);
   const asset = r.document.theme?.logo?.asset;
 
   return (
@@ -92,9 +109,9 @@ function RevisionDetail({ id, latest, now }: { id: number; latest: number; now: 
         <Text textStyle="text-xs" color="fg.subtle">
           {R.detail.changesFrom(r.parent)}
         </Text>
-        {before ? <DiffView before={before} after={r.document} label="settings" empty={R.detail.same} /> : <Text color="fg.muted">{strings.common.loading}</Text>}
+        {before ? <DiffView before={before} after={r.document} label={R.detail.diffLabel} empty={R.detail.same} /> : <Text color="fg.muted">{strings.common.loading}</Text>}
         <Flex gap="2" wrap="wrap">
-          <DownloadButton label={R.detail.download} run={() => downloadSettings(r.document, r.id, `revision ${r.id}`)} />
+          <DownloadButton label={R.detail.download} run={() => downloadSettings(r.document, r.id, R.detail.source(r.id))} />
           {asset && <DownloadButton label={R.detail.downloadLogo} run={() => downloadLogo(asset)} />}
         </Flex>
       </Stack>
@@ -109,7 +126,7 @@ function RevisionDetail({ id, latest, now }: { id: number; latest: number; now: 
             <Text textStyle="text-xs" color="fg.subtle">
               {draft ? R.detail.draftPending : R.detail.rollbackHelp(r.id, latest + 1)}
             </Text>
-            {rollback.isError && <Problem title={moved ? R.detail.moved : strings.common.actionFailed} />}
+            {rollback.isError && <Problem title={rollbackProblem(refusal)} detail={refusal?.kind === "invalid" ? refusal.problems.join(" ") : undefined} />}
             <Box>
               <Button variant="outline" size="sm" h="10" disabled={draft !== null} loading={rollback.isPending} onClick={() => rollback.mutate({ id: r.id, base: latest })}>
                 <RotateCcw size={16} aria-hidden />
@@ -136,7 +153,7 @@ export function Revisions() {
 
   return (
     <>
-      <PageHeader title={R.title} description={R.description} />
+      <PageHeader title={R.title} description={R.description} action={<PendingActions />} />
 
       <Box px="8">
         {revisions.isError && <Problem title={strings.common.loadFailed} detail={revisions.error.message} />}

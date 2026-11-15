@@ -10,9 +10,10 @@ import { PendingActions } from "../components/PendingActions.tsx";
 import { Problem } from "../components/Problem.tsx";
 import { Section } from "../components/Section.tsx";
 import { Card } from "../components/Card.tsx";
-import { BASE } from "../navigation.ts";
 import { useUploadAsset } from "../queries.ts";
 import type { SettingsDocument, Theme as ThemeSettings } from "../settings/document.ts";
+import { assetUrl } from "../settings/download.ts";
+import { parseHexColour } from "../settings/parse.ts";
 import { CARD_BACKGROUND, LOGO_TYPES, MAX_LOGO_BYTES, MIN_ACCENT_CONTRAST, contrastRatio, isHexColour } from "../settings/theme.ts";
 import { strings } from "../strings.ts";
 import { useDraft } from "../useDraft.tsx";
@@ -21,9 +22,6 @@ const T = strings.theme;
 const DEFAULT_ACCENT = colors.brand.solid.toUpperCase();
 
 type Edit = (update: (d: SettingsDocument) => void) => void;
-
-/** The URL of a stored logo. */
-export const assetUrl = (sha256: string) => `${BASE}/api/assets/${sha256}`;
 
 /** Writes to the draft's theme, creating it when absent. */
 function editTheme(edit: Edit, update: (theme: ThemeSettings) => void) {
@@ -66,7 +64,7 @@ function AccentCard({ accent, edit }: { accent: string | undefined; edit: Edit }
           cursor="pointer"
         />
         <Box w="200px">
-          <DraftField label={T.accent.label} mono value={shown} format={String} parse={(t) => (isHexColour(t.trim()) ? t.trim().toUpperCase() : undefined)} invalid={T.accent.format} onCommit={set} />
+          <DraftField label={T.accent.label} mono value={shown} format={String} parse={parseHexColour} invalid={T.accent.format} onCommit={set} />
         </Box>
         <Button variant="ghost" size="sm" h="10" disabled={accent === undefined} onClick={() => editTheme(edit, (t) => delete t.accent)}>
           {T.accent.useDefault(DEFAULT_ACCENT)}

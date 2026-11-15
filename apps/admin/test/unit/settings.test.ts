@@ -188,6 +188,32 @@ test("the draft moves on top of a newer revision, flagging conflicts, and ignore
   assert.equal(isConflict(sessions, draft.conflicts), false);
 });
 
+test("a draft made by another account is dropped when someone else signs in on the tab", () => {
+  const storage = memoryStorage();
+  const store = createDraftStore(storage);
+  store.own("alice");
+  store.edit({ revision: 1, document: DOC }, (d) => (d.theme!.accent = "#111111"));
+  assert.equal(store.get()?.owner, "alice");
+
+  const reloaded = createDraftStore(storage);
+  reloaded.own("alice");
+  assert.notEqual(reloaded.get(), null);
+  reloaded.own("bob");
+  assert.equal(reloaded.get(), null);
+});
+
+test("conflicts are counted once, however many times the draft moves", () => {
+  const store = createDraftStore(null);
+  store.edit({ revision: 1, document: DOC }, (d) => (d.theme!.accent = "#111111"));
+
+  for (const [revision, accent] of [[2, "#222222"], [3, "#333333"]] as const) {
+    const theirs = structuredClone(DOC);
+    theirs.theme.accent = accent;
+    store.rebase({ revision, document: theirs });
+  }
+  assert.deepEqual(store.get()?.conflicts, [["theme", "accent"]]);
+});
+
 test("a draft that a newer revision already contains is dropped", () => {
   const store = createDraftStore(null);
   store.edit({ revision: 1, document: DOC }, (d) => (d.theme!.accent = "#111111"));

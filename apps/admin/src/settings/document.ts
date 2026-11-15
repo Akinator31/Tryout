@@ -62,6 +62,16 @@ export function isObject(v: unknown): v is JsonObject {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
+/** Whether `v` is a list of strings, numbers, booleans or nulls. */
+export function isScalarList(v: unknown): v is (string | number | boolean | null)[] {
+  return Array.isArray(v) && v.every((x) => typeof x !== "object" || x === null);
+}
+
+/** Whether `path` names one node or one project: `["nodes", "pi5"]`. */
+export function isEntryPath(path: readonly string[]): boolean {
+  return path.length === 2 && (path[0] === "nodes" || path[0] === "projects");
+}
+
 /** Whether two JSON values are equal, whatever the order of object keys. */
 export function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;

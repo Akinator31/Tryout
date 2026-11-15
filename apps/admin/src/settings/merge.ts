@@ -1,6 +1,6 @@
 // Puts the admin's pending changes on top of a revision someone else
 // published meanwhile: a three-way merge, path by path.
-import { deepEqual, isObject } from "./document.ts";
+import { deepEqual, isObject, isScalarList } from "./document.ts";
 
 export interface MergeResult<T> {
   merged: T;
@@ -8,14 +8,12 @@ export interface MergeResult<T> {
   conflicts: string[][];
 }
 
-/** Whether every value is a list of scalars, or absent. */
-const scalarLists = (...values: unknown[]) =>
-  values.every((v) => v === undefined || (Array.isArray(v) && v.every((x) => typeof x !== "object" || x === null)));
+/** A list of scalars merged as a set: theirs, minus what mine removed, plus what mine added. */
+function mergeSet(base: unknown[], mine: unknown[], theirs: unknown[]): unknown[] {
+  const removedByMine = (v: unknown) => base.includes(v) && !mine.includes(v);
+  const addedByMine = mine.filter((v) => !base.includes(v) && !theirs.includes(v));
 
-/** A list of scalars merged as a set: theirs, plus what mine added, minus what mine removed. */
-function mergeSet(base: unknown[] = [], mine: unknown[] = [], theirs: unknown[] = []): unknown[] {
-  const added = mine.filter((v) => !base.includes(v) && !theirs.includes(v));
-  return [...theirs.filter((v) => !(base.includes(v) && !mine.includes(v))), ...added];
+  return [...theirs.filter((v) => !removedByMine(v)), ...addedByMine];
 }
 
 /** Merges one value; `undefined` stands for an absent field. */
@@ -34,8 +32,8 @@ function mergeValue(base: unknown, mine: unknown, theirs: unknown, path: string[
     }
     return out;
   }
-  if (scalarLists(base, mine, theirs) && mine !== undefined && theirs !== undefined) {
-    return mergeSet(base as unknown[], mine as unknown[], theirs as unknown[]);
+  if (isScalarList(mine) && isScalarList(theirs) && (base === undefined || isScalarList(base))) {
+    return mergeSet(base ?? [], mine, theirs);
   }
 
   conflicts.push(path);

@@ -324,12 +324,13 @@ plane's version (`TRYOUT_VERSION`) and the active revision. The pages that edit 
 nodes come next; until then, change them with `import` or the admin API.
 
 **Pending changes.** Edits on any settings page join one draft of the whole settings, kept
-in the browser tab (it survives a reload, not closing the tab, and signing out drops it). While
+in the browser tab (it survives a reload, not closing the tab; signing out drops it, and another
+account signing in on the tab never sees it). While
 it holds changes, every settings page shows *Discard* and *Review N changes*. The review lists
 the changes and their YAML diff, runs the dry run (problems block Apply, warnings such as an
 unreachable node do not), takes an optional note, and publishes the draft as the next
 revision. *Download YAML* saves the draft, or a revision, in the format of the `import`
-command, with a stored logo named as a file beside it (*Download logo* on the revision).
+command, with a stored logo named as a file beside it, which *Download logo* saves.
 
 If another account publishes a revision meanwhile, the draft moves on top of it: each side's
 changes are kept, and where both changed the same value, the draft's value is kept and the

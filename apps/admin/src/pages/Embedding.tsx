@@ -8,7 +8,8 @@ import { PageHeader } from "../components/PageHeader.tsx";
 import { PendingActions } from "../components/PendingActions.tsx";
 import { Problem } from "../components/Problem.tsx";
 import { Aside, Section } from "../components/Section.tsx";
-import { DraftField, parseDuration, parseWhole } from "../components/Fields.tsx";
+import { DraftField } from "../components/Fields.tsx";
+import { parseDuration, parseWhole } from "../settings/parse.ts";
 import { DEFAULT_LIMITS, type Limits, type SettingsDocument } from "../settings/document.ts";
 import { checkOrigin, isWildcard, type OriginCheck } from "../settings/origin.ts";
 import { strings } from "../strings.ts";
@@ -82,7 +83,7 @@ function OriginsCard({ origins, edit }: { origins: string[]; edit: (update: (d: 
           <Flex gap="2" w="full">
             <Input
               aria-label={E.origins.input}
-              placeholder="https://portfolio.example.org"
+              placeholder={E.origins.placeholder}
               value={input}
               onChange={(e) => {
                 setInput(e.target.value);

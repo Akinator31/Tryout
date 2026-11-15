@@ -1,6 +1,6 @@
 // What changed between two settings documents: the YAML lines that differ,
 // for the diff panels, and the changes by path, for the summary chips.
-import { deepEqual, isObject } from "./document.ts";
+import { deepEqual, isEntryPath, isObject, isScalarList } from "./document.ts";
 
 /** One line of a line diff. */
 export interface DiffLine {
@@ -64,13 +64,6 @@ export type Change =
   | { kind: "remove"; path: string[]; value: unknown }
   | { kind: "change"; path: string[]; from: unknown; to: unknown };
 
-/** Sections whose entries are named things: a new or removed entry is one change. */
-const NAMED = new Set(["nodes", "projects"]);
-
-/** Whether `v` is a list of strings, numbers or booleans. */
-const isScalarList = (v: unknown): v is (string | number | boolean)[] =>
-  Array.isArray(v) && v.every((x) => typeof x !== "object" || x === null);
-
 /**
  * The changes from `before` to `after`: a node or project added or removed
  * whole, a list of scalars item by item, anything else value by value (a
@@ -79,10 +72,15 @@ const isScalarList = (v: unknown): v is (string | number | boolean)[] =>
 export function changes(before: unknown, after: unknown, path: string[] = []): Change[] {
   if (deepEqual(before, after)) return [];
 
-  const named = path.length === 2 && NAMED.has(path[0]);
-  // A new or removed section shows its values; a new or removed node or project is one change.
-  if (before === undefined) return isObject(after) && !named && path.length > 0 ? changes({}, after, path) : [{ kind: "add", path, value: after }];
-  if (after === undefined) return isObject(before) && !named && path.length > 0 ? changes(before, {}, path) : [{ kind: "remove", path, value: before }];
+  const named = isEntryPath(path);
+  const section = (v: unknown) => isObject(v) && !named && path.length > 0;
+
+  if (before === undefined) {
+    return section(after) ? changes({}, after, path) : [{ kind: "add", path, value: after }];
+  }
+  if (after === undefined) {
+    return section(before) ? changes(before, {}, path) : [{ kind: "remove", path, value: before }];
+  }
 
   if (!named && isScalarList(before) && isScalarList(after)) {
     const added = after.filter((v) => !before.includes(v)).map((value): Change => ({ kind: "add", path, value }));
@@ -98,5 +96,5 @@ export function changes(before: unknown, after: unknown, path: string[] = []): C
 
 /** Whether a change adds or removes a whole node or project. */
 export function isEntry(change: Change): boolean {
-  return change.path.length === 2 && NAMED.has(change.path[0]) && change.kind !== "change";
+  return isEntryPath(change.path) && change.kind !== "change";
 }

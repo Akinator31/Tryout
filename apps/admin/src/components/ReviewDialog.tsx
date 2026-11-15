@@ -4,9 +4,9 @@
 import { Box, Button, Dialog, Field, Flex, Input, Stack, Text } from "@chakra-ui/react";
 import { Check, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
-import { ApiError } from "../api.ts";
 import { usePublish, useValidate } from "../queries.ts";
-import { downloadSettings } from "../settings/download.ts";
+import { downloadLogo, downloadSettings } from "../settings/download.ts";
+import { settingsRefusal, type SettingsRefusal } from "../settings/refusals.ts";
 import { noteFrom } from "../settings/labels.ts";
 import { strings } from "../strings.ts";
 import { useDraft } from "../useDraft.tsx";
@@ -19,11 +19,12 @@ import { Problem } from "./Problem.tsx";
 const R = strings.review;
 const MAX_NOTE = 200;
 
-/** The problems of a refused document (422), or null for any other error. */
-function problemsOf(e: unknown): string[] | null {
-  if (!(e instanceof ApiError) || e.status !== 422) return null;
-  const { problems } = e.details;
-  return Array.isArray(problems) ? problems.map(String) : [e.message];
+/** A refusal in words: what to tell the operator, and the details. */
+function refusalText(refusal: SettingsRefusal | null): { title: string; detail?: string } {
+  if (refusal?.kind === "invalid") return { title: R.invalid, detail: refusal.problems.join(" ") };
+  if (refusal?.kind === "moved") return { title: R.moved };
+  if (refusal?.kind === "nodeInUse") return { title: R.nodeInUse(refusal.nodes) };
+  return { title: strings.common.actionFailed };
 }
 
 /** A line of the dry run's outcome: a check, or an amber warning. */
@@ -43,17 +44,14 @@ function Checks({ validate }: { validate: ReturnType<typeof useValidate> }) {
   if (validate.isPending || validate.isIdle) return <Text color="fg.muted">{R.checking}</Text>;
 
   if (validate.isError) {
-    const problems = problemsOf(validate.error);
-    return <Problem title={problems ? R.invalid : R.checkFailed} detail={problems?.join(" ") ?? validate.error.message} />;
+    const refusal = settingsRefusal(validate.error);
+    return refusal ? <Problem {...refusalText(refusal)} /> : <Problem title={R.checkFailed} detail={validate.error.message} />;
   }
 
-  const { warnings } = validate.data;
-  const unreachable = warnings.some((w) => w.includes("does not answer"));
   return (
     <Stack gap="1.5" role="status">
       <CheckLine ok>{R.valid}</CheckLine>
-      {!unreachable && <CheckLine ok>{R.reachable}</CheckLine>}
-      {warnings.map((w) => (
+      {validate.data.warnings.map((w) => (
         <CheckLine key={w} ok={false}>
           {w}
         </CheckLine>
@@ -68,46 +66,38 @@ export function ReviewDialog() {
   const validate = useValidate();
   const publish = usePublish();
   const [note, setNote] = useState("");
-  const [moved, setMoved] = useState(false);
 
-  // Check the draft each time the dialog opens, and again if it changes meanwhile (moved on top of a newer revision).
-  const document = reviewing ? draft?.document : undefined;
+  // While open, the draft is checked and the note filled from its changes: on opening, and
+  // again when the draft moves on top of a newer revision.
+  const pending = reviewing ? draft?.document : undefined;
   useEffect(() => {
-    if (document) validate.mutate(document);
-  }, [document]);
-
-  // Fill the note from the changes when the dialog opens.
-  useEffect(() => {
-    if (reviewing) setNote(noteFrom(changes, MAX_NOTE));
-  }, [reviewing]);
+    if (!pending) return;
+    validate.mutate(pending);
+    setNote(noteFrom(changes, MAX_NOTE));
+  }, [pending]);
 
   /** Closes the dialog and forgets the last attempt; the draft stays. */
   const close = () => {
     publish.reset();
-    setMoved(false);
     closeReview();
   };
 
-  /** Publishes the draft; a 409 means a newer revision exists, which the draft then moves onto. */
+  /** Publishes the draft; after a 409 for a newer revision, the draft moves onto it and is checked again. */
   const apply = () => {
     if (!draft) return;
 
-    setMoved(false);
-    publish.mutate(
-      { base: draft.base, document: draft.document, note: note.trim() || undefined },
-      {
-        onSuccess: () => {
-          discard();
-          close();
-        },
-        onError: (e) => setMoved(e instanceof ApiError && e.status === 409),
+    const publication = { base: draft.base, document: draft.document, note: note.trim() || undefined };
+    publish.mutate(publication, {
+      onSuccess: () => {
+        discard();
+        close();
       },
-    );
+    });
   };
 
   const next = (draft?.base ?? 0) + 1;
-  const publishProblems = problemsOf(publish.error);
-  const blocked = !draft || validate.isPending || validate.isError || publish.isPending;
+  const logo = draft?.document.theme?.logo?.asset;
+  const blocked = !draft || validate.isIdle || validate.isPending || validate.isError || publish.isPending;
 
   return (
     <DialogShell open={reviewing} onClose={close} maxW="720px">
@@ -119,8 +109,7 @@ export function ReviewDialog() {
             <ChangeChips changes={changes} conflicts={draft.conflicts} />
             <DiffView before={draft.baseDocument} after={draft.document} label={R.file} />
             <Checks validate={validate} />
-            {moved && <Problem title={R.moved} />}
-            {publish.isError && !moved && <Problem title={publishProblems ? R.invalid : strings.common.actionFailed} detail={publishProblems?.join(" ")} />}
+            {publish.isError && <Problem {...refusalText(settingsRefusal(publish.error))} />}
             <Field.Root>
               <Field.Label textStyle="label-sm">{R.note}</Field.Label>
               <Input value={note} maxLength={MAX_NOTE} onChange={(e) => setNote(e.target.value)} h="10" borderColor="border.emphasized" />
@@ -132,9 +121,10 @@ export function ReviewDialog() {
         )}
       </DialogFrame>
       <Dialog.Footer px="6" py="4" gap="2">
-        <Box me="auto">
+        <Flex me="auto">
           {draft && <DownloadButton label={R.download} run={() => downloadSettings(draft.document, null, R.draftSource(draft.base))} />}
-        </Box>
+          {logo && <DownloadButton label={R.downloadLogo} run={() => downloadLogo(logo)} />}
+        </Flex>
         <Button variant="outline" size="sm" h="10" onClick={close} disabled={publish.isPending}>
           {R.keepEditing}
         </Button>

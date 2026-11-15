@@ -42,7 +42,7 @@ test("adding an origin explains a missing scheme, then joins the draft and is ap
   const dialog = await screen.findByRole("dialog");
   expect(within(dialog).getByText("Review and apply revision 16")).toBeTruthy();
   expect(within(dialog).getByText("+ embed_frame_ancestors https://app.example.org")).toBeTruthy();
-  expect(await within(dialog).findByText("Nodes reachable")).toBeTruthy();
+  expect(await within(dialog).findByText("Schema and settings valid")).toBeTruthy();
 
   await user.click(within(dialog).getByRole("button", { name: "Apply revision 16" }));
 
@@ -167,6 +167,14 @@ test("a revision shows its changes from its parent and rolls back on top of the 
   await user.click(screen.getByRole("button", { name: "Roll back to revision 2" }));
   await waitFor(() => expect(posted(calls, "revisions/2/rollback")).toHaveLength(1));
   expect(posted(calls, "revisions/2/rollback")[0].body).toEqual({ base: 3 });
+});
+
+test("a rollback refused because sessions run on a node names the node", async () => {
+  const user = userEvent.setup();
+  renderAdmin("/admin/revisions/2", revisionRoutes({ "POST revisions/2/rollback": { status: 409, body: { error: "node in use", nodes: ["pi5"] } } }));
+
+  await user.click(await screen.findByRole("button", { name: "Roll back to revision 2" }));
+  expect(await screen.findByText("Sessions run on pi5: the node cannot be removed or moved now.")).toBeTruthy();
 });
 
 test("rolling back waits until the pending changes are applied or discarded", async () => {

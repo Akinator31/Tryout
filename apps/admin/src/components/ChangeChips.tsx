@@ -29,10 +29,9 @@ export function ChangeChips({ changes, conflicts = [] }: { changes: Change[]; co
             color={`${palette}.fg`}
             borderWidth={conflict ? "1px" : undefined}
             borderColor={conflict ? "fg.error" : undefined}
-            title={conflict ? strings.review.conflict : undefined}
           >
             {`${changeSign(change)} ${changeLabel(change)}`}
-            {conflict && ` (${strings.review.conflict.toLowerCase()})`}
+            {conflict && ` (${strings.review.conflict})`}
           </Badge>
         );
       })}
