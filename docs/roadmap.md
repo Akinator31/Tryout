@@ -207,3 +207,8 @@ the admin UI, and graph queue and session metrics.
 - **M4:** admin accounts: made from the command line first, scrypt passwords, server-side
   sessions in a `__Host-` cookie, failed-login limits across instances; an optional bearer token
   for `/metrics`. See [Admin accounts](configuration.md#admin-accounts).
+- **M4:** admin API: the settings as one document with a dry run, revisions and rollback,
+  logos, the nodes' health, the live sessions and the operator's stop, which the visitor sees
+  as "Session stopped". See [Admin API](configuration.md#admin-api).
+- **M4:** admin interface, first pages: sign-in, sessions with stop, accounts, served under
+  `/admin/` on the admin listener. See [Admin interface](configuration.md#admin-interface).

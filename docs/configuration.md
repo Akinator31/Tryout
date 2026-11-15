@@ -6,6 +6,7 @@
 |---|---|
 | `DATABASE_URL` | Required. PostgreSQL (14 or later) connection string; the schema is created at startup. |
 | `TRYOUT_CONFIG` | Path of the YAML configuration file (default `tryout.yaml`). |
+| `TRYOUT_VERSION` | Version shown in the admin interface; set by the published images (`dev` otherwise). |
 
 The configuration has two parts:
 
@@ -110,7 +111,7 @@ the active revision. Settings are compared after `${VAR}` substitution, and the 
 content.
 
 **Changing the settings** happens through the [admin API](#admin-api), or from the command
-line, until the admin interface arrives. The commands run where the control plane runs, with the same `DATABASE_URL`. With the
+line, until the admin interface edits them (sessions and accounts come first). The commands run where the control plane runs, with the same `DATABASE_URL`. With the
 production example, the image's own directories are read-only for its user, so work in
 `/tmp` and copy files in and out:
 
@@ -301,15 +302,35 @@ so. The control plane decides from the `Origin` the browser sends: `https://…`
 `localhost`, `127.0.0.0/8` or `[::1]`. A reverse proxy must keep the `Host` header: requests that change something must come from
 a page of the same origin.
 
+### Admin interface
+
+With `admin_listen` set, the control plane serves the admin interface on that listener, at
+`/admin/` (`/` redirects there). It opens on the sign-in page, then:
+
+- **Sessions**: every live ticket with its state, place in line, start and time left,
+  refreshed every 3 seconds while the tab is visible, and a Stop button that asks first;
+- **Accounts**: the accounts, adding and deleting one (not one's own, nor the last), and
+  changing one's own password.
+
+The sidebar shows whether the last call to the control plane got an answer, the control
+plane's version (`TRYOUT_VERSION`) and the active revision. The pages that edit the settings
+(projects, nodes, embedding, limits, theme, revisions) come next; until then, change the
+settings with `import` or the admin API.
+
+The interface is plain files built into the control plane's image, served with a
+Content-Security-Policy that allows only its own scripts and API and forbids framing it. Its
+session is the same cookie as the API's, so it needs HTTPS or `localhost` like the API.
+
 ### Admin API
 
 Signed in, the admin API under `/admin/api/` edits the settings as one whole document, the
-JSON form of the settings sections, and lists and stops sessions. The admin UI will use it;
+JSON form of the settings sections, and lists and stops sessions. The admin interface uses it;
 scripts can too, with the session cookie and an `Origin` naming the host on every request that
 changes something.
 
 | Route | Role |
 |---|---|
+| `GET me` | The signed-in account's `name` and the control plane's `version`. |
 | `GET settings` | The active revision's id and document; `{revision: null, document: {}}` before the first one. |
 | `POST config/validate` `{document}` | Dry run: runs every check of a publication and publishes nothing. `422` with `problems` when invalid, or when it removes or readdresses a node with sessions (with `nodes` too); otherwise `200` with `warnings`, including each node whose agent does not answer `/healthz` within 3 s, with the reason. An unreachable node does not prevent publishing. |
 | `POST revisions` `{base, document, note?}` | Publishes the document as a new revision, authored by the signed-in account. `base` is the revision it was edited from (`null` for the first one): `409` with `latest` when another was published since. `422` when invalid, `409` with `nodes` when it removes or readdresses a node with sessions. |

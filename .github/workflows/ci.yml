@@ -85,6 +85,26 @@ jobs:
       - name: Size budget
         run: npm run size
 
+  admin:
+    name: Admin UI (TypeScript)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/admin
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/admin/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Size budget
+        run: npm run size
+
   shellcheck:
     name: Shell scripts
     runs-on: ubuntu-latest
@@ -109,7 +129,7 @@ jobs:
           - name: tryout-control-plane
             context: .
             file: apps/control-plane/Dockerfile
-            description: Tryout control plane, queue and embed page
+            description: Tryout control plane, queue, embed page and admin UI
           - name: tryout-example-cli-hello
             context: examples/cli-hello
             description: Sample Tryout terminal project (ttyd)
@@ -130,7 +150,7 @@ jobs:
     # See docs/published-images.md.
     name: Publish ${{ matrix.name }} (amd64 + arm64)
     if: github.event_name == 'push'
-    needs: [node, control-plane, embed, shellcheck, e2e, e2e-deploy]
+    needs: [node, control-plane, embed, admin, shellcheck, e2e, e2e-deploy]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -147,7 +167,7 @@ jobs:
           - name: tryout-control-plane
             context: .
             file: apps/control-plane/Dockerfile
-            description: Tryout control plane, queue and embed page
+            description: Tryout control plane, queue, embed page and admin UI
           - name: tryout-example-cli-hello
             context: examples/cli-hello
             description: Sample Tryout terminal project (ttyd)

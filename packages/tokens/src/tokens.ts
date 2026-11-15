@@ -3,16 +3,25 @@
 // `--bg-panel` in CSS; a `DEFAULT` key drops its name (`fg/DEFAULT` is `--fg`).
 
 export const colors = {
-  bg: { DEFAULT: "#000000", panel: "#141414" },
+  bg: {
+    DEFAULT: "#000000",
+    panel: "#141414",
+    subtle: "#141414",
+    muted: "#1c1c1c",
+    emphasized: "#2a2a2a",
+    success: "#062414",
+    error: "#2e0b09",
+  },
   fg: {
     DEFAULT: "#ece9e2",
     muted: "#8f8c86",
     subtle: "#6b6964",
     success: "#3ddc84",
     warning: "#ffc94a",
+    error: "#ff5a4e",
   },
-  border: { DEFAULT: "#2a2a2a", emphasized: "#363532" },
-  brand: { solid: "#ffb000", fg: "#ffc94a", contrast: "#000000" },
+  border: { DEFAULT: "#2a2a2a", emphasized: "#363532", error: "#7a1d17" },
+  brand: { solid: "#ffb000", fg: "#ffc94a", contrast: "#000000", subtle: "#221700", focusRing: "#ffb000" },
 } as const;
 
 /** Spacing scale in pixels; `0_5` is 0.5 step (2 px), as in Figma. */
@@ -26,12 +35,13 @@ export const spacing = {
   "4": 16,
   "5": 20,
   "6": 24,
+  "8": 32,
   "12": 48,
   "16": 64,
 } as const;
 
-/** Corner radii in pixels: 3 px for controls, 8 px for containers. */
-export const radii = { sm: 2, md: 3, xl: 8, full: 9999 } as const;
+/** Corner radii in pixels: 3 px for controls, 6 px for small boxes, 8 px for containers. */
+export const radii = { sm: 2, md: 3, lg: 6, xl: 8, full: 9999 } as const;
 
 export const fonts = {
   sans: '"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
@@ -57,7 +67,10 @@ export interface TextStyle {
 /** Figma text styles; `Display/ticket` is the queue number and countdowns. */
 export const textStyles = {
   "display-ticket": { font: "condensed", weight: 500, size: 88, lineHeight: 72, tracking: -0.01 },
+  "heading-2xl": { font: "sans", weight: 600, size: 24, lineHeight: 32, tracking: -0.01 },
   "heading-lg": { font: "sans", weight: 600, size: 18, lineHeight: 28, tracking: -0.0025 },
+  "heading-md": { font: "sans", weight: 600, size: 16, lineHeight: 24, tracking: 0 },
+  "heading-sm": { font: "sans", weight: 600, size: 14, lineHeight: 20, tracking: 0 },
   "text-sm": { font: "sans", weight: 400, size: 14, lineHeight: 20, tracking: 0 },
   "text-xs": { font: "sans", weight: 400, size: 12, lineHeight: 16, tracking: 0 },
   "label-sm": { font: "sans", weight: 500, size: 14, lineHeight: 20, tracking: 0 },

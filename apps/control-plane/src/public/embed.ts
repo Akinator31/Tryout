@@ -3,27 +3,16 @@
 // added. Asset names carry a content hash, so browsers may cache them for good; the HTML is
 // filled per project and never cached.
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
-import { extname, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Settings } from "../config/config.ts";
 import type { Accent, Theme } from "../config/theme.ts";
 import { frameAncestors } from "../config/config.ts";
+import { CONTENT_TYPES, readAssets, type Asset } from "../bundle.ts";
 
 /** Where the build lands in the repository and in the image: apps/embed/dist, next to this app. */
 export const DEFAULT_EMBED_DIR = fileURLToPath(new URL("../../../embed/dist/", import.meta.url));
-
-const CONTENT_TYPES: Record<string, string> = {
-  ".js": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".woff2": "font/woff2",
-  ".svg": "image/svg+xml",
-};
-
-export interface Asset {
-  body: Buffer;
-  type: string;
-}
 
 export interface EmbedBundle {
   /** index.html, with `__PROJECT__` and `__TITLE__` left to fill. */
@@ -50,12 +39,7 @@ export function loadEmbed(dir: string = DEFAULT_EMBED_DIR): EmbedBundle {
     throw new Error(`embed page in ${dir} is older than the control plane; ${REBUILD}`);
   }
 
-  const assets = new Map<string, Asset>();
-  for (const name of readdirSync(join(dir, "assets"))) {
-    const type = CONTENT_TYPES[extname(name)];
-    if (type) assets.set(name, { body: readFileSync(join(dir, "assets", name)), type });
-  }
-  return { template, assets };
+  return { template, assets: readAssets(dir) };
 }
 
 /**

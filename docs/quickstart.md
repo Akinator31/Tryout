@@ -25,11 +25,19 @@ opens an iframe to `/embed/<project>`.
 | Service | Address | Role |
 |---|---|---|
 | control plane | `localhost:3000` | queue and embed page |
+| control plane admin | `127.0.0.1:9090` | admin interface (`/admin/`), admin API and `/metrics` |
 | gateway | `localhost:8080` | public proxy for sessions (`/s/<id>/`) |
 | agent | `127.0.0.1:7000` (mutual TLS) | creates and destroys sessions |
 | postgres | internal network only | control plane state (queue, sessions) |
 
 The `webtop` project downloads about 4 GB the first time.
+
+To open the admin interface at <http://localhost:9090/admin/>, create an account first; the
+password is asked without echo:
+
+```bash
+docker compose -f deploy/compose.dev.yaml exec control-plane node apps/control-plane/src/cli.ts create-user admin
+```
 
 Two one-shot services, `pki-ca` and `pki-node`, create the mutual TLS certificates between the
 control plane and the agent in the `pki` volume on the first start, and reuse them afterwards
@@ -42,6 +50,8 @@ node scripts/e2e/cli.ts      # queue → gateway → ttyd WebSocket → commands
 node scripts/e2e/queue.ts    # session cap, promotion, heartbeat loss
 node scripts/e2e/sse.ts      # pushed promotion, stream as heartbeat, stream end
 node scripts/e2e/mtls.ts     # the agent refuses every client but the control plane
+node scripts/e2e/metrics.ts  # node health and metrics on the admin listener
+node scripts/e2e/admin.ts    # admin accounts, settings and sessions API, admin interface served
 node scripts/e2e/limits.ts   # per-IP limits on tickets and event streams
 node scripts/e2e/reattach.ts http://localhost:3000 cli-hello -- \
   docker compose -f deploy/compose.dev.yaml up -d --force-recreate --no-deps gateway
@@ -50,6 +60,7 @@ scripts/e2e/deploy.sh        # the production layout with gVisor; Docker Desktop
 (cd apps/node && go test ./...)
 (cd apps/control-plane && npm ci && npm run typecheck && npm test)
 (cd apps/embed && npm ci && npm run typecheck && npm test)
+(cd apps/admin && npm ci && npm run typecheck && npm test)
 ```
 
 ## Stop

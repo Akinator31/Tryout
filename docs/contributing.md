@@ -22,6 +22,7 @@ The same checks run in CI:
 (cd apps/node && test -z "$(gofmt -l .)" && go vet ./... && go test -race ./...)
 (cd apps/control-plane && npm ci && npm run typecheck && npm test)
 (cd apps/embed && npm ci && npm run typecheck && npm test && npm run build && npm run size)
+(cd apps/admin && npm ci && npm run typecheck && npm test && npm run build && npm run size)
 shellcheck scripts/*.sh scripts/e2e/*.sh examples/*/*.sh
 zensical build --strict
 ```
@@ -34,6 +35,11 @@ The control plane serves the embed page from `apps/embed/dist`: build it once be
 the control plane outside Docker. `npm run dev` in `apps/embed` serves the page with live reload
 and forwards `/api` to a control plane on `localhost:3000`; open
 `http://localhost:5173/?project=<name>`.
+
+With `admin_listen` set, it also needs `apps/admin/dist`. `npm test` in `apps/admin` runs the
+pure modules with `node --test` and the pages with Vitest and jsdom, over a fake API.
+`npm run dev` serves the admin with live reload and forwards `/admin/api` to the dev stack's
+admin listener on `localhost:9090`; open `http://localhost:5173/admin/`.
 
 End-to-end tests: see [Local quickstart](quickstart.md).
 

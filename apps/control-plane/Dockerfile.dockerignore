@@ -4,6 +4,7 @@
 !apps/control-plane/package-lock.json
 !apps/control-plane/src
 !apps/embed
+!apps/admin
 !packages/tokens
 **/node_modules
 **/dist

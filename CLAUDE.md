@@ -77,6 +77,8 @@ apps/control-plane/   TypeScript, Node ≥ 24 (native type stripping); src/queue
                       src/: server.ts, cli.ts, log.ts + admin/, config/, queue/, db/, nodes/, metrics/,
                       public/ (one folder per area); test/ mirrors it, helpers in test/support/
 apps/embed/           embed page: framework-free TypeScript, Vite build served by the control plane; visit.ts is the core
+apps/admin/           admin UI: React + Chakra v3 (theme from packages/tokens), Vite build served on admin_listen
+                      under /admin/ (control plane src/admin/ui.ts, per-answer CSP nonce for Emotion)
 packages/tokens/      design tokens (in step with the Figma variables) + IBM Plex subsets (scripts/subset-fonts.sh)
 apps/node/            Go: cmd/agent, cmd/gateway, cmd/certs, internal/{dockerapi,pki,spec}; one image
 deploy/               compose.dev.yaml, tryout.dev.yaml, .env.example (dev); node/, control-plane/ (production
@@ -129,9 +131,11 @@ vault with the original stack study (in French) and its sources.
   Postgres, CLI `create-user`…, bearer `admin_metrics_token` on `/metrics`); admin settings API
   (`admin/settings.ts`, `admin/request.ts`: whole-document settings, dry run with node
   reachability, revisions and rollback, logos, nodes' health); sessions list and forced stop
-  (`admin/sessions.ts`, `Queue.list`/`stop`, `end_reason`), embed "stopped" screen (en, fr).
-  Next: the admin Figma screens (PR 7 of the M4 plan), then the React admin UI. Then M5
-  Hosting options.
+  (`admin/sessions.ts`, `Queue.list`/`stop`, `end_reason`), embed "stopped" screen (en, fr);
+  admin Figma screens (PR 7); admin UI PR 8a (`apps/admin`: sign-in, shell, Sessions + stop,
+  Accounts; `version` on `GET me` from `TRYOUT_VERSION`). Next: PR 8b (settings pages: pending
+  draft, review and apply, projects, nodes, embedding, limits, theme, revisions, YAML download),
+  8c (project preview, `public_url`), then `v0.2.0`. Then M5 Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module
@@ -172,6 +176,8 @@ decision records, English only.
 (cd apps/control-plane && npm ci && npm run typecheck && npm test)   # TEST_DATABASE_URL for real Postgres
 # TypeScript (embed page; the control plane needs its dist/ to start outside Docker)
 (cd apps/embed && npm ci && npm run typecheck && npm test && npm run build && npm run size)
+# TypeScript (admin UI; needed by the control plane outside Docker when admin_listen is set)
+(cd apps/admin && npm ci && npm run typecheck && npm test && npm run build && npm run size)
 # Shell
 shellcheck scripts/*.sh scripts/e2e/*.sh examples/*/*.sh
 # Docs

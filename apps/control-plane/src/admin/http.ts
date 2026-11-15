@@ -38,6 +38,8 @@ export interface AdminHandlerDeps {
   metricsToken?: string;
   /** The client key of a request (its address through trusted proxies), for the login limits. */
   clientKey: (req: IncomingMessage) => string;
+  /** This control plane's version, reported with the signed-in account. */
+  version?: string;
   /** More signed-in routes, such as the settings' (see admin/settings.ts). */
   routes?: Routes;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
@@ -106,7 +108,7 @@ function authRefusal(e: unknown): Refusal | null {
  * - `GET /metrics`: Prometheus text, behind the bearer token if set;
  * - `POST /admin/api/login` `{name, password}`: opens a session (cookie);
  * - `POST /admin/api/logout`;
- * - `GET /admin/api/me`: the signed-in account;
+ * - `GET /admin/api/me`: the signed-in account and the control plane's version;
  * - `POST /admin/api/me/password` `{current, password}`: ends the other sessions;
  * - `GET /admin/api/accounts`, `POST /admin/api/accounts` `{name, password}`;
  * - `DELETE /admin/api/accounts/:name`: not the last one;
@@ -114,7 +116,15 @@ function authRefusal(e: unknown): Refusal | null {
  *
  * Every API route but login needs a session.
  */
-export function createAdminHandler({ auth, metricsPage, metricsToken, clientKey, routes: extraRoutes = {}, log = () => {} }: AdminHandlerDeps) {
+export function createAdminHandler({
+  auth,
+  metricsPage,
+  metricsToken,
+  clientKey,
+  version = "dev",
+  routes: extraRoutes = {},
+  log = () => {},
+}: AdminHandlerDeps) {
   /** Answers /metrics, or 401 without the configured token. */
   async function serveMetrics(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1];
@@ -188,7 +198,7 @@ export function createAdminHandler({ auth, metricsPage, metricsToken, clientKey,
   /** The routes that need a session: the accounts', then the extra ones. */
   const routes: Routes = {
     "POST logout": logout,
-    "GET me": async ({ account }) => ({ status: 200, body: account }),
+    "GET me": async ({ account }) => ({ status: 200, body: { ...account, version } }),
     "POST me/password": changePassword,
     "GET accounts": listAccounts,
     "POST accounts": createAccount,
