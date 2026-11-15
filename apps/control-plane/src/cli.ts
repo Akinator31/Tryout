@@ -23,11 +23,11 @@ import {
   LastAccountError,
   UnknownAccountError,
   type AdminAuth,
-} from "./admin-auth.ts";
-import { ConfigError, parseSettingsFile, type SettingsDocument } from "./config.ts";
-import { createConfigStore, logoAsset, NodeInUseError, RevisionConflictError, type ConfigStore } from "./config-store.ts";
-import { imageFormat } from "./config-theme.ts";
-import { pgDb } from "./db.ts";
+} from "./admin/auth.ts";
+import { ConfigError, parseSettingsFile, type SettingsDocument } from "./config/config.ts";
+import { createConfigStore, logoAsset, NodeInUseError, RevisionConflictError, type ConfigStore } from "./config/store.ts";
+import { imageFormat } from "./config/theme.ts";
+import { pgDb } from "./db/db.ts";
 
 const USAGE = [
   "usage: node src/cli.ts import <file> | export <file>",

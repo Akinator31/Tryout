@@ -6,11 +6,11 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createAdminAuth } from "../src/admin-auth.ts";
+import { createAdminAuth } from "../src/admin/auth.ts";
 import { accountCommand, exportSettings, importSettings } from "../src/cli.ts";
-import { ConfigError } from "../src/config.ts";
-import { canonical, createConfigStore } from "../src/config-store.ts";
-import { freshDb } from "./support.ts";
+import { ConfigError } from "../src/config/config.ts";
+import { canonical, createConfigStore } from "../src/config/store.ts";
+import { freshDb } from "./support/support.ts";
 
 const PNG = Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(32)]);
 

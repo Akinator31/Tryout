@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 src=schema/tryout.schema.json
 copies=(
   apps/node/internal/spec/tryout.schema.json
-  apps/control-plane/src/tryout.schema.json
+  apps/control-plane/src/config/tryout.schema.json
   docs/schema/v1/tryout.schema.json
 )
 status=0

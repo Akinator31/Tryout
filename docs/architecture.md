@@ -18,24 +18,27 @@ for graphical ones. Each project is assigned to a node.
 
 ### Control plane — `apps/control-plane`
 
+Sources live in `src/`, one folder per area; `test/` mirrors it.
+
 | Module | Role |
 |---|---|
-| `queue.ts` | **The core.** Interface: `join`, `poll`, `watch`, `release`, `tick`, `configure`, `stats`. Behind it: per-project and per-node caps, node health (no promotion to a node that is down), per-IP ticket limits, FIFO promotion, session start, heartbeat loss, maximum age, start timeout, change notifications (`LISTEN/NOTIFY`). State lives in Postgres. |
-| `queue-*.ts` | The queue's internals: table and migrations (`queue-schema`), per-IP ticket limits (`queue-limits`), stream watchers (`queue-watchers`), delays (`queue-timing`). |
-| `runtime.ts` | `SessionRuntime` adapter for real nodes: agent API over mutual TLS + readiness probe through the gateway. Tests use an in-memory adapter. |
-| `agents.ts` | One mutual TLS client per node of the active settings, shared by the runtime, the health check and the metrics relay; the agent's `/healthz` and `/metrics` calls, with size-capped answers. |
-| `health.ts` | Node health: checks every node's `/healthz` every 10 s and keeps the last result; the queue starts no session on a node that is not up. |
-| `admin-http.ts` | The admin listener's routes: `/metrics` behind an optional bearer token, and the admin API under `/admin/api/` (login, logout, the signed-in account, accounts, and the routes of `admin-settings`), with its session cookie and same-origin checks. |
-| `admin-settings.ts` | The admin API's settings routes: the active document, the dry run with node reachability, revisions and rollback, logos and the nodes' health. |
-| `admin-request.ts` | What the admin routes share: answers and refusals, the JSON body reader and the route matcher. |
-| `admin-auth.ts`, `admin-password.ts` | Admin accounts, sessions and failed-login limits in Postgres; scrypt password hashes and the cap on hashes running at once. |
-| `admin.ts`, `metrics*.ts` | The `/metrics` page (ticket gauges, node health, start counters), the Prometheus text writer (`metrics`) and the strict relay of the agents' metrics (`metrics-relay`). |
-| `db.ts`, `db-listen.ts` | Database port (queries, transactions, `LISTEN`); adapters for node-postgres and, in tests, PGlite; the reconnecting `LISTEN` session. |
-| `client.ts` | The visitor's IP address, read through trusted proxies only, and the cap on open event streams per IP. |
-| `http.ts` | Embed page and its assets, demo page, queue API and its SSE stream. Thin. |
-| `embed.ts` | The built embed page (`apps/embed/dist`), read once at start: its template, its hashed assets, the theme's stylesheet and logo (applied again with each revision), and its Content-Security-Policy. |
-| `config.ts`, `config-*.ts` | Configuration: `tryout.yaml` validated against the shared JSON Schema (`config-schema`), then semantic checks; the settings checks shared by the file and stored revisions (`config-settings`); revisions and assets in Postgres (`config-store`); the active revision, followed on every instance (`config-live`); values (`config-values`), error reporting (`config-report`), agent TLS files (`config-tls`), theme (`config-theme`). |
+| `queue/queue.ts` | **The core.** Interface: `join`, `poll`, `watch`, `release`, `tick`, `configure`, `stats`. Behind it: per-project and per-node caps, node health (no promotion to a node that is down), per-IP ticket limits, FIFO promotion, session start, heartbeat loss, maximum age, start timeout, change notifications (`LISTEN/NOTIFY`). State lives in Postgres. |
+| `queue/*.ts` | The queue's internals: table and migrations (`schema`), per-IP ticket limits (`limits`), stream watchers (`watchers`), delays (`timing`). |
+| `nodes/runtime.ts` | `SessionRuntime` adapter for real nodes: agent API over mutual TLS + readiness probe through the gateway. Tests use an in-memory adapter. |
+| `nodes/agents.ts` | One mutual TLS client per node of the active settings, shared by the runtime, the health check and the metrics relay; the agent's `/healthz` and `/metrics` calls, with size-capped answers. |
+| `nodes/health.ts` | Node health: checks every node's `/healthz` every 10 s and keeps the last result; the queue starts no session on a node that is not up. |
+| `admin/http.ts` | The admin listener's routes: `/metrics` behind an optional bearer token, and the admin API under `/admin/api/` (login, logout, the signed-in account, accounts, and the routes of `admin/settings`), with its session cookie and same-origin checks. |
+| `admin/settings.ts` | The admin API's settings routes: the active document, the dry run with node reachability, revisions and rollback, logos and the nodes' health. |
+| `admin/request.ts` | What the admin routes share: answers and refusals, the JSON body reader and the route matcher. |
+| `admin/auth.ts`, `admin/password.ts` | Admin accounts, sessions and failed-login limits in Postgres; scrypt password hashes and the cap on hashes running at once. |
+| `metrics/*.ts` | The `/metrics` page (`page`: ticket gauges, node health, start counters), the Prometheus text writer (`prometheus`) and the strict relay of the agents' metrics (`relay`). |
+| `db/db.ts`, `db/listen.ts` | Database port (queries, transactions, `LISTEN`); adapters for node-postgres and, in tests, PGlite; the reconnecting `LISTEN` session. |
+| `public/client.ts` | The visitor's IP address, read through trusted proxies only, and the cap on open event streams per IP. |
+| `public/http.ts` | Embed page and its assets, demo page, queue API and its SSE stream. Thin. |
+| `public/embed.ts` | The built embed page (`apps/embed/dist`), read once at start: its template, its hashed assets, the theme's stylesheet and logo (applied again with each revision), and its Content-Security-Policy. |
+| `config/*.ts` | Configuration: `tryout.yaml` validated against the shared JSON Schema (`schema`), then semantic checks (`config`); the settings checks shared by the file and stored revisions (`settings`); revisions and assets in Postgres (`store`); the active revision, followed on every instance (`live`); values (`values`), error reporting (`report`), agent TLS files (`tls`), theme (`theme`). |
 | `cli.ts` | The operator's command line: `import` and `export` of the settings; admin accounts (`create-user`, `set-password`, `delete-user`, `list-users`). |
+| `log.ts` | JSON log lines, with ids shortened. |
 | `server.ts` | Wiring. |
 
 What it does:
