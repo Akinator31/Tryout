@@ -3,11 +3,11 @@
 // settings, with pause, edit and remove. Pause and remove change the draft and
 // open the review. Preview and embed come with public_url.
 import { Box, Button, Flex, Grid, Heading, Stack, Table, Text } from "@chakra-ui/react";
-import { Pause, Play, SlidersHorizontal, Trash2, TriangleAlert } from "lucide-react";
-import type { ReactNode } from "react";
+import { Pause, Play, SlidersHorizontal, Trash2 } from "lucide-react";
 import { Link as RouterLink, useNavigate, useParams } from "react-router";
 import { useNow } from "../clock.ts";
 import { Breadcrumb } from "../components/Breadcrumb.tsx";
+import { Callout } from "../components/Callout.tsx";
 import { Card, Footnote } from "../components/Card.tsx";
 import { DataCell, DataHeader, DataTable } from "../components/DataTable.tsx";
 import { LoadBar } from "../components/LoadBar.tsx";
@@ -24,8 +24,8 @@ import { useDraft } from "../useDraft.tsx";
 
 const P = strings.project;
 
-/** A figure with its bar and caption. */
-function Stat({ label, value, help, used, max }: { label: string; value: string; help: string; used: number; max: number }) {
+/** A figure with its caption, and a bar when it has a cap. */
+function Stat({ label, value, help, used, max }: { label: string; value: string; help: string; used?: number; max?: number }) {
   return (
     <Card p="5">
       <Text textStyle="text-xs" color="fg.muted">
@@ -34,7 +34,7 @@ function Stat({ label, value, help, used, max }: { label: string; value: string;
       <Text mt="2" textStyle="heading-lg" fontVariantNumeric="tabular-nums">
         {value}
       </Text>
-      <LoadBar used={used} max={max} w="full" />
+      {max !== undefined && <LoadBar used={used ?? 0} max={max} w="full" />}
       <Text mt="3" textStyle="text-xs" color="fg.subtle">
         {help}
       </Text>
@@ -49,7 +49,7 @@ function Stats({ project, load, nodeLoad, nodeCap }: { project: ProjectSettings;
   return (
     <Grid templateColumns="repeat(3, 1fr)" gap="4">
       <Stat label={S.sessions} value={`${live(load)} / ${project.max_sessions}`} help={S.sessionsHelp} used={live(load)} max={project.max_sessions} />
-      <Stat label={S.queue} value={String(load.waiting)} help={load.waiting ? S.waiting(load.waiting) : S.nobody} used={0} max={1} />
+      <Stat label={S.queue} value={String(load.waiting)} help={load.waiting ? S.waiting(load.waiting) : S.nobody} />
       <Stat label={S.node(project.node)} value={`${live(nodeLoad)} / ${nodeCap}`} help={S.nodeHelp} used={live(nodeLoad)} max={nodeCap} />
     </Grid>
   );
@@ -150,25 +150,6 @@ function SettingsCard({ rows, source }: { rows: [string, string][]; source: stri
   );
 }
 
-/** A notice above the figures: amber title, then the detail. */
-function Notice({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <Card display="flex" gap="3" p="5" role="status">
-      <Box color="fg.warning" pt="0.5">
-        <TriangleAlert size={16} aria-hidden />
-      </Box>
-      <Box>
-        <Text textStyle="label-sm" color="fg.warning">
-          {title}
-        </Text>
-        <Text mt="1" color="fg.muted">
-          {children}
-        </Text>
-      </Box>
-    </Card>
-  );
-}
-
 /** The red card that removes the project, through the review. */
 function RemoveCard({ name, onRemove }: { name: string; onRemove: () => void }) {
   const R = P.remove;
@@ -240,8 +221,10 @@ function ProjectPage({ name, project, document, applied }: { name: string; proje
 
   const load = loadOf(loadBy(sessions), name);
   const nodeLoad = loadOf(loadBy(sessions, "node"), project.node);
-  const isApplied = Object.hasOwn(applied?.projects ?? {}, name);
-  const state = projectState({ project, applied: isApplied, nodeUp: nodesUp(nodes).get(project.node), load });
+  // The state is what visitors get now: the active revision's project, not the draft's.
+  const running = applied?.projects?.[name];
+  const isApplied = running !== undefined;
+  const state = projectState({ project: running ?? project, applied: isApplied, nodeUp: nodesUp(nodes).get((running ?? project).node), load });
   const pending = changes.length > 0 && !deepEqual(applied?.projects?.[name], project);
   const defaultRuntime = nodes?.find((n) => n.name === project.node)?.agent?.default_runtime;
 
@@ -270,8 +253,8 @@ function ProjectPage({ name, project, document, applied }: { name: string; proje
 
       <Flex px="8" gap="6" align="flex-start">
         <Stack flex="1" minW="0" gap="6">
-          {!isApplied && <Notice title={P.draft.title}>{P.draft.body}</Notice>}
-          {isApplied && project.enabled === false && <Notice title={P.paused.title}>{P.paused.body}</Notice>}
+          {!isApplied && <Callout title={P.draft.title}>{P.draft.body}</Callout>}
+          {running?.enabled === false && <Callout title={P.paused.title}>{P.paused.body}</Callout>}
           <Stats project={project} load={load} nodeLoad={nodeLoad} nodeCap={document.nodes?.[project.node]?.max_sessions ?? 0} />
           <LiveSessions name={name} />
           <SettingsCard rows={settingsRows(project, defaultRuntime)} source={pending ? P.settings.pending : P.settings.active(active.data?.revision ?? null)} />

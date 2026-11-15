@@ -152,3 +152,24 @@ test("adding a node tests its connection through the dry run, then reviews it", 
   const review = await screen.findByText("Review and apply revision 16");
   expect(within(review.closest("[role=dialog]") as HTMLElement).getByText("+ pi5 (new node)")).toBeTruthy();
 });
+
+test("saving an edit that changes nothing goes back to the project without a review", async () => {
+  const user = userEvent.setup();
+  renderAdmin("/admin/projects/cli-hello/edit", routes());
+
+  await user.click(await screen.findByRole("button", { name: "Save changes" }));
+  expect(await screen.findByRole("heading", { name: "cli-hello" })).toBeTruthy();
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+test("a pause still in the draft leaves the project's state as visitors see it", async () => {
+  const user = userEvent.setup();
+  renderAdmin("/admin/projects/cli-hello", routes());
+
+  await user.click(await screen.findByRole("button", { name: "Pause project" }));
+  await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Keep editing" }));
+
+  expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
+  expect(screen.getByText("Running")).toBeTruthy();
+  expect(screen.queryByText("New visitors see “unavailable”. Sessions running now and visitors already in line carry on.")).toBeNull();
+});

@@ -2,7 +2,7 @@
 // label and a Copy button, then the text in mono.
 import { Box, Button, Flex, Text } from "@chakra-ui/react";
 import { Copy } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { strings } from "../strings.ts";
 import { Card } from "./Card.tsx";
 
@@ -10,11 +10,21 @@ import { Card } from "./Card.tsx";
 export function CodeBlock({ label, text }: { label: string; text: string }) {
   const [copied, setCopied] = useState(false);
 
-  /** Copies the text; the button says so for two seconds. */
+  useEffect(() => {
+    if (!copied) return;
+
+    const timer = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
+  /** Copies the text; the button says so for two seconds, only when the browser did copy. */
   const copy = async () => {
-    await navigator.clipboard?.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+    } catch {
+      // No clipboard (plain HTTP) or refused: the text stays there to select.
+    }
   };
 
   return (

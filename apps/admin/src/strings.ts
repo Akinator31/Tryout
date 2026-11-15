@@ -1,6 +1,9 @@
 // Every text of the admin UI, in English. Short and factual: state the fact,
 // no padding. Functions build the texts that carry values.
 
+/** Where a project's name goes before it has one. */
+const NAME_PLACEHOLDER = "<name>";
+
 /** The password rule, under every new-password field. */
 const PASSWORD_HELP = "12 characters or more.";
 
@@ -162,20 +165,24 @@ export const strings = {
       title: "Identity",
       description: "The name is permanent: it is the address visitors open and the key in the settings.",
       name: "Project name",
-      nameHelp: (name: string) => `Lower-case letters, digits and -. Visitors open /embed/${name || "<name>"}.`,
+      nameHelp: (name: string) => `Lower-case letters, digits and -. Visitors open /embed/${name || NAME_PLACEHOLDER}.`,
       titleLabel: "Title",
       titleHelp: (name: string) => `Shown to visitors. Defaults to ${name || "the name"}.`,
       kind: "Kind",
       kinds: {
-        terminal: { label: "Terminal", body: "A command-line program in a web terminal (ttyd). Defaults to 256 MB, 0.5 CPU and 128 processes." },
-        desktop: { label: "Desktop", body: "A graphical app streamed by Selkies at 720p. Defaults to 2 GB, 1.5 CPU and 1024 processes." },
+        terminal: { label: "Terminal", body: "A command-line program in a web terminal (ttyd)." },
+        desktop: { label: "Desktop", body: "A graphical app streamed by Selkies at 720p." },
       },
+      defaults: (memory: number, cpus: number, pids: number) => `Defaults to ${memory} MB, ${cpus} CPU and ${pids} processes.`,
+      namePlaceholder: "my-cli",
     },
     image: {
       title: "Container image",
       description: "What a visitor's container runs. The image must serve HTTP under /s/<id>/ (see Packaging a project).",
       image: "Image",
       imageHelp: "Pin by digest. The image must exist for the node's architecture.",
+      imagePlaceholder: "ghcr.io/me/my-cli@sha256:…",
+      portUnit: "TCP",
       port: "HTTP port",
       portHelp: "ttyd uses 7681, LinuxServer images 3000.",
       basePath: "Base path",
@@ -187,6 +194,7 @@ export const strings = {
       title: "Placement",
       description: "The node that runs this project, and its container runtime.",
       node: "Node",
+      chooseNode: "Choose a node",
       nodeLoad: (live: number, max: number) => `${live} of ${max} sessions`,
       runtime: "Runtime",
       nodeDefault: (runtime: string | undefined) => (runtime ? `Node default (${runtime})` : "Node default"),
@@ -210,6 +218,9 @@ export const strings = {
       memory: "Memory",
       cpus: "CPU",
       pids: "Processes",
+      memoryUnit: "MB",
+      cpusUnit: "CPU",
+      pidsUnit: "PIDs",
       memoryHelp: "At least 16.",
       cpusHelp: "More than 0.",
       pidsHelp: "At least 16.",
@@ -236,7 +247,8 @@ export const strings = {
       overbooked: (node: string) => `Node ${node} would be overbooked (see Capacity)`,
       review: "The review runs the control plane's checks before anything is applied.",
     },
-    yaml: (name: string) => `projects.${name || "<name>"} in tryout.yaml`,
+    yaml: (name: string) => `projects.${name || NAME_PLACEHOLDER} in tryout.yaml`,
+    yamlKey: (name: string) => name || NAME_PLACEHOLDER,
     copy: "Copy",
     copied: "Copied",
     agent: {
@@ -276,6 +288,12 @@ export const strings = {
       description: "The agent must already run with a certificate from your tryout-certs CA.",
       name: "Name",
       nameHelp: "Lower-case letters, digits and -. Projects refer to it.",
+      placeholders: {
+        name: "pi5",
+        agentUrl: "https://10.0.50.10:7000",
+        serverName: "agent.pi5.internal",
+        publicUrl: "https://sandbox.example.org/s/{session}/",
+      },
       agentUrl: "Agent URL",
       agentUrlHelp: "Private API over mutual TLS: https://host[:port], no path.",
       serverName: "Server name",
@@ -296,8 +314,6 @@ export const strings = {
       cancel: "Cancel",
       save: "Save node",
       problems: {
-        required: "Required.",
-        name: "Lower-case letters, digits and -, starting with a letter or digit.",
         nameTaken: "A node with this name exists.",
         agentUrl: "https://host[:port], without a path.",
         serverName: "A DNS name; an IP address belongs in the certificate.",

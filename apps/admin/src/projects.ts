@@ -199,16 +199,32 @@ export function durationSeconds(text: string): number | undefined {
 /** A field's problem, keyed by field (`env.2.name` for a variable). */
 export type FormProblems = Partial<Record<string, string>>;
 
+/** Sorts named entries by name. */
+export const byName = ([a]: [string, unknown], [b]: [string, unknown]) => (a < b ? -1 : a > b ? 1 : 0);
+
+/** The problem with a new project's or node's name, or undefined; `taken` are the names in use. */
+export function nameProblem(name: string, taken: string[], takenText: string): string | undefined {
+  const P = strings.projectForm.problems;
+  if (!name) return P.required;
+  if (!NAME.test(name)) return P.name;
+  if (taken.includes(name)) return takenText;
+  return undefined;
+}
+
+/** What a project form is checked against: the names in use, the nodes, and whether the project is new. */
+export interface FormContext {
+  taken: string[];
+  nodes: string[];
+  isNew: boolean;
+}
+
 /** The checks of the identity, image and placement fields. */
-function checkWorkload(form: ProjectForm, taken: string[], nodes: string[], isNew: boolean, problems: FormProblems): void {
+function checkWorkload(form: ProjectForm, { taken, nodes, isNew }: FormContext, problems: FormProblems): void {
   const P = strings.projectForm.problems;
 
-  if (isNew) {
-    if (!form.name) problems.name = P.required;
-    else if (!NAME.test(form.name)) problems.name = P.name;
-    else if (taken.includes(form.name)) problems.name = P.nameTaken;
-  }
-  if (form.title.length > 40 || /[\x00-\x1f\x7f]/.test(form.title)) problems.title = P.titleText;
+  if (isNew) problems.name = nameProblem(form.name, taken, P.nameTaken);
+  // The schema counts characters, not UTF-16 units.
+  if ([...form.title].length > 40 || /[\x00-\x1f\x7f]/.test(form.title)) problems.title = P.titleText;
 
   if (!form.image.trim()) problems.image = P.required;
   else if (/\s/.test(form.image)) problems.image = P.image;
@@ -261,13 +277,18 @@ function checkEnv(form: ProjectForm, problems: FormProblems): void {
  * refuse. `taken` are the names already used; a new project's name must be
  * free, an existing one's cannot change.
  */
-export function checkProjectForm(form: ProjectForm, ctx: { taken: string[]; nodes: string[]; isNew: boolean }): FormProblems {
+export function checkProjectForm(form: ProjectForm, ctx: FormContext): FormProblems {
   const problems: FormProblems = {};
 
-  checkWorkload(form, ctx.taken, ctx.nodes, ctx.isNew, problems);
+  checkWorkload(form, ctx, problems);
   checkCapacity(form, problems);
   checkEnv(form, problems);
-  return problems;
+  return withoutUndefined(problems);
+}
+
+/** The problems without the fields whose check passed. */
+export function withoutUndefined(problems: FormProblems): FormProblems {
+  return Object.fromEntries(Object.entries(problems).filter(([, v]) => v !== undefined));
 }
 
 /**

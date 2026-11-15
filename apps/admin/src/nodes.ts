@@ -3,7 +3,7 @@
 // checks the browser can make before the server's dry run.
 import { ago } from "./format.ts";
 import type { NodeView } from "./model.ts";
-import { NAME, type FormProblems } from "./projects.ts";
+import { nameProblem, withoutUndefined, type FormProblems } from "./projects.ts";
 import type { NodeSettings, SettingsDocument } from "./settings/document.ts";
 import { parseWhole } from "./settings/parse.ts";
 import { strings } from "./strings.ts";
@@ -77,7 +77,10 @@ const DNS_NAME = /^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-
 const SESSION_URL = /^https?:\/\/[^\s]*\{session\}/;
 
 /** Whether `s` is an IPv4 address, which belongs in the certificate rather than in server_name. */
-const isIPv4 = (s: string) => /^\d{1,3}(\.\d{1,3}){3}$/.test(s);
+function isIPv4(s: string): boolean {
+  const parts = s.split(".");
+  return parts.length === 4 && parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) <= 255);
+}
 
 /**
  * The form's problems, per field: what the schema and the control plane would
@@ -87,11 +90,7 @@ export function checkNodeForm(form: NodeForm, ctx: { taken: string[]; isNew: boo
   const P = N.form.problems;
   const problems: FormProblems = {};
 
-  if (ctx.isNew) {
-    if (!form.name) problems.name = P.required;
-    else if (!NAME.test(form.name)) problems.name = P.name;
-    else if (ctx.taken.includes(form.name)) problems.name = P.nameTaken;
-  }
+  if (ctx.isNew) problems.name = nameProblem(form.name, ctx.taken, P.nameTaken);
 
   if (!/^https:\/\/[^\s/]+$/.test(form.agentUrl.trim())) problems.agentUrl = P.agentUrl;
 
@@ -103,7 +102,7 @@ export function checkNodeForm(form: NodeForm, ctx: { taken: string[]; isNew: boo
 
   const max = parseWhole(form.maxSessions);
   if (max === undefined || max < 1) problems.maxSessions = P.atLeastOne;
-  return problems;
+  return withoutUndefined(problems);
 }
 
 /** The node the form describes; call it on a form without problems. */

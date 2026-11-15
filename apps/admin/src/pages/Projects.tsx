@@ -13,7 +13,7 @@ import { Problem } from "../components/Problem.tsx";
 import { ProjectBadge } from "../components/StateBadge.tsx";
 import { slots } from "../format.ts";
 import { paths, projectPath } from "../navigation.ts";
-import { live, loadBy, loadOf, nodesUp, projectState, projectsSummary, type Load } from "../projects.ts";
+import { byName, live, loadBy, loadOf, nodesUp, projectState, projectsSummary, type Load } from "../projects.ts";
 import { useNodes, useSessions } from "../queries.ts";
 import type { ProjectSettings, SettingsDocument } from "../settings/document.ts";
 import { strings } from "../strings.ts";
@@ -48,16 +48,18 @@ function NewProjectButton() {
 
 interface RowProps {
   name: string;
+  /** The project as the page shows it, pending changes included. */
   project: ProjectSettings;
+  /** The project in the active revision, which visitors get now; undefined when not applied yet. */
+  running: ProjectSettings | undefined;
   load: Load;
-  applied: boolean;
-  nodeUp: boolean | undefined;
+  up: Map<string, boolean>;
 }
 
-/** One project's row; clicking it opens the project. */
-function Row({ name, project, load, applied, nodeUp }: RowProps) {
+/** One project's row; clicking it opens the project. Its state is the active revision's. */
+function Row({ name, project, running, load, up }: RowProps) {
   const navigate = useNavigate();
-  const state = projectState({ project, applied, nodeUp, load });
+  const state = projectState({ project: running ?? project, applied: running !== undefined, nodeUp: up.get((running ?? project).node), load });
 
   return (
     <Table.Row bg="transparent" cursor="pointer" _hover={{ bg: "bg.muted" }} onClick={() => navigate(projectPath(name))}>
@@ -95,12 +97,12 @@ function ProjectsTable({ document, applied }: { document: SettingsDocument; appl
   const sessions = useSessions().data ?? [];
   const up = nodesUp(useNodes().data);
   const loads = loadBy(sessions);
-  const projects = Object.entries(document.projects ?? {}).sort(([a], [b]) => (a < b ? -1 : 1));
+  const projects = Object.entries(document.projects ?? {}).sort(byName);
 
   return (
     <>
       <Text color="fg.muted" mb="6">
-        {projectsSummary(document, loads, up, slots(document))}
+        {projectsSummary(applied ?? document, loads, up, slots(applied ?? document))}
       </Text>
       <Card>
         <DataTable label={P.title}>
@@ -117,9 +119,9 @@ function ProjectsTable({ document, applied }: { document: SettingsDocument; appl
                 key={name}
                 name={name}
                 project={project}
+                running={applied?.projects?.[name]}
                 load={loadOf(loads, name)}
-                applied={Object.hasOwn(applied?.projects ?? {}, name)}
-                nodeUp={up.get(project.node)}
+                up={up}
               />
             ))}
           </Table.Body>

@@ -165,6 +165,7 @@ test("the node form refuses what the schema refuses and leaves optional fields o
     { taken: ["local"], isNew: true },
   );
   assert.deepEqual(Object.keys(problems).sort(), ["agentUrl", "maxSessions", "name", "probeUrl", "publicUrl", "serverName"]);
+  assert.equal(checkNodeForm({ ...valid, serverName: "300.1.1.1" }, { taken: [], isNew: true }).serverName, undefined, "not an IP address, as for net.isIP");
 });
 
 test("the connection test reads the dry run's warning about the node's agent", () => {

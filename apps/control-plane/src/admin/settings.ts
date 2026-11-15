@@ -152,7 +152,10 @@ function noteOf(body: Record<string, unknown>): string | undefined {
  * - `GET nodes`: each node of the applied settings, its last health check and live tickets.
  */
 export function settingsRoutes({ store, probeNode, nodeNames, health, tickets, probeTimeoutMs = PROBE_TIMEOUT_MS, log = () => {} }: SettingsRoutesDeps): Routes {
-  /** A warning when the node's agent does not answer within the deadline, or null. */
+  /**
+   * A warning when the node's agent does not answer within the deadline, or
+   * null. The admin's Test connection reads its wording (apps/admin/src/nodes.ts).
+   */
   async function reachability(name: string, node: NodeConfig): Promise<string | null> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new Error(`no answer within ${probeTimeoutMs / 1000} s`)), probeTimeoutMs);

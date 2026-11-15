@@ -28,9 +28,11 @@ import {
   type NodeForm,
 } from "../nodes.ts";
 import { useNodes, useValidate } from "../queries.ts";
-import type { NodeSettings, SettingsDocument } from "../settings/document.ts";
+import { byName, live } from "../projects.ts";
+import { deepEqual, prune, type NodeSettings, type SettingsDocument } from "../settings/document.ts";
 import { strings } from "../strings.ts";
 import { useDraft } from "../useDraft.tsx";
+import { useForm } from "../useForm.ts";
 
 const N = strings.nodes;
 
@@ -65,11 +67,10 @@ function NodeDetails({ node, view, users }: Pick<NodeCardProps, "node" | "view" 
   const state = nodeState(view);
   const D = N.details;
 
-  const live = view ? view.tickets.active + view.tickets.starting : 0;
   const first = {
     draft: D.draft,
     unchecked: D.unchecked,
-    healthy: view && [agentLine(view), D.load(live, node.max_sessions)].filter(Boolean).join(" "),
+    healthy: view && [agentLine(view), D.load(live(view.tickets), node.max_sessions)].filter(Boolean).join(" "),
     unreachable: view && downLine(view, users, now),
   }[state];
 
@@ -168,19 +169,29 @@ interface DrawerProps {
   onClose: () => void;
 }
 
-/** The fields of the node form. */
-function NodeFields({ form, set, shown, isNew }: { form: NodeForm; set: (k: keyof NodeForm, v: string) => void; shown: Partial<Record<string, string>>; isNew: boolean }) {
+interface NodeFieldsProps {
+  form: NodeForm;
+  set: (key: keyof NodeForm, value: string) => void;
+  shown: Partial<Record<string, string>>;
+  isNew: boolean;
+}
+
+/** The fields of the node form; the name only for a new node. */
+function NodeFields({ form, set, shown, isNew }: NodeFieldsProps) {
   const F = N.form;
+
+  /** The props of the mono text field over `key`. */
+  const field = (key: keyof NodeForm) => ({ value: form[key], onChange: (v: string) => set(key, v), error: shown[key], mono: true });
 
   return (
     <Stack gap="5">
-      {isNew && <FormField label={F.name} required mono value={form.name} onChange={(v) => set("name", v)} error={shown.name} help={F.nameHelp} placeholder="pi5" />}
-      <FormField label={F.agentUrl} required mono value={form.agentUrl} onChange={(v) => set("agentUrl", v)} error={shown.agentUrl} help={F.agentUrlHelp} placeholder="https://10.0.50.10:7000" />
-      <FormField label={F.serverName} mono value={form.serverName} onChange={(v) => set("serverName", v)} error={shown.serverName} help={F.serverNameHelp} placeholder="agent.pi5.internal" />
-      <FormField label={F.publicUrl} required mono value={form.publicUrl} onChange={(v) => set("publicUrl", v)} error={shown.publicUrl} help={F.publicUrlHelp} placeholder="https://sbx.example.dev/s/{session}/" />
-      <FormField label={F.probeUrl} mono value={form.probeUrl} onChange={(v) => set("probeUrl", v)} error={shown.probeUrl} help={F.probeUrlHelp} />
+      {isNew && <FormField label={F.name} required help={F.nameHelp} placeholder={F.placeholders.name} {...field("name")} />}
+      <FormField label={F.agentUrl} required help={F.agentUrlHelp} placeholder={F.placeholders.agentUrl} {...field("agentUrl")} />
+      <FormField label={F.serverName} help={F.serverNameHelp} placeholder={F.placeholders.serverName} {...field("serverName")} />
+      <FormField label={F.publicUrl} required help={F.publicUrlHelp} placeholder={F.placeholders.publicUrl} {...field("publicUrl")} />
+      <FormField label={F.probeUrl} help={F.probeUrlHelp} {...field("probeUrl")} />
       <Box maxW="200px">
-        <FormField label={F.maxSessions} required unit={F.unit} value={form.maxSessions} onChange={(v) => set("maxSessions", v)} error={shown.maxSessions} />
+        <FormField label={F.maxSessions} required unit={F.unit} {...field("maxSessions")} mono={false} />
       </Box>
       <Text mt="-3" textStyle="text-xs" color="fg.subtle">
         {F.maxSessionsHelp}
@@ -195,37 +206,37 @@ function NodeEditor({ name, document, onClose }: DrawerProps) {
   const { edit, openReview } = useDraft();
   const test = useConnectionTest();
   const existing = name ? document.nodes?.[name] : undefined;
-  const [form, setForm] = useState<NodeForm>(() => (name && existing ? nodeForm(name, existing) : newNodeForm()));
-  const [attempted, setAttempted] = useState(false);
-  const [touched, setTouched] = useState<ReadonlySet<string>>(new Set());
 
   const isNew = name === null;
-  const problems = checkNodeForm(form, { taken: Object.keys(document.nodes ?? {}), isNew });
-  const valid = Object.keys(problems).length === 0;
-  const shown = attempted ? problems : Object.fromEntries(Object.entries(problems).filter(([k]) => touched.has(k)));
+  const context = { taken: Object.keys(document.nodes ?? {}), isNew };
+  const form = useForm(() => (name && existing ? nodeForm(name, existing) : newNodeForm()), (f) => checkNodeForm(f, context));
 
-  /** Changes one field, marks it edited, and forgets the last test. */
+  /** Changes one field and forgets the last test. */
   const set = (key: keyof NodeForm, value: string) => {
-    setForm((f) => ({ ...f, [key]: value }));
-    setTouched((t) => new Set(t).add(key));
+    form.set(key, value);
     test.reset();
   };
 
-  /** The settings with this node as the form describes it. */
-  const withNode = (): SettingsDocument => ({ ...document, nodes: { ...document.nodes, [form.name]: nodeFromForm(form) } });
+  /** Tests the connection with the node in the settings, or shows the problems first. */
+  const runTest = () => {
+    if (!form.attempt()) return;
 
-  /** Tests the connection, or shows the problems first. */
-  const runTest = () => (valid ? test.run(form.name, withNode()) : setAttempted(true));
+    const node = nodeFromForm(form.values);
+    test.run(form.values.name, { ...document, nodes: { ...document.nodes, [form.values.name]: node } });
+  };
 
-  /** Puts the node in the draft and opens the review; with problems, shows them all instead. */
+  /** Puts the node in the draft and opens the review; with problems, shows them all; without a change, only closes. */
   const save = () => {
-    if (!valid) return setAttempted(true);
+    if (!form.attempt()) return;
+
+    const node = nodeFromForm(form.values);
+    onClose();
+    if (existing && deepEqual(prune(existing), prune(node))) return;
 
     edit((d) => {
       d.nodes ??= {};
-      d.nodes[form.name] = nodeFromForm(form);
+      d.nodes[form.values.name] = node;
     });
-    onClose();
     openReview();
   };
 
@@ -242,7 +253,7 @@ function NodeEditor({ name, document, onClose }: DrawerProps) {
       </Drawer.Header>
       <Drawer.Body px="6" py="5">
         <Stack gap="5">
-          <NodeFields form={form} set={set} shown={shown} isNew={isNew} />
+          <NodeFields form={form.values} set={set} shown={form.shown} isNew={isNew} />
           {test.result && <ConnectionBox result={test.result} />}
           {test.failed && <Problem title={F.testFailed} />}
         </Stack>
@@ -255,7 +266,7 @@ function NodeEditor({ name, document, onClose }: DrawerProps) {
         <Button variant="ghost" size="sm" h="10" onClick={onClose}>
           {F.cancel}
         </Button>
-        <Button colorPalette="brand" size="sm" h="10" onClick={save} disabled={attempted && !valid}>
+        <Button colorPalette="brand" size="sm" h="10" onClick={save} disabled={form.attempted && form.count > 0}>
           <Check size={16} aria-hidden />
           {isNew ? N.add : F.save}
         </Button>
@@ -296,7 +307,7 @@ export function Nodes() {
     setOpenings((n) => n + 1);
     setEditing({ name, opening: openings + 1 });
   };
-  const nodes = Object.entries(document?.nodes ?? {}).sort(([a], [b]) => (a < b ? -1 : 1));
+  const nodes = Object.entries(document?.nodes ?? {}).sort(byName);
 
   /** Removes a node from the draft and opens the review. */
   const remove = (name: string) => {

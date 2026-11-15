@@ -4,9 +4,10 @@
 // the project in the draft and opens the review.
 import { Box, Button, Field, Flex, Grid, IconButton, Input, NativeSelect, RadioCard, Stack, Switch, Text } from "@chakra-ui/react";
 import { Check, KeyRound, Plus, RotateCcw, Trash2, TriangleAlert, X } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Link as RouterLink, useNavigate, useParams } from "react-router";
 import { Breadcrumb } from "../components/Breadcrumb.tsx";
+import { Callout } from "../components/Callout.tsx";
 import { Card } from "../components/Card.tsx";
 import { CodeBlock } from "../components/CodeBlock.tsx";
 import { FormField } from "../components/Fields.tsx";
@@ -32,10 +33,11 @@ import {
   type ProjectForm,
 } from "../projects.ts";
 import { useNodes, useSessions } from "../queries.ts";
-import { prune, type SettingsDocument } from "../settings/document.ts";
+import { deepEqual, prune, type SettingsDocument } from "../settings/document.ts";
 import { stringify } from "../settings/yaml.ts";
 import { strings } from "../strings.ts";
 import { useDraft } from "../useDraft.tsx";
+import { useForm } from "../useForm.ts";
 
 const F = strings.projectForm;
 
@@ -46,6 +48,12 @@ interface SectionProps {
   set: SetField;
   /** The problems to show: those of the fields edited, or all after a save attempt. */
   shown: FormProblems;
+}
+
+/** A kind's default resources, in words. */
+function kindDefaults(kind: ProjectForm["kind"]): string {
+  const d = KIND_DEFAULTS[kind];
+  return F.identity.defaults(d.memory_mb, d.cpus, d.pids);
 }
 
 /** The kind, as two cards. */
@@ -68,7 +76,7 @@ function KindCards({ form, set }: SectionProps) {
               <RadioCard.ItemContent>
                 <RadioCard.ItemText textStyle="label-sm">{F.identity.kinds[kind].label}</RadioCard.ItemText>
                 <RadioCard.ItemDescription textStyle="text-xs" color="fg.muted">
-                  {F.identity.kinds[kind].body}
+                  {`${F.identity.kinds[kind].body} ${kindDefaults(kind)}`}
                 </RadioCard.ItemDescription>
               </RadioCard.ItemContent>
               <RadioCard.ItemIndicator />
@@ -97,7 +105,7 @@ function IdentitySection({ form, set, shown, isNew }: SectionProps & { isNew: bo
             error={shown.name}
             help={I.nameHelp(form.name)}
             disabled={!isNew}
-            placeholder="my-cli"
+            placeholder={I.namePlaceholder}
           />
           <FormField label={I.titleLabel} value={form.title} onChange={(v) => set("title", v)} error={shown.title} help={I.titleHelp(form.name)} />
         </Grid>
@@ -132,10 +140,19 @@ function ImageSection({ form, set, shown }: SectionProps) {
           onChange={(v) => set("image", v)}
           error={shown.image}
           help={I.imageHelp}
-          placeholder="ghcr.io/me/my-cli@sha256:…"
+          placeholder={I.imagePlaceholder}
         />
         <Grid templateColumns="200px 1fr" gap="4" alignItems="start">
-          <FormField label={I.port} required mono unit="TCP" value={form.port} onChange={(v) => set("port", v)} error={shown.port} help={I.portHelp} />
+          <FormField
+            label={I.port}
+            required
+            mono
+            unit={I.portUnit}
+            value={form.port}
+            onChange={(v) => set("port", v)}
+            error={shown.port}
+            help={I.portHelp}
+          />
           <Field.Root>
             <Field.Label textStyle="label-sm">{I.basePath}</Field.Label>
             <Switch.Root checked={form.stripPrefix} onCheckedChange={(e) => set("stripPrefix", e.checked)} colorPalette="brand" h="10">
@@ -201,7 +218,7 @@ function PlacementSection({ form, set, shown, document, views }: SectionProps & 
     <Section title={P.title} description={P.description}>
       <Grid templateColumns="1fr 1fr" gap="4" alignItems="start">
         <SelectField label={P.node} required value={form.node} onChange={(v) => set("node", v)} error={shown.node} help={view ? (agentLine(view) ?? undefined) : undefined}>
-          {!form.node && <option value="">—</option>}
+          {!form.node && <option value="">{P.chooseNode}</option>}
           {nodes.map(([name, n]) => (
             <option key={name} value={name}>
               {`${name} (${P.nodeLoad(live(loadOf(loads, name)), n.max_sessions)})`}
@@ -227,25 +244,6 @@ function PlacementSection({ form, set, shown, document, views }: SectionProps & 
   );
 }
 
-/** A warning box: the fact in amber, then the detail. */
-function Warning({ title, children }: { title: string; children: string }) {
-  return (
-    <Flex role="status" gap="3" p="4" borderWidth="1px" borderColor="border.emphasized" borderRadius="l2">
-      <Box color="fg.warning" pt="0.5">
-        <TriangleAlert size={16} aria-hidden />
-      </Box>
-      <Box>
-        <Text textStyle="label-sm" color="fg.warning">
-          {title}
-        </Text>
-        <Text mt="0.5" color="fg.muted">
-          {children}
-        </Text>
-      </Box>
-    </Flex>
-  );
-}
-
 /** Concurrent sessions and maximum age, with a warning when the node is overbooked. */
 function CapacitySection({ form, set, shown, overbooked }: SectionProps & { overbooked: { sum: number; cap: number } | null }) {
   const C = F.capacity;
@@ -265,7 +263,7 @@ function CapacitySection({ form, set, shown, overbooked }: SectionProps & { over
           />
           <FormField label={C.maxAge} required mono value={form.maxAge} onChange={(v) => set("maxAge", v)} error={shown.maxAge} help={C.maxAgeHelp} />
         </Grid>
-        {overbooked && <Warning title={C.overbooked(form.node, overbooked.sum, overbooked.cap)}>{C.overbookedBody}</Warning>}
+        {overbooked && <Callout title={C.overbooked(form.node, overbooked.sum, overbooked.cap)}>{C.overbookedBody}</Callout>}
       </Stack>
     </Section>
   );
@@ -287,9 +285,33 @@ function ResourcesSection({ form, set, shown }: SectionProps) {
   return (
     <Section title={R.title} description={R.description}>
       <Grid templateColumns="repeat(3, 1fr)" gap="4" alignItems="start">
-        <FormField label={R.memory} unit="MB" value={form.memory} placeholder={String(defaults.memory_mb)} onChange={(v) => set("memory", v)} error={shown.memory} help={R.memoryHelp} />
-        <FormField label={R.cpus} unit="CPU" value={form.cpus} placeholder={String(defaults.cpus)} onChange={(v) => set("cpus", v)} error={shown.cpus} help={R.cpusHelp} />
-        <FormField label={R.pids} unit="PIDs" value={form.pids} placeholder={String(defaults.pids)} onChange={(v) => set("pids", v)} error={shown.pids} help={R.pidsHelp} />
+        <FormField
+          label={R.memory}
+          unit={R.memoryUnit}
+          value={form.memory}
+          placeholder={String(defaults.memory_mb)}
+          onChange={(v) => set("memory", v)}
+          error={shown.memory}
+          help={R.memoryHelp}
+        />
+        <FormField
+          label={R.cpus}
+          unit={R.cpusUnit}
+          value={form.cpus}
+          placeholder={String(defaults.cpus)}
+          onChange={(v) => set("cpus", v)}
+          error={shown.cpus}
+          help={R.cpusHelp}
+        />
+        <FormField
+          label={R.pids}
+          unit={R.pidsUnit}
+          value={form.pids}
+          placeholder={String(defaults.pids)}
+          onChange={(v) => set("pids", v)}
+          error={shown.pids}
+          help={R.pidsHelp}
+        />
       </Grid>
       <Button mt="4" variant="plain" size="xs" px="0" color="fg.warning" disabled={!custom} onClick={reset}>
         <RotateCcw size={14} aria-hidden />
@@ -299,33 +321,65 @@ function ResourcesSection({ form, set, shown }: SectionProps) {
   );
 }
 
+/** A mono input of the environment table. */
+function EnvInput({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <Input
+      aria-label={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      fontFamily="mono"
+      h="10"
+      borderColor="border.emphasized"
+      autoComplete="off"
+      spellCheck={false}
+    />
+  );
+}
+
+type Variable = ProjectForm["env"][number];
+
+/** One variable: its name with any problem, its value, and the remove button. */
+function EnvRow({ i, variable, problem, onChange, onRemove }: { i: number; variable: Variable; problem?: string; onChange: (v: Partial<Variable>) => void; onRemove: () => void }) {
+  const E = F.env;
+
+  return (
+    <Grid templateColumns={ENV_COLUMNS} gap="3" alignItems="start">
+      <Field.Root invalid={problem !== undefined}>
+        <EnvInput label={E.nameLabel(i)} value={variable.name} onChange={(name) => onChange({ name })} />
+        <Field.ErrorText textStyle="text-xs">{problem}</Field.ErrorText>
+      </Field.Root>
+      <EnvInput label={E.valueLabel(i)} value={variable.value} onChange={(value) => onChange({ value })} />
+      <IconButton aria-label={E.remove(variable.name)} title={E.remove(variable.name)} variant="ghost" size="sm" mt="1" color="fg.muted" onClick={onRemove}>
+        <Trash2 size={16} />
+      </IconButton>
+    </Grid>
+  );
+}
+
+const ENV_COLUMNS = "1fr 1.4fr 32px";
+
 /** The environment variables: a name and a value per row. */
 function EnvSection({ form, set, shown }: SectionProps) {
   const E = F.env;
 
   /** Replaces variable `i` with `change` applied. */
-  const update = (i: number, change: Partial<ProjectForm["env"][number]>) => set("env", form.env.map((v, j) => (j === i ? { ...v, ...change } : v)));
+  const update = (i: number, change: Partial<Variable>) => set("env", form.env.map((v, j) => (j === i ? { ...v, ...change } : v)));
+
+  /** Removes variable `i`. */
+  const remove = (i: number) => set("env", form.env.filter((_, j) => j !== i));
 
   return (
     <Section title={E.title} description={E.description}>
       <Stack gap="3">
         {form.env.length > 0 && (
-          <Grid templateColumns="1fr 1.4fr 32px" gap="3" textStyle="label-xs" color="fg.subtle">
+          <Grid templateColumns={ENV_COLUMNS} gap="3" textStyle="label-xs" color="fg.subtle">
             <Text>{E.name}</Text>
             <Text>{E.value}</Text>
           </Grid>
         )}
         {form.env.map((v, i) => (
-          <Grid key={i} templateColumns="1fr 1.4fr 32px" gap="3" alignItems="start">
-            <Field.Root invalid={shown[`env.${i}.name`] !== undefined}>
-              <Input aria-label={E.nameLabel(i)} value={v.name} onChange={(e) => update(i, { name: e.target.value })} fontFamily="mono" h="10" borderColor="border.emphasized" autoComplete="off" spellCheck={false} />
-              <Field.ErrorText textStyle="text-xs">{shown[`env.${i}.name`]}</Field.ErrorText>
-            </Field.Root>
-            <Input aria-label={E.valueLabel(i)} value={v.value} onChange={(e) => update(i, { value: e.target.value })} fontFamily="mono" h="10" borderColor="border.emphasized" autoComplete="off" spellCheck={false} />
-            <IconButton aria-label={E.remove(v.name)} title={E.remove(v.name)} variant="ghost" size="sm" mt="1" color="fg.muted" onClick={() => set("env", form.env.filter((_, j) => j !== i))}>
-              <Trash2 size={16} />
-            </IconButton>
-          </Grid>
+          <EnvRow key={i} i={i} variable={v} problem={shown[`env.${i}.name`]} onChange={(change) => update(i, change)} onRemove={() => remove(i)} />
         ))}
         <Box>
           <Button variant="outline" size="sm" h="9" onClick={() => set("env", [...form.env, { name: "", value: "" }])}>
@@ -344,12 +398,12 @@ function EnvSection({ form, set, shown }: SectionProps) {
 /** A line of the checks card: done, refused, or a warning. */
 function CheckLine({ tone, children }: { tone: "ok" | "error" | "warning"; children: string }) {
   const color = { ok: "fg.success", error: "fg.error", warning: "fg.warning" }[tone];
-  const icon = { ok: <Check size={14} aria-hidden />, error: <X size={14} aria-hidden />, warning: <TriangleAlert size={14} aria-hidden /> }[tone];
+  const Icon = { ok: Check, error: X, warning: TriangleAlert }[tone];
 
   return (
     <Flex gap="2" align="flex-start" color={tone === "ok" ? "fg" : color}>
       <Box color={color} pt="0.5">
-        {icon}
+        <Icon size={14} aria-hidden />
       </Box>
       <Text>{children}</Text>
     </Flex>
@@ -422,34 +476,35 @@ interface EditorProps {
   document: SettingsDocument;
 }
 
+/** The form's first values: the project's, or a new one on the first node. */
+function initialForm(name: string | null, document: SettingsDocument): ProjectForm {
+  const previous = name ? document.projects?.[name] : undefined;
+  return name && previous ? projectForm(name, previous) : newProjectForm(Object.keys(document.nodes ?? {})[0]);
+}
+
 /** The form itself, once the settings are loaded. */
 function Editor({ name, document }: EditorProps) {
   const navigate = useNavigate();
   const { edit, openReview } = useDraft();
   const views = useNodes().data ?? [];
   const previous = name ? document.projects?.[name] : undefined;
-  const [form, setForm] = useState<ProjectForm>(() => (name && previous ? projectForm(name, previous) : newProjectForm(Object.keys(document.nodes ?? {})[0])));
-  const [touched, setTouched] = useState<ReadonlySet<string>>(new Set());
-  const [attempted, setAttempted] = useState(false);
 
   const isNew = name === null;
-  const problems = checkProjectForm(form, { taken: Object.keys(document.projects ?? {}), nodes: Object.keys(document.nodes ?? {}), isNew });
-  const count = Object.keys(problems).length;
-  const shown = attempted ? problems : Object.fromEntries(Object.entries(problems).filter(([k]) => touched.has(k.split(".")[0])));
+  const context = { taken: Object.keys(document.projects ?? {}), nodes: Object.keys(document.nodes ?? {}), isNew };
+  const { values: form, set, problems, count, shown, attempted, attempt } = useForm(() => initialForm(name, document), (f) => checkProjectForm(f, context));
 
   const project = prune(projectFromForm(form, previous));
   const withProject: SettingsDocument = { ...document, projects: { ...document.projects, [form.name]: project } };
   const overbooked = problems.maxSessions ? null : overbooking(withProject, form.node);
 
-  /** Changes one field and marks it edited. */
-  const set: SetField = (key, value) => {
-    setForm((f) => ({ ...f, [key]: value }));
-    setTouched((t) => new Set(t).add(key));
-  };
-
-  /** Puts the project in the draft and opens the review on its page; with problems, shows them all instead. */
+  /**
+   * Puts the project in the draft and opens the review on its page; with
+   * problems, shows them all instead. An edit that changes nothing just
+   * goes back to the project.
+   */
   const save = () => {
-    if (count > 0) return setAttempted(true);
+    if (!attempt()) return;
+    if (previous && deepEqual(prune(previous), project)) return navigate(projectPath(form.name));
 
     edit((d) => {
       d.projects ??= {};
@@ -489,7 +544,7 @@ function Editor({ name, document }: EditorProps) {
         </Stack>
         <Stack w="380px" flexShrink="0" gap="4" position="sticky" top="6">
           <ChecksCard problems={count} node={form.node} view={views.find((v) => v.name === form.node)} overbooked={overbooked !== null} />
-          <CodeBlock label={F.yaml(form.name)} text={stringify({ projects: { [form.name || "<name>"]: project } })} />
+          <CodeBlock label={F.yaml(form.name)} text={stringify({ projects: { [F.yamlKey(form.name)]: project } })} />
           <AgentCard />
         </Stack>
       </Flex>
