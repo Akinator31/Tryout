@@ -19,6 +19,9 @@ export const en = {
   endedDetail: "The container and its files are deleted. Start again for a fresh one.",
   startAgain: "Start again",
 
+  stoppedTitle: "Session stopped",
+  stoppedDetail: "The operator stopped this session. Nothing was kept.",
+
   leftTitle: "You left the queue",
   leftDetail: "Your place went to the next person. Join again whenever you like.",
   joinAgain: "Join again",
@@ -64,6 +67,9 @@ export const fr: Strings = {
   endedTitle: "Session terminée",
   endedDetail: "Conteneur et fichiers supprimés.",
   startAgain: "Recommencer",
+
+  stoppedTitle: "Session arrêtée",
+  stoppedDetail: "Arrêtée par l’opérateur. Rien n’a été conservé.",
 
   leftTitle: "File quittée",
   leftDetail: "Votre place est libérée.",

@@ -23,6 +23,7 @@ const wire = (v: TicketView) => ({
   url: v.url,
   ends_in_s: v.endsInS,
   error: v.error,
+  reason: v.reason,
 });
 
 /** 429, naming the per-IP limit that refused the request. */

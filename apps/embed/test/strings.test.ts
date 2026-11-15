@@ -45,6 +45,7 @@ test("French: cards and bar read in French, with a no-break space before the col
   assert.equal(cardFor({ name: "starting" }, "Hello CLI", now, fr)!.title, "Démarrage de Hello CLI…");
   assert.equal(cardFor({ name: "waiting", position: 2 }, "Hello CLI", now, fr)!.announce, "Votre place dans la file : 2.");
   assert.equal(barFor(now + 492_000, now, true, fr).time, "Il reste 8:12");
+  assert.equal(cardFor({ name: "stopped" }, "Hello CLI", now, fr)!.title, "Session arrêtée");
 });
 
 test("French: \"de\" is elided before a project name starting with a vowel", () => {

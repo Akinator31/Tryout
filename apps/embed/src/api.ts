@@ -9,6 +9,8 @@ export interface TicketView {
   url?: string;
   ends_in_s?: number;
   error?: string;
+  /** On an ended ticket: `stopped` when the operator ended it. */
+  reason?: "stopped";
 }
 
 export type JoinResult =

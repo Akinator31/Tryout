@@ -22,13 +22,14 @@ Sources live in `src/`, one folder per area; `test/` mirrors it.
 
 | Module | Role |
 |---|---|
-| `queue/queue.ts` | **The core.** Interface: `join`, `poll`, `watch`, `release`, `tick`, `configure`, `stats`. Behind it: per-project and per-node caps, node health (no promotion to a node that is down), per-IP ticket limits, FIFO promotion, session start, heartbeat loss, maximum age, start timeout, change notifications (`LISTEN/NOTIFY`). State lives in Postgres. |
+| `queue/queue.ts` | **The core.** Interface: `join`, `poll`, `watch`, `release`, `tick`, `configure`, `stats`, `list`, `stop`. Behind it: per-project and per-node caps, node health (no promotion to a node that is down), per-IP ticket limits, FIFO promotion, session start, heartbeat loss, maximum age, start timeout, change notifications (`LISTEN/NOTIFY`). State lives in Postgres. |
 | `queue/*.ts` | The queue's internals: table and migrations (`schema`), per-IP ticket limits (`limits`), stream watchers (`watchers`), delays (`timing`). |
 | `nodes/runtime.ts` | `SessionRuntime` adapter for real nodes: agent API over mutual TLS + readiness probe through the gateway. Tests use an in-memory adapter. |
 | `nodes/agents.ts` | One mutual TLS client per node of the active settings, shared by the runtime, the health check and the metrics relay; the agent's `/healthz` and `/metrics` calls, with size-capped answers. |
 | `nodes/health.ts` | Node health: checks every node's `/healthz` every 10 s and keeps the last result; the queue starts no session on a node that is not up. |
 | `admin/http.ts` | The admin listener's routes: `/metrics` behind an optional bearer token, and the admin API under `/admin/api/` (login, logout, the signed-in account, accounts, and the routes of `admin/settings`), with its session cookie and same-origin checks. |
 | `admin/settings.ts` | The admin API's settings routes: the active document, the dry run with node reachability, revisions and rollback, logos and the nodes' health. |
+| `admin/sessions.ts` | The admin API's sessions routes: the live tickets, without session URLs or client addresses, and the operator's stop. |
 | `admin/request.ts` | What the admin routes share: answers and refusals, the JSON body reader and the route matcher. |
 | `admin/auth.ts`, `admin/password.ts` | Admin accounts, sessions and failed-login limits in Postgres; scrypt password hashes and the cap on hashes running at once. |
 | `metrics/*.ts` | The `/metrics` page (`page`: ticket gauges, node health, start counters), the Prometheus text writer (`prometheus`) and the strict relay of the agents' metrics (`relay`). |
@@ -267,12 +268,13 @@ files and trusted proxies. No secret goes into the database: TLS keys stay files
 - **Hot apply.** Publishing sends `NOTIFY tryout_config`; every instance reloads the active
   revision, one at a time, and on each (re)connection of its `LISTEN`, in case it missed one.
   The queue, the node clients, the health checks, the embed page and the HTTP limits read the
-  active settings at each use. A removed project's tickets end on every instance, which is
-  harmless since ending a ticket is idempotent. Removing a node with sessions, or changing its
-  agent address, is refused, since stopping them needs the address they started on; a removed
-  node's client is kept, for an instance that applied the revision late. A failed application
-  is tried again after a few seconds. A revision that fails the checks of a newer control plane
-  refuses its start, and is skipped (logged) by a running instance.
+  active settings at each use. A removed project's tickets end, as stopped by the operator, on
+  every instance, which is harmless since ending a ticket is idempotent. Removing a node with
+  sessions, or changing its agent address, is refused, since stopping them needs the address
+  they started on; a removed node's client is kept, for an instance that applied the revision
+  late. A failed application is tried again after a few seconds. A revision that fails the
+  checks of a newer control plane refuses its start, and is skipped (logged) by a running
+  instance.
 - **Assets** (the logo) are stored by SHA-256, so a revision names its logo without copying it.
 - **Edited as one document.** The admin API reads and publishes the whole settings document,
   never one project or node at a time: the admin keeps pending changes in the browser, checks

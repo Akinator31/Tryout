@@ -1,6 +1,6 @@
 // Queue: the control plane's deep module.
 //
-// Interface: join / poll / watch / release / tick / configure / stats. Behind it: per-project
+// Interface: join / poll / watch / release / tick / configure / stats / list / stop. Behind it: per-project
 // and per-node caps, node health, per-client limits, FIFO promotion, session start and
 // readiness, heartbeat loss, maximum age, change notifications. State lives in Postgres
 // so several control plane instances can share it; time comes from an
@@ -70,6 +70,22 @@ export interface TicketView {
   url?: string;
   endsInS?: number;
   error?: string;
+  /** On an ended ticket: `stopped` when the operator ended it. */
+  reason?: "stopped";
+}
+
+/** A live ticket as the operator sees it: never its session's URL nor its client. Times in ms since the epoch. */
+export interface TicketSummary {
+  ticket: string;
+  project: string;
+  node: string;
+  state: Exclude<TicketState, "ended">;
+  position?: number;
+  createdAt: number;
+  /** When the session became active. */
+  startedAt?: number;
+  /** When an active session reaches its maximum age. */
+  endsAt?: number;
 }
 
 export interface Queue {
@@ -106,9 +122,21 @@ export interface Queue {
    * holding tickets after it left the configuration.
    */
   stats(by?: "project" | "node"): Promise<Record<string, ProjectStats>>;
+  /** Every live ticket, across every instance, by project then queue order. */
+  list(): Promise<TicketSummary[]>;
+  /**
+   * The operator ends a ticket, whatever its live state: its session stops,
+   * its slot goes to the next visitor, and the visitor sees it was stopped.
+   * Resolves to the stopped ticket's project, or null when the ticket is
+   * unknown or already ended.
+   */
+  stop(ticket: string): Promise<{ project: string } | null>;
 }
 
 export class UnknownProjectError extends Error {}
+
+/** End reason of a ticket the operator stopped, or whose project was removed. */
+const STOPPED = "stopped";
 
 /** Error shown to the visitor when a session failed or timed out while starting. */
 const START_FAILED = "Could not start the session.";
@@ -169,6 +197,16 @@ function takeSlot(config: QueueConfig, nodeUp: (node: string) => boolean, usage:
   usage.perProject.set(ticket.project, usedByProject + 1);
   usage.perNode.set(ticket.node, usedOnNode + 1);
   return true;
+}
+
+/** A live ticket's row as the operator's summary: only the fields that make sense in its state. */
+function summaryOf(row: Row): TicketSummary {
+  const summary: TicketSummary = { ticket: row.id, project: row.project, node: row.node, state: row.state as TicketSummary["state"], createdAt: row.created_at };
+
+  if (row.position != null) summary.position = row.position;
+  if (row.state === "active" && row.started_at != null) summary.startedAt = row.started_at;
+  if (row.state === "active" && row.ends_at != null) summary.endsAt = row.ends_at;
+  return summary;
 }
 
 const sessionOf = (row: Row): SessionRef => ({ sessionId: row.session_id!, project: row.project, node: row.node });
@@ -286,14 +324,17 @@ class PgQueue implements Queue {
     this.#resyncWatchers(t);
   }
 
-  /** Ends the tickets of projects that left the settings in one statement, then stops their sessions together. */
+  /**
+   * Ends the tickets of projects that left the settings in one statement, as
+   * stopped, then stops their sessions together.
+   */
   async configure(config: QueueConfig): Promise<void> {
     this.#config = config;
     const orphans = await this.#db.query<Row>(
-      `UPDATE tickets SET state = 'ended', ended_at = $2
+      `UPDATE tickets SET state = 'ended', ended_at = $2, end_reason = $3
        WHERE state <> 'ended' AND NOT (project = ANY($1::text[]))
        RETURNING *`,
-      [Object.keys(config.projects), this.#now()],
+      [Object.keys(config.projects), this.#now(), STOPPED],
     );
 
     await Promise.all(orphans.map((row) => this.#afterEnd(row)));
@@ -317,6 +358,27 @@ class PgQueue implements Queue {
   }
 
 
+  async list(): Promise<TicketSummary[]> {
+    const rows = await this.#db.query<Row>(
+      `SELECT t.*,
+         CASE WHEN t.state = 'waiting' THEN
+           row_number() OVER (PARTITION BY t.project, t.state = 'waiting' ORDER BY t.seq)::int
+         END AS position
+       FROM tickets t
+       WHERE t.state <> 'ended'
+       ORDER BY t.project, t.seq`,
+    );
+    return rows.map(summaryOf);
+  }
+
+  async stop(ticket: string): Promise<{ project: string } | null> {
+    const ended = await this.#end(ticket, undefined, STOPPED);
+    if (!ended) return null;
+
+    await this.#schedule();
+    return { project: ended.project };
+  }
+
   /** What the visitor may see of a ticket: only the fields that make sense in its state. */
   #view(row: Row): TicketView {
     const v: TicketView = { ticket: row.id, state: row.state };
@@ -324,6 +386,7 @@ class PgQueue implements Queue {
     if (row.state === "waiting" && row.position != null) v.position = row.position;
     if (row.state === "active" && row.url) v.url = row.url;
     if (row.state === "ended" && row.error) v.error = row.error;
+    if (row.state === "ended" && row.end_reason === STOPPED) v.reason = STOPPED;
     if (row.state === "active" && row.ends_at != null) {
       v.endsInS = Math.max(0, Math.round((row.ends_at - this.#now()) / 1000));
     }
@@ -468,10 +531,10 @@ class PgQueue implements Queue {
   async #activate(ticket: Row, session: SessionRef, url: string): Promise<boolean> {
     const maxAgeMs = (this.#config.projects[ticket.project]?.maxAgeS ?? 0) * 1000;
     const activated = await this.#db.query(
-      `UPDATE tickets SET state = 'active', url = $2, ends_at = $3
+      `UPDATE tickets SET state = 'active', url = $2, started_at = $3, ends_at = $4
        WHERE id = $1 AND state = 'starting'
        RETURNING id`,
-      [ticket.id, url, this.#now() + maxAgeMs],
+      [ticket.id, url, this.#now(), this.#now() + maxAgeMs],
     );
 
     if (activated.length > 0) {
@@ -492,15 +555,20 @@ class PgQueue implements Queue {
     return row?.error === START_FAILED ? "timeout" : "abandoned";
   }
 
-  /** Marks a ticket ended (once), aborts its start if one is in flight here, and stops its session if it had one. */
-  async #end(ticket: string, error?: string): Promise<void> {
+  /**
+   * Marks a ticket ended (once), with an optional error or end reason, aborts
+   * its start if one is in flight here, and stops its session if it had one.
+   * Returns the ended row, or undefined when the ticket was unknown or ended already.
+   */
+  async #end(ticket: string, error?: string, reason?: string): Promise<Row | undefined> {
     const [row] = await this.#db.query<Row>(
-      `UPDATE tickets SET state = 'ended', error = coalesce($2, error), ended_at = $3
+      `UPDATE tickets SET state = 'ended', error = coalesce($2, error), end_reason = coalesce($4, end_reason), ended_at = $3
        WHERE id = $1 AND state <> 'ended'
        RETURNING *`,
-      [ticket, error ?? null, this.#now()],
+      [ticket, error ?? null, this.#now(), reason ?? null],
     );
     if (row) await this.#afterEnd(row, error);
+    return row;
   }
 
   /** What follows a ticket's end: the log line, aborting its start if one is in flight here, stopping its session. */

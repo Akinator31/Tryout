@@ -113,6 +113,19 @@ test("follows a ticket from the queue to a session, then to its end", async (t) 
   assert.equal(visit.holdsTicket, false);
 });
 
+test("a ticket the operator stopped reads as stopped", async (t) => {
+  const { fake, visit } = setup(t);
+  fake.joinResults.push(joined());
+
+  await visit.join();
+  fake.stream.push({ state: "active", url: "https://n/s/abc/", ends_in_s: 600 });
+  fake.stream.push({ state: "ended", reason: "stopped" });
+
+  assert.equal(visit.phase.name, "stopped");
+  assert.equal(fake.stream.closed, true);
+  assert.equal(visit.holdsTicket, false);
+});
+
 test("a ticket ended with an error reads as a failed start", async (t) => {
   const { fake, visit } = setup(t);
   fake.joinResults.push(joined());

@@ -42,6 +42,12 @@ export const LOST_AFTER_MS = 5000;
 /** A session past its end by this much is treated as ended, even if the server never said so. */
 export const EXPIRY_GRACE_MS = 10_000;
 
+/** The phase an ended ticket leads to: stopped by the operator, a failed start, or a plain end. */
+function endedPhase(view: TicketView): Phase {
+  if (view.reason === "stopped") return { name: "stopped" };
+  return view.error ? { name: "failed" } : { name: "ended" };
+}
+
 export class Visit {
   #project: string;
   #api: Api;
@@ -148,7 +154,7 @@ export class Visit {
     if (view.state === "active" && view.url && view.ends_in_s !== undefined) {
       this.#set({ name: "active", url: view.url, endsAt: Date.now() + view.ends_in_s * 1000 });
     }
-    if (view.state === "ended") this.#finish(view.error ? { name: "failed" } : { name: "ended" });
+    if (view.state === "ended") this.#finish(endedPhase(view));
   }
 
   /**

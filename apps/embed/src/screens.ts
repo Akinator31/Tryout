@@ -10,6 +10,7 @@ export type Phase =
   | { name: "starting" }
   | { name: "active"; url: string; endsAt: number }
   | { name: "ended" }
+  | { name: "stopped" }
   | { name: "left" }
   | { name: "failed" }
   | { name: "limited"; retryAt: number }
@@ -71,6 +72,8 @@ export function cardFor(phase: Phase, title: string, now: number, t: Strings): C
       return null;
     case "ended":
       return card(t.endedTitle, { detail: t.endedDetail, action: t.startAgain });
+    case "stopped":
+      return card(t.stoppedTitle, { detail: t.stoppedDetail, action: t.startAgain });
     case "left":
       return card(t.leftTitle, { detail: t.leftDetail, action: t.joinAgain });
     case "failed":

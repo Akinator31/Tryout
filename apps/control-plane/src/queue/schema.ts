@@ -15,7 +15,8 @@ export const CLIENT_LOCK = 0x7472796c; // "tryl", paired with a hash of the clie
  * Applied in order at every startup, so each statement must be idempotent.
  *
  * - `client_key` and its index were added after the table's first release, for
- *   the per-client limits.
+ *   the per-client limits; `started_at` and `end_reason` later, for the admin's
+ *   sessions list and the operator's stop.
  * - The trigger notifies on state changes only: any of them may move every
  *   waiting ticket of the project, so the payload is the project. NOTIFY is
  *   sent on commit and deduplicated per transaction; heartbeats (`last_seen`)
@@ -40,6 +41,8 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS tickets_project_state ON tickets (project, state, seq)`,
   `ALTER TABLE tickets ADD COLUMN IF NOT EXISTS client_key text`,
   `CREATE INDEX IF NOT EXISTS tickets_client ON tickets (client_key, created_at)`,
+  `ALTER TABLE tickets ADD COLUMN IF NOT EXISTS started_at double precision`,
+  `ALTER TABLE tickets ADD COLUMN IF NOT EXISTS end_reason text`,
   `CREATE OR REPLACE FUNCTION tickets_notify() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   PERFORM pg_notify('${CHANNEL}', NEW.project);
@@ -73,7 +76,11 @@ export interface Row {
   session_id: string | null;
   url: string | null;
   error: string | null;
+  created_at: number;
+  started_at: number | null;
   ends_at: number | null;
+  /** `stopped` when the operator ended the ticket, or its project was removed. */
+  end_reason: string | null;
   position: number | null;
 }
 

@@ -1,18 +1,13 @@
 // The admin API's settings routes over HTTP: the active settings, publishing,
 // the dry run with node reachability, revisions and rollback, logos, nodes.
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
 import { test, type TestContext } from "node:test";
-import { createAdminAuth } from "../../src/admin/auth.ts";
-import { createAdminHandler } from "../../src/admin/http.ts";
 import { settingsRoutes, type SettingsRoutesDeps } from "../../src/admin/settings.ts";
 import type { NodeConfig, SettingsDocument } from "../../src/config/config.ts";
 import { createConfigStore, NodeInUseError } from "../../src/config/store.ts";
 import type { NodeStatus } from "../../src/nodes/health.ts";
+import { signedInAdmin } from "../support/admin.ts";
 import { fakeClock, freshDb } from "../support/support.ts";
-
-const PASSWORD = "correct horse battery";
 
 const node = (host = "n1") => ({ agent_url: `https://${host}.example:7000`, public_url: `https://${host}.example/s/{session}/`, max_sessions: 2 });
 const project = { node: "n1", image: "ghcr.io/me/cli:1", kind: "terminal", port: 7681, max_sessions: 1, max_age: "15m" };
@@ -36,9 +31,6 @@ async function setup(t: TestContext, { unreachable = [], hanging = false, nodeNa
   t.after(() => db.close());
   const clock = fakeClock();
   const store = await createConfigStore({ db, now: clock.now });
-  const auth = await createAdminAuth({ db, scrypt: { N: 1024, r: 8, p: 1 } });
-  await auth.createAccount("alice", PASSWORD);
-
   const probed: string[] = [];
   const logs: [string, Record<string, unknown> | undefined][] = [];
   const deps: SettingsRoutesDeps = {
@@ -54,41 +46,7 @@ async function setup(t: TestContext, { unreachable = [], hanging = false, nodeNa
     log: (msg, extra) => void logs.push([msg, extra]),
     probeTimeoutMs: 50,
   };
-  const handle = createAdminHandler({
-    auth,
-    metricsPage: async () => "",
-    clientKey: () => "203.0.113.1",
-    routes: settingsRoutes(deps),
-  });
-
-  const server = createServer((req, res) => {
-    handle(req, res).then(
-      (handled) => void (handled || res.writeHead(404).end()),
-      () => void res.writeHead(500).end(),
-    );
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  t.after(() => server.close());
-  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-
-  const login = await fetch(`${base}/admin/api/login`, {
-    method: "POST",
-    headers: { origin: base, "content-type": "application/json" },
-    body: JSON.stringify({ name: "alice", password: PASSWORD }),
-  });
-  const cookie = login.headers.get("set-cookie")!.split(";")[0];
-
-  /** A signed-in request from the admin's own page; resolves to the status, body and headers. */
-  const call = async (path: string, { method = "GET", body }: { method?: string; body?: unknown } = {}) => {
-    const res = await fetch(base + path, {
-      method,
-      headers: { origin: base, cookie, ...(method === "GET" ? {} : { "content-type": "application/json" }) },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    const text = await res.text();
-    const type = res.headers.get("content-type") ?? "";
-    return { status: res.status, body: type.startsWith("application/json") ? JSON.parse(text) : text, headers: res.headers };
-  };
+  const { base, call } = await signedInAdmin(t, db, settingsRoutes(deps));
 
   return { base, call, store, probed, clock, logs };
 }

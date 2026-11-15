@@ -53,6 +53,13 @@ test("ended, left and failed each offer one action to join again", () => {
   assert.equal(card({ name: "failed" })!.title, "The session did not start");
 });
 
+test("stopped: says the operator stopped it, and offers to start again", () => {
+  const c = card({ name: "stopped" })!;
+  assert.equal(c.title, "Session stopped");
+  assert.equal(c.detail, "The operator stopped this session. Nothing was kept.");
+  assert.equal(c.action, "Start again");
+});
+
 test("unavailable: no action, the visitor cannot fix it", () => {
   const c = card({ name: "unavailable" })!;
   assert.equal(c.action, null);
