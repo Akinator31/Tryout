@@ -151,12 +151,12 @@ the admin UI, and graph queue and session metrics.
   one directory per kind of machine (`deploy/node`, `deploy/control-plane`). CI deploys them as
   written, in profile `strict` with gVisor, and runs the end-to-end tests against them. See
   [Production deployment](deployment.md).
-- **M2:** `scripts/e2e-mtls.ts` checks any agent, local or remote, with the operator's
+- **M2:** `scripts/e2e/mtls.ts` checks any agent, local or remote, with the operator's
   `tryout-certs` directory; CI runs it against the production layout's published agent port.
   See [Production deployment](deployment.md#5-check-and-embed).
 - **M2:** the agent's reconcile loop attaches a recreated gateway again to every running session
   network, so sessions survive a node upgrade with an interruption of about one reconcile
-  period (10 s). `scripts/e2e-reattach.ts` recreates the gateway during a session in CI: alone
+  period (10 s). `scripts/e2e/reattach.ts` recreates the gateway during a session in CI: alone
   on the dev layout, with the agent on the production layout, as an upgrade does. See [Production deployment](deployment.md#upgrade).
 - **M2:** the reconcile loop reaps session containers stuck in `created` for over a minute,
   measured with the agent's `tryout.created` label. A create aborted by the control plane (the

@@ -22,7 +22,7 @@ The same checks run in CI:
 (cd apps/node && test -z "$(gofmt -l .)" && go vet ./... && go test -race ./...)
 (cd apps/control-plane && npm ci && npm run typecheck && npm test)
 (cd apps/embed && npm ci && npm run typecheck && npm test && npm run build && npm run size)
-shellcheck scripts/*.sh examples/*/*.sh
+shellcheck scripts/*.sh scripts/e2e/*.sh examples/*/*.sh
 zensical build --strict
 ```
 

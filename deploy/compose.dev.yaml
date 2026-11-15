@@ -44,7 +44,7 @@ services:
       - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
       - gateway-admin:/run/tryout
       - { type: volume, source: pki, target: /pki, read_only: true, volume: { subpath: nodes/local } }
-    # Published on the loopback only, for scripts/e2e-mtls.ts. A real node exposes
+    # Published on the loopback only, for scripts/e2e/mtls.ts. A real node exposes
     # the API on a private network or a tunnel towards the control plane.
     ports: ["127.0.0.1:7000:7000"]
     depends_on:
@@ -75,7 +75,7 @@ services:
     environment:
       TRYOUT_CONFIG: /app/tryout.yaml
       DATABASE_URL: postgres://tryout:tryout@postgres:5432/tryout
-      ADMIN_METRICS_TOKEN: dev-metrics-token-0123456789abcdef   # dev only; scripts/e2e-metrics.ts sends it
+      ADMIN_METRICS_TOKEN: dev-metrics-token-0123456789abcdef   # dev only; scripts/e2e/metrics.ts sends it
     volumes:
       - ./tryout.dev.yaml:/app/tryout.yaml:ro
       - { type: volume, source: pki, target: /app/pki, read_only: true, volume: { subpath: control-plane } }

@@ -3,22 +3,22 @@
 // clients, health checks, the queue and the HTTP listeners. Runs directly on
 // Node >= 24.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { controlPlaneMetrics, createMetricsPage } from "./admin.ts";
-import { createAdminAuth } from "./admin-auth.ts";
-import { createAdminHandler } from "./admin-http.ts";
-import { settingsRoutes } from "./admin-settings.ts";
-import { agentPool, checkHealth, fetchMetrics, probeAgent } from "./agents.ts";
-import { clientKeyResolver } from "./client.ts";
-import { ConfigError, loadConfig, queueConfig, sameListen, type Bootstrap, type Config, type Listen, type Seed, type Settings } from "./config.ts";
-import { followSettings, type Active } from "./config-live.ts";
-import { agentAddress, createConfigStore, SeedConflictError, seedSettings, type ConfigStore } from "./config-store.ts";
-import { pgDb } from "./db.ts";
-import { applyTheme, loadEmbed, type EmbedBundle } from "./embed.ts";
-import { createNodeHealth } from "./health.ts";
-import { createHandler, json } from "./http.ts";
+import { controlPlaneMetrics, createMetricsPage } from "./metrics/page.ts";
+import { createAdminAuth } from "./admin/auth.ts";
+import { createAdminHandler } from "./admin/http.ts";
+import { settingsRoutes } from "./admin/settings.ts";
+import { agentPool, checkHealth, fetchMetrics, probeAgent } from "./nodes/agents.ts";
+import { clientKeyResolver } from "./public/client.ts";
+import { ConfigError, loadConfig, queueConfig, sameListen, type Bootstrap, type Config, type Listen, type Seed, type Settings } from "./config/config.ts";
+import { followSettings, type Active } from "./config/live.ts";
+import { agentAddress, createConfigStore, SeedConflictError, seedSettings, type ConfigStore } from "./config/store.ts";
+import { pgDb } from "./db/db.ts";
+import { applyTheme, loadEmbed, type EmbedBundle } from "./public/embed.ts";
+import { createNodeHealth } from "./nodes/health.ts";
+import { createHandler, json } from "./public/http.ts";
 import { log } from "./log.ts";
-import { createQueue } from "./queue.ts";
-import { agentRuntime } from "./runtime.ts";
+import { createQueue } from "./queue/queue.ts";
+import { agentRuntime } from "./nodes/runtime.ts";
 
 const TICK_INTERVAL_MS = 2000;
 const HEALTH_INTERVAL_MS = 10_000;

@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: shellcheck scripts/*.sh examples/*/*.sh
+      - run: shellcheck scripts/*.sh scripts/e2e/*.sh examples/*/*.sh
       - name: Schema copies in sync
         run: scripts/sync-schema.sh --check
 
@@ -240,22 +240,22 @@ jobs:
           done
           exit 1
       - name: Terminal session through the gateway
-        run: node scripts/e2e-cli.ts
+        run: node scripts/e2e/cli.ts
       - name: Node health and metrics on the admin listener
-        run: node scripts/e2e-metrics.ts
+        run: node scripts/e2e/metrics.ts
       - name: Admin accounts, login and logout
-        run: node scripts/e2e-admin.ts
+        run: node scripts/e2e/admin.ts
       - name: Queue, promotion and heartbeat loss
-        run: node scripts/e2e-queue.ts
+        run: node scripts/e2e/queue.ts
       - name: SSE stream, push and heartbeat
-        run: node scripts/e2e-sse.ts
+        run: node scripts/e2e/sse.ts
       - name: Mutual TLS on the agent API
-        run: node scripts/e2e-mtls.ts
+        run: node scripts/e2e/mtls.ts
       - name: Per-IP limits
-        run: node scripts/e2e-limits.ts
+        run: node scripts/e2e/limits.ts
       - name: Session survives a recreated gateway
         run: >-
-          node scripts/e2e-reattach.ts http://localhost:3000 cli-hello --
+          node scripts/e2e/reattach.ts http://localhost:3000 cli-hello --
           docker compose -f deploy/compose.dev.yaml up -d --force-recreate --no-deps gateway
       - name: Logs
         if: always()
@@ -286,4 +286,4 @@ jobs:
           sudo systemctl restart docker
           docker info --format '{{json .Runtimes}}' | grep -q runsc
       - name: Deploy and test
-        run: scripts/e2e-deploy.sh
+        run: scripts/e2e/deploy.sh

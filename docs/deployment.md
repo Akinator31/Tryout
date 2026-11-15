@@ -11,7 +11,7 @@ deploy/control-plane/   the control plane and PostgreSQL (compose.yaml, .env.exa
 
 Nothing in them is tied to a provider, a domain or a reverse proxy: you choose how the services
 are exposed. CI deploys both compose files and their `.env.example`, with gVisor and the
-`strict` profile, and runs the end-to-end tests against them (`scripts/e2e-deploy.sh`). It uses
+`strict` profile, and runs the end-to-end tests against them (`scripts/e2e/deploy.sh`). It uses
 its own `tryout.yaml`; the example one is checked against the schema by the unit tests.
 
 ```
@@ -190,7 +190,7 @@ would. From a clone of the repository, the end-to-end test runs a terminal sessi
 public URLs:
 
 ```bash
-node scripts/e2e-cli.ts https://tryout.example.org cli-hello
+node scripts/e2e/cli.ts https://tryout.example.org cli-hello
 ```
 
 From a machine that reaches a node's agent (the control plane's, or one on the same VPN), check
@@ -202,9 +202,9 @@ certificate, TLS 1.2, plain HTTP, the node's own certificate, a certificate from
 address than the one in the node's certificate. It needs the `openssl` command.
 
 ```bash
-node scripts/e2e-mtls.ts 10.0.50.10:7000 --pki ./pki --node cli
+node scripts/e2e/mtls.ts 10.0.50.10:7000 --pki ./pki --node cli
 # through a port forward to the agent, from your machine
-node scripts/e2e-mtls.ts 127.0.0.1:7000 --pki ./pki --node cli --server-name 10.0.50.10
+node scripts/e2e/mtls.ts 127.0.0.1:7000 --pki ./pki --node cli --server-name 10.0.50.10
 ```
 
 Then embed a project in your portfolio:

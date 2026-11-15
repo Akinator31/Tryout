@@ -12,7 +12,7 @@ embed_frame_ancestors:
 
 # Per-IP limits (docs/configuration.md). Requests reach the control plane
 # through Docker's port forwarding, from a private address: trusting private
-# networks lets scripts/e2e-limits.ts pose as several clients. In production,
+# networks lets scripts/e2e/limits.ts pose as several clients. In production,
 # list only your own proxies.
 client_ip:
   trusted_proxies: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, "fd00::/8"]

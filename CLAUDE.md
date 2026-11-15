@@ -73,7 +73,9 @@ Key facts that are easy to forget:
 ## Repository layout
 
 ```
-apps/control-plane/   TypeScript, Node ≥ 24 (native type stripping); queue.ts is the core module
+apps/control-plane/   TypeScript, Node ≥ 24 (native type stripping); src/queue/queue.ts is the core module.
+                      src/: server.ts, cli.ts, log.ts + admin/, config/, queue/, db/, nodes/, metrics/,
+                      public/ (one folder per area); test/ mirrors it, helpers in test/support/
 apps/embed/           embed page: framework-free TypeScript, Vite build served by the control plane; visit.ts is the core
 packages/tokens/      design tokens (in step with the Figma variables) + IBM Plex subsets (scripts/subset-fonts.sh)
 apps/node/            Go: cmd/agent, cmd/gateway, cmd/certs, internal/{dockerapi,pki,spec}; one image
@@ -81,8 +83,8 @@ deploy/               compose.dev.yaml, tryout.dev.yaml, .env.example (dev); nod
                       examples from published images, docs/deployment.md)
 schema/               tryout.schema.json (source of truth) + testdata/ fixtures shared by TS and Go
 examples/cli-hello/   sample terminal project (ttyd)
-scripts/              e2e-*.ts (cli, metrics, admin, queue, sse, mtls, limits, reattach), e2e-deploy.sh, check-image.sh,
-                      feasibility-node.sh
+scripts/              e2e/ (cli, metrics, admin, queue, sse, mtls, limits, reattach .ts; deploy.sh),
+                      check-image.sh, feasibility-node.sh, sync-schema.sh, subset-fonts.sh
 docs/                 Zensical documentation (English)
 SECURITY.md           threat model and profiles (included in the docs site)
 ```
@@ -107,7 +109,7 @@ vault with the original stack study (in French) and its sources.
   - M1 Deployable: ghcr.io images; YAML config + JSON Schema; mTLS; per-IP limits; exit
     criteria checked on fresh VMs.
   - M2 Live: private project images; production guide and examples (`docs/deployment.md`,
-    tested by `scripts/e2e-deploy.sh` with gVisor); gateway reattachment and reaping of
+    tested by `scripts/e2e/deploy.sh` with gVisor); gateway reattachment and reaping of
     `created` containers; packaging guide and `scripts/check-image.sh`; public repository;
     `v0.1.0` released (GitHub release notes, procedure in `docs/contributing.md`); a portfolio
     embeds Tryout in production.
@@ -119,20 +121,20 @@ vault with the original stack study (in French) and its sources.
   In progress: M4 Operate (plan in `docs/roadmap.md`), released as `v0.2.0`. Done so far: JSON logs on every component, ids shortened to a
   6-character prefix; agent `/metrics` (hand-written Prometheus format, `internal/metrics`) and
   a richer `/healthz`, version injected at build time (`internal/version`); control plane
-  health checks (`health.ts`, no promotion to a down node), admin listener `admin_listen` with
-  `/metrics` relaying the agents' metrics (`admin.ts`, `metrics-relay.ts`); settings in Postgres
-  as revisions (`config-store.ts`, `config-live.ts`, `cli.ts` import/export; `tryout.yaml`
-  keeps the bootstrap and only seeds an empty database); admin accounts (`admin-auth.ts`,
-  `admin-http.ts`: scrypt, server-side sessions in a `__Host-` cookie, login limits in
+  health checks (`nodes/health.ts`, no promotion to a down node), admin listener `admin_listen` with
+  `/metrics` relaying the agents' metrics (`metrics/page.ts`, `metrics/relay.ts`); settings in Postgres
+  as revisions (`config/store.ts`, `config/live.ts`, `cli.ts` import/export; `tryout.yaml`
+  keeps the bootstrap and only seeds an empty database); admin accounts (`admin/auth.ts`,
+  `admin/http.ts`: scrypt, server-side sessions in a `__Host-` cookie, login limits in
   Postgres, CLI `create-user`…, bearer `admin_metrics_token` on `/metrics`); admin settings API
-  (`admin-settings.ts`, `admin-request.ts`: whole-document settings, dry run with node
+  (`admin/settings.ts`, `admin/request.ts`: whole-document settings, dry run with node
   reachability, revisions and rollback, logos, nodes' health). Next: sessions list, forced stop
   and the embed "stopped" screen (PR 6b of the M4 plan). Then M5 Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module
   `github.com/Akinator31/Tryout/apps/node`, docs at <https://akinator31.github.io/Tryout/>).
-- Queue state is in Postgres (`apps/control-plane/src/queue.ts`), tested through its
+- Queue state is in Postgres (`apps/control-plane/src/queue/queue.ts`), tested through its
   interface with PGlite locally and PostgreSQL in CI.
 - Ticket changes are pushed over SSE (`GET /api/tickets/<id>/events`), with Postgres
   `LISTEN/NOTIFY` across instances; the open stream is the heartbeat. Polling remains
@@ -169,21 +171,21 @@ decision records, English only.
 # TypeScript (embed page; the control plane needs its dist/ to start outside Docker)
 (cd apps/embed && npm ci && npm run typecheck && npm test && npm run build && npm run size)
 # Shell
-shellcheck scripts/*.sh examples/*/*.sh
+shellcheck scripts/*.sh scripts/e2e/*.sh examples/*/*.sh
 # Docs
 zensical build --clean --strict      # or: zensical serve
 # Full local stack + end-to-end tests
 docker build -t tryout-example/cli-hello:dev examples/cli-hello
 cp deploy/.env.example deploy/.env
 docker compose -f deploy/compose.dev.yaml up -d --build
-node scripts/e2e-cli.ts && node scripts/e2e-metrics.ts && node scripts/e2e-admin.ts && node scripts/e2e-queue.ts && node scripts/e2e-sse.ts && node scripts/e2e-mtls.ts \
-  && node scripts/e2e-limits.ts \
-  && node scripts/e2e-reattach.ts http://localhost:3000 cli-hello -- \
+node scripts/e2e/cli.ts && node scripts/e2e/metrics.ts && node scripts/e2e/admin.ts && node scripts/e2e/queue.ts && node scripts/e2e/sse.ts && node scripts/e2e/mtls.ts \
+  && node scripts/e2e/limits.ts \
+  && node scripts/e2e/reattach.ts http://localhost:3000 cli-hello -- \
        docker compose -f deploy/compose.dev.yaml up -d --force-recreate --no-deps gateway
 docker compose -f deploy/compose.dev.yaml down -v
 # Production layout (deploy/node + deploy/control-plane); defaults to strict + gVisor.
 # Docker Desktop: NODE_PROFILE=dev HOST_ADDR=host.docker.internal BIND_ADDR=127.0.0.1 CHOWN_CMD=: DOCKER_GID=0
-scripts/e2e-deploy.sh
+scripts/e2e/deploy.sh
 ```
 
 CI (`.github/workflows/ci.yml`) runs all of the above, plus multi-arch image builds.
