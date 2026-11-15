@@ -8,7 +8,8 @@ listen: ":3000"
 
 # Optional: the admin listener: the admin API (accounts made with the create-user command)
 # and Prometheus metrics on /metrics. Off when left out. Keep it off the Internet: publish it
-# on a private address only (see compose.yaml), and reach it over HTTPS or an SSH tunnel.
+# on a private address only (see compose.yaml), and reach it over HTTPS or an SSH tunnel, or
+# put it behind an identity-aware proxy (docs/deployment.md).
 # admin_listen: ":9090"
 # Bearer token Prometheus sends to read /metrics; put the value in .env.
 # admin_metrics_token: "${ADMIN_METRICS_TOKEN}"

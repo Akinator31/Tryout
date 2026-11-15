@@ -172,6 +172,15 @@ Then open `/admin/` on that address, over HTTPS or an SSH tunnel to `localhost`,
 session cookie is `Secure`. See [Admin interface](configuration.md#admin-interface) and
 [Admin accounts](configuration.md#admin-accounts).
 
+To reach the admin from anywhere, put it on its own host name behind an identity-aware proxy:
+an access policy that signs you in before any request reaches the admin listener, with no
+path left open. The admin password stays a second barrier. The proxy must serve HTTPS and keep
+the `Host` header, since the admin refuses requests whose `Origin` names another host; list it
+in `client_ip.trusted_proxies` so that failed logins count per visitor. Add that origin to
+`embed_frame_ancestors` and to the gateway's `FRAME_ANCESTORS` for the project preview.
+`/metrics` is behind the same policy: let Prometheus scrape the listener from inside, or give
+it the proxy's machine credentials.
+
 ## 4. Expose the two services
 
 Publish, with TLS, through your reverse proxy or tunnel ([Public exposure](exposure.md)):
@@ -321,8 +330,23 @@ Upgrade the nodes and the control plane to the same version. The control plane k
 and its settings in PostgreSQL across restarts.
 
 From `v0.1`, the first start of `v0.2` publishes the settings of `tryout.yaml` as revision 1.
-Later changes go through the `import` command, not through the file: see
+Once it has started, keep only the bootstrap in `tryout.yaml` (`listen`, `admin_listen`,
+`admin_metrics_token`, `public_url`, `admin_preview`, `client_ip`, `agent_tls`) and remove
+`embed_frame_ancestors`, `theme`, `limits`, `nodes` and `projects`. Later changes go through
+the admin or the `import` command. A file that still holds settings refuses the start as soon
+as they differ from the active revision, after a change in the admin for instance. See
 [Settings and revisions](configuration.md#settings-and-revisions).
+
+If the control plane already refuses to start because the file was edited, publish the file
+as a new revision with a one-off container, then remove the settings from the file and start
+again:
+
+```bash
+docker compose run --rm control-plane node apps/control-plane/src/cli.ts import /etc/tryout/tryout.yaml
+```
+
+The import ignores the bootstrap keys. Run it from the directory of the running stack, or with
+its project name (`-p`), so that it reaches the same PostgreSQL.
 
 Running sessions survive a node upgrade, with a short interruption. A recreated gateway is no
 longer attached to the session networks: the agent attaches it again and pushes its routes on

@@ -166,7 +166,9 @@ published on an address you choose.
 - **Keep `admin_listen` off the Internet.** It serves the admin API, which controls the settings,
   and `/metrics`, which tells queue lengths, projects and node versions. Bind it to a private
   address or to loopback, reach it over HTTPS or an SSH tunnel, and set `admin_metrics_token`
-  for Prometheus. Use long, unique admin passwords: an account can change what nodes run.
+  for Prometheus. To reach it from anywhere, put an identity-aware proxy in front, which signs
+  the operator in before any request reaches the listener; the admin login stays a second
+  barrier. Use long, unique admin passwords: an account can change what nodes run.
 - **Declare your reverse proxies in `client_ip.trusted_proxies`**, and only them. Without it,
   every visitor behind the proxy shares its address and its limits; with a block that is too
   broad, a visitor can claim any address in `X-Forwarded-For`. Rate limiting raw requests at the
