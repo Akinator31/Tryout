@@ -1,8 +1,10 @@
 // The control plane's clients towards agents, over mutual TLS 1.3: one per
-// node, shared by the session runtime, the health check and the metrics relay.
+// node of the active settings, shared by the session runtime, the health check
+// and the metrics relay.
 // Nodes run hostile code, so what they answer is size-capped before it is read.
 import { Agent, fetch as agentFetch, type Response } from "undici";
-import type { AgentTls, Config, NodeConfig } from "./config.ts";
+import type { AgentTls, NodeConfig } from "./config.ts";
+import { agentAddress } from "./config-store.ts";
 import type { HealthReport } from "./health.ts";
 
 /** Largest /healthz answer read from an agent. */
@@ -37,9 +39,44 @@ export function agentClient(tls: AgentTls, node: Pick<NodeConfig, "agent_url" | 
   };
 }
 
-/** One client per configured node, by node name. */
-export function agentClients(cfg: Config): Record<string, AgentClient> {
-  return Object.fromEntries(Object.entries(cfg.nodes).map(([name, n]) => [name, agentClient(cfg.agent_tls, n)]));
+/** The clients of the active settings' nodes. */
+export interface AgentPool {
+  /** The client of a node, or of a removed node (to stop what still runs there); throws for a node never known. */
+  get(node: string): AgentClient;
+  /**
+   * Follows new settings: a new node, or one whose address changed, gets a
+   * new client, and the old client of a changed node is closed once its
+   * requests in flight are done. A removed node's client is kept: an instance
+   * that applied the revision late may still have to stop a session there.
+   */
+  sync(nodes: Record<string, NodeConfig>): void;
+}
+
+/** A pool with no node until the first sync. */
+export function agentPool(tls: AgentTls): AgentPool {
+  const clients = new Map<string, { address: string; client: AgentClient }>();
+
+  return {
+    get(node) {
+      const entry = clients.get(node);
+      if (!entry) throw new Error(`unknown node ${node}`);
+      return entry.client;
+    },
+
+    sync(nodes) {
+      for (const [name, entry] of clients) {
+        const n = nodes[name];
+        if (!n || agentAddress(n) === entry.address) continue;
+
+        clients.delete(name);
+        void entry.client.close().catch(() => {});
+      }
+
+      for (const [name, n] of Object.entries(nodes)) {
+        if (!clients.has(name)) clients.set(name, { address: agentAddress(n), client: agentClient(tls, n) });
+      }
+    },
+  };
 }
 
 /**

@@ -1,7 +1,10 @@
-// theme: the embed page's accent colour and logo, read and checked at startup.
+// theme: the embed page's accent colour and logo, checked whenever settings are
+// loaded. The logo comes from a file named in tryout.yaml, or from an asset
+// stored in the database for a revision.
+import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import type { Report } from "./config-report.ts";
+import type { Path, Report } from "./config-report.ts";
 import { isObject } from "./config-values.ts";
 
 /** The three brand tokens of packages/tokens, derived from one accent colour. */
@@ -46,12 +49,24 @@ export const CARD_BACKGROUND = "#141414";
  */
 const HOVER_SHIFT = 0.3;
 
+/** A logo's bytes, where its source is written, and a name for messages (its path, or "asset <sha256>"). */
+export interface LogoBytes {
+  body: Buffer;
+  at: Path;
+  name: string;
+}
+
+/**
+ * Finds the bytes of a logo from its `file` (tryout.yaml) or its `asset` (a stored revision),
+ * reporting at `where` what is wrong.
+ */
+export type LogoReader = (logo: Record<string, unknown>, where: Path, report: Report) => LogoBytes | undefined;
+
 /**
  * Reads `theme`: derives the brand tokens from `accent` and refuses one too dark to read on
- * the card; reads `logo.file`, relative to the configuration's directory, and checks its
- * size and format.
+ * the card; reads the logo with `readLogo` and checks its size and format.
  */
-export function loadTheme(v: unknown, baseDir: string, report: Report): Theme {
+export function loadTheme(v: unknown, readLogo: LogoReader, report: Report): Theme {
   if (!isObject(v)) return {};
   const theme: Theme = {};
 
@@ -67,32 +82,67 @@ export function loadTheme(v: unknown, baseDir: string, report: Report): Theme {
     }
   }
 
-  if (isObject(v.logo) && typeof v.logo.file === "string" && typeof v.logo.alt === "string") {
-    const logo = readLogo(resolve(baseDir, v.logo.file), report);
+  if (isObject(v.logo) && typeof v.logo.alt === "string") {
+    const bytes = readLogo(v.logo, ["theme", "logo"], report);
+    const logo = bytes && checkLogo(bytes, report);
     if (logo) theme.logo = { ...logo, alt: v.logo.alt };
   }
   return theme;
 }
 
-/** Reads the logo file and identifies its format; reports what is wrong otherwise. */
-function readLogo(path: string, report: Report): Omit<Logo, "alt"> | undefined {
-  const where = ["theme", "logo", "file"];
-  let body: Buffer;
-
-  try {
-    if (statSync(path).size > MAX_LOGO_BYTES) {
-      report(where, `${path} is larger than ${MAX_LOGO_BYTES / 1024} KB`);
-      return undefined;
-    }
-    body = readFileSync(path);
-  } catch {
-    report(where, `cannot read ${path}`);
+/** Checks a logo's size and identifies its format. */
+function checkLogo({ body, at, name }: LogoBytes, report: Report): Omit<Logo, "alt"> | undefined {
+  if (body.length > MAX_LOGO_BYTES) {
+    report(at, `${name} is larger than ${MAX_LOGO_BYTES / 1024} KB`);
     return undefined;
   }
 
   const format = imageFormat(body);
-  if (!format) report(where, `${path} is not an SVG, PNG or WebP image`);
+  if (!format) report(at, `${name} is not an SVG, PNG or WebP image`);
   return format ? { body, ...format } : undefined;
+}
+
+/** Logos of tryout.yaml: `file`, relative to `baseDir`. */
+export function fileLogos(baseDir: string): LogoReader {
+  return (logo, where, report) => {
+    if (typeof logo.file !== "string") {
+      report(where, "needs file: asset is only for revisions stored by the control plane");
+      return undefined;
+    }
+
+    const path = resolve(baseDir, logo.file);
+    const at = [...where, "file"];
+    try {
+      if (statSync(path).size > MAX_LOGO_BYTES) {
+        report(at, `${path} is larger than ${MAX_LOGO_BYTES / 1024} KB`);
+        return undefined;
+      }
+      return { body: readFileSync(path), at, name: path };
+    } catch {
+      report(at, `cannot read ${path}`);
+      return undefined;
+    }
+  };
+}
+
+/** Logos of stored revisions: `asset`, a SHA-256 found in `assets`. */
+export function assetLogos(assets: ReadonlyMap<string, Buffer>): LogoReader {
+  return (logo, where, report) => {
+    if (typeof logo.asset !== "string") {
+      report(where, "needs asset: a stored revision names its logo by its SHA-256");
+      return undefined;
+    }
+
+    const at = [...where, "asset"];
+    const body = assets.get(logo.asset);
+    if (!body) report(at, "unknown asset: upload the logo first");
+    return body && { body, at, name: `asset ${logo.asset}` };
+  };
+}
+
+/** The name of an asset: the SHA-256 of its bytes, in lowercase hex. */
+export function assetHash(body: Buffer): string {
+  return createHash("sha256").update(body).digest("hex");
 }
 
 /** Identifies an SVG, PNG or WebP file by its content, never by its name. */

@@ -18,17 +18,24 @@ export interface NodeStatus {
 export interface NodeHealth {
   /** Whether the node's last check succeeded. A node not yet checked, or unknown, is down. */
   isUp(node: string): boolean;
-  /** The last check of every node checked so far. */
+  /** The last check of every node of the active settings checked so far. */
   snapshot(): Record<string, NodeStatus>;
   /**
    * Checks every node at once and resolves when all are done, each within
    * the timeout. A call made while a round is running joins that round.
    */
   probe(): Promise<void>;
+  /**
+   * After new settings: forgets the status of `changed` nodes (their address
+   * changed), ignoring any check of theirs still running, then waits for the
+   * running round and checks every node again.
+   */
+  recheck(changed: string[]): Promise<void>;
 }
 
 export interface NodeHealthDeps {
-  nodes: string[];
+  /** The nodes of the active settings: a node added later is down until its first check. */
+  nodes: () => string[];
   /** Resolves with the node's report when it is healthy; rejects otherwise. */
   check: (node: string, signal: AbortSignal) => Promise<HealthReport>;
   timeoutMs?: number;
@@ -43,6 +50,8 @@ const CHECK_TIMEOUT_MS = 5000;
 export function createNodeHealth(deps: NodeHealthDeps): NodeHealth {
   const { nodes, check, timeoutMs = CHECK_TIMEOUT_MS, now = Date.now, log = () => {} } = deps;
   const statuses = new Map<string, NodeStatus>();
+  /** Bumped when a node's status is forgotten, so a check started before does not record. */
+  const generations = new Map<string, number>();
   let round: Promise<void> | null = null;
 
   /** Records a check's result, logging when the node changes state (or on its first check). */
@@ -57,6 +66,8 @@ export function createNodeHealth(deps: NodeHealthDeps): NodeHealth {
 
   /** Checks one node; a check that neither answers nor fails within the timeout counts as failed. */
   async function checkOne(node: string): Promise<void> {
+    const generation = generations.get(node) ?? 0;
+    const current = () => (generations.get(node) ?? 0) === generation;
     const signal = AbortSignal.timeout(timeoutMs);
     const timedOut = new Promise<never>((_, reject) =>
       signal.addEventListener("abort", () => reject(new Error("no answer within the timeout")), { once: true }),
@@ -64,20 +75,41 @@ export function createNodeHealth(deps: NodeHealthDeps): NodeHealth {
 
     try {
       const report = await Promise.race([check(node, signal), timedOut]);
-      record(node, { up: true, checkedAt: now(), report });
+      if (current()) record(node, { up: true, checkedAt: now(), report });
     } catch (e) {
-      record(node, { up: false, checkedAt: now(), error: errorText(e) });
+      if (current()) record(node, { up: false, checkedAt: now(), error: errorText(e) });
     }
   }
 
+  /** Forgets the nodes that left the settings, so a node added again under their name starts down. */
+  function forgetRemoved(current: string[]): void {
+    for (const node of statuses.keys()) {
+      if (!current.includes(node)) statuses.delete(node);
+    }
+  }
+
+  /** Starts a round, or joins the running one. */
+  function probe(): Promise<void> {
+    round ??= (async () => {
+      const current = nodes();
+      forgetRemoved(current);
+      await Promise.all(current.map(checkOne));
+      round = null;
+    })();
+    return round;
+  }
+
   return {
-    isUp: (node) => statuses.get(node)?.up === true,
-    snapshot: () => Object.fromEntries(statuses),
-    probe() {
-      round ??= Promise.all(nodes.map(checkOne)).then(() => {
-        round = null;
-      });
-      return round;
+    isUp: (node) => nodes().includes(node) && statuses.get(node)?.up === true,
+    snapshot: () => Object.fromEntries([...statuses].filter(([node]) => nodes().includes(node))),
+    probe,
+    async recheck(changed) {
+      for (const node of changed) {
+        generations.set(node, (generations.get(node) ?? 0) + 1);
+        statuses.delete(node);
+      }
+      await round;
+      await probe();
     },
   };
 }

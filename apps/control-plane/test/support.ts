@@ -1,20 +1,35 @@
 // Test helpers: a fresh database per test, a controllable clock, a fake
 // SessionRuntime (the agent + readiness probe seam).
+import { randomBytes } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { pgDb, type Db, type Query } from "../src/db.ts";
 import type { SessionRef, SessionRuntime } from "../src/queue.ts";
 
-/** PGlite by default; a real Postgres when TEST_DATABASE_URL is set (CI), with an emptied public schema. */
+/**
+ * PGlite by default; a real Postgres when TEST_DATABASE_URL is set (CI). Test
+ * files run in parallel on that one database, so each Db gets a schema of its
+ * own, as its search_path, dropped on close.
+ */
 export async function freshDb(): Promise<Db> {
   const url = process.env.TEST_DATABASE_URL;
-  if (url) {
-    const db = pgDb(url);
-    await db.query("DROP SCHEMA IF EXISTS public CASCADE");
-    await db.query("CREATE SCHEMA public");
-    return db;
-  }
+  if (!url) return pgliteDb(new PGlite());
 
-  return pgliteDb(new PGlite());
+  const schema = `test_${randomBytes(8).toString("hex")}`;
+  const admin = pgDb(url);
+  await admin.query(`CREATE SCHEMA ${schema}`);
+
+  const scoped = new URL(url);
+  scoped.searchParams.set("options", `-c search_path=${schema}`);
+  const db = pgDb(scoped.toString());
+
+  return {
+    ...db,
+    async close() {
+      await db.close();
+      await admin.query(`DROP SCHEMA ${schema} CASCADE`);
+      await admin.close();
+    },
+  };
 }
 
 /** The Db port over PGlite. Its LISTEN cannot drop, so onConnect runs once. */

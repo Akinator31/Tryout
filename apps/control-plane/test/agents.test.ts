@@ -7,7 +7,7 @@ import { createServer, type Server } from "node:https";
 import type { AddressInfo, TLSSocket } from "node:tls";
 import { after, test } from "node:test";
 import type { AgentTls } from "../src/config.ts";
-import { agentClient, checkHealth, fetchMetrics } from "../src/agents.ts";
+import { agentPool, agentClient, checkHealth, fetchMetrics } from "../src/agents.ts";
 import { makePki, type Leaf } from "./pki.ts";
 
 const pki = makePki();
@@ -128,4 +128,20 @@ test("metrics are fetched as text; an error status or an oversized answer is ref
 
   const huge = await answering(200, "x 1\n".repeat(300_000));
   await assert.rejects(fetchMetrics(huge, signal()), /larger than 1048576 bytes/);
+});
+
+test("the pool follows the settings and keeps a removed node's client for late stops", () => {
+  const pool = agentPool(tls);
+  const n1 = { agent_url: "https://n1.example:7000", public_url: "https://x/s/{session}/", max_sessions: 1 };
+  pool.sync({ n1 });
+  const first = pool.get("n1");
+
+  pool.sync({ n1: { ...n1, max_sessions: 2 } });
+  assert.equal(pool.get("n1"), first, "same address, same client");
+  pool.sync({ n1: { ...n1, agent_url: "https://n1-new.example:7000" } });
+  assert.notEqual(pool.get("n1"), first, "a new address gets a new client");
+
+  pool.sync({});
+  assert.ok(pool.get("n1"), "a removed node's client stays for its last stops");
+  assert.throws(() => pool.get("n9"), /unknown node n9/);
 });

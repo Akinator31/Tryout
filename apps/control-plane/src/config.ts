@@ -1,20 +1,25 @@
-// Control plane configuration: a YAML file validated against the shared JSON
-// Schema (src/tryout.schema.json, a copy of schema/tryout.schema.json that the
-// agent also embeds), then by semantic checks the schema cannot express.
-// See docs/configuration.md. Problem reporting, value parsers,
-// agent_tls and theme live in the sibling config-*.ts modules.
+// Control plane configuration. tryout.yaml holds the bootstrap (listeners,
+// agent TLS files, trusted proxies) and may hold settings to seed an empty
+// database; the settings live in Postgres as revisions afterwards (see
+// config-settings.ts and config-store.ts). Both are validated against the
+// shared JSON Schema, then by semantic checks the schema cannot express. See
+// docs/configuration.md. Problem reporting, value parsers, agent_tls and theme
+// live in the sibling config-*.ts modules.
 import { readFileSync } from "node:fs";
-import { isIP } from "node:net";
 import { dirname } from "node:path";
-import { Ajv2020 } from "ajv/dist/2020.js";
 import { LineCounter, parseDocument } from "yaml";
 import { parseCidr, type ClientIpConfig } from "./client.ts";
-import { createProblems, lineLocator, reportSchemaErrors, type Report } from "./config-report.ts";
-import { loadTheme, type Theme } from "./config-theme.ts";
+import { ConfigError, createProblems, lineLocator, reportSchemaErrors, type Problems, type Report } from "./config-report.ts";
+import { schema, validateFile, validateSettingsDocument } from "./config-schema.ts";
+import { checkSettingsSections, seedOf, settingsWarnings, SETTINGS_KEYS, type Seed } from "./config-settings.ts";
+import { fileLogos, type Theme } from "./config-theme.ts";
 import { loadAgentTls } from "./config-tls.ts";
-import { interpolate, isObject, parseDuration, parseListen } from "./config-values.ts";
-import { FORGET_ENDED_MS, type QueueConfig } from "./queue.ts";
+import { interpolate, isObject, parseListen } from "./config-values.ts";
+import type { QueueConfig } from "./queue.ts";
 
+export { ConfigError } from "./config-report.ts";
+export { schema, validateSessionRequest } from "./config-schema.ts";
+export { checkSettings, DEFAULT_LIMITS, type Seed, type SettingsDocument } from "./config-settings.ts";
 export { parseDuration } from "./config-values.ts";
 
 export type Kind = "terminal" | "desktop";
@@ -45,6 +50,8 @@ export interface Workload {
 export interface ProjectConfig extends Workload {
   /** Shown to visitors; the project's key when the file leaves it out. */
   title: string;
+  /** False while the project is paused: no new tickets. */
+  enabled: boolean;
   node: string;
   max_sessions: number;
   /** As written in the file, e.g. "15m". */
@@ -74,45 +81,25 @@ export interface Listen {
   port: number;
 }
 
-export interface Config {
+/** Read from tryout.yaml at startup; changing it needs a restart. */
+export interface Bootstrap {
   listen: Listen;
   /** The admin listener (/metrics); off when absent. */
   admin_listen?: Listen;
+  client_ip: ClientIpConfig;
+  agent_tls: AgentTls;
+}
+
+/** Stored in Postgres as revisions and applied without a restart. */
+export interface Settings {
   embed_frame_ancestors: string[];
   theme: Theme;
-  client_ip: ClientIpConfig;
   limits: Limits;
-  agent_tls: AgentTls;
   nodes: Record<string, NodeConfig>;
   projects: Record<string, ProjectConfig>;
 }
 
-/** Every problem found in the file, one line each, with its location. */
-export class ConfigError extends Error {
-  readonly problems: string[];
-
-  constructor(source: string, problems: string[]) {
-    super(`invalid configuration ${source}:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
-    this.name = "ConfigError";
-    this.problems = problems;
-  }
-}
-
-export const schema = JSON.parse(readFileSync(new URL("./tryout.schema.json", import.meta.url), "utf8"));
-const ajv = new Ajv2020({ allErrors: true, strict: true });
-ajv.addSchema(schema, "tryout");
-const validateFile = ajv.getSchema("tryout")!;
-/** The agent's POST /v1/sessions contract; the agent validates with the same schema. */
-export const validateSessionRequest = ajv.getSchema("tryout#/$defs/session_request")!;
-
-/** Also written as `default` annotations in the schema, for editors; a test keeps them equal. */
-export const DEFAULT_LIMITS = { live_tickets_per_ip: 4, new_tickets_per_ip: { max: 10, per: "1m" }, streams_per_ip: 8 };
-
-/** Upper bound for the new-ticket window: it counts ended tickets, which are deleted after FORGET_ENDED_MS. */
-const MAX_WINDOW_S = FORGET_ENDED_MS / 1000;
-
-/** Upper bound for max_age; the agent applies its own, usually lower, cap too. */
-const MAX_AGE_LIMIT_S = 24 * 3600;
+export type Config = Bootstrap & Settings;
 
 /** Loads the configuration file at `path`; agent_tls paths are relative to its directory. */
 export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env, now = new Date()) {
@@ -120,9 +107,11 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env, n
 }
 
 /**
- * Parses and checks a configuration in three passes: ${VAR} interpolation,
- * the JSON Schema, then semantic checks. Throws a ConfigError listing every
- * problem found, each with its line. Returns the configuration and warnings
+ * Parses and checks a configuration file in three passes: ${VAR}
+ * interpolation, the JSON Schema, then semantic checks. Throws a ConfigError
+ * listing every problem found, each with its line. Returns the configuration
+ * (with empty settings when the file has none), the file's settings as a
+ * `seed` for the database (null when it has none), and warnings
  * (certificates about to expire, overbooked nodes) that do not prevent
  * starting.
  */
@@ -134,7 +123,63 @@ export function parseConfig(
     baseDir = process.cwd(),
     now = new Date(),
   }: { source?: string; env?: NodeJS.ProcessEnv; baseDir?: string; now?: Date } = {},
-): { config: Config; warnings: string[] } {
+): { config: Config; seed: Seed | null; warnings: string[] } {
+  const { raw, problems } = readYaml(text, source, env);
+  problems.nextPass();
+  if (!validateFile(raw)) reportSchemaErrors(validateFile.errors ?? [], problems.report);
+
+  problems.nextPass();
+  const warnings: string[] = [];
+  const file = isObject(raw) ? raw : {};
+  const bootstrap = checkBootstrap(file, { baseDir, now, report: problems.report, warnings });
+  const settings = checkSettingsSections(file, { report: problems.report, readLogo: fileLogos(baseDir) });
+  if (problems.list.length) throw new ConfigError(source, problems.list);
+
+  warnings.push(...settingsWarnings(settings));
+  if (sameListen(bootstrap.listen, bootstrap.admin_listen)) {
+    warnings.push("admin_listen equals listen: /metrics is public; give the admin listener its own address to keep it private");
+  }
+  return { config: { ...bootstrap, ...settings }, seed: seedOf(file, settings), warnings };
+}
+
+/**
+ * Parses and checks a file of settings to publish (the import command): the
+ * settings sections of a tryout.yaml, whose bootstrap is ignored, or a file
+ * written by the export command. Logo files are relative to `baseDir`. Throws
+ * a ConfigError listing every problem, or when the file has no settings at
+ * all: publishing that would remove every node and project. Returns the
+ * settings as a document to publish, with the logo it names, and warnings.
+ */
+export function parseSettingsFile(
+  text: string,
+  { source = "settings", env = process.env, baseDir = process.cwd() }: { source?: string; env?: NodeJS.ProcessEnv; baseDir?: string } = {},
+): { seed: Seed; warnings: string[] } {
+  const { raw, problems } = readYaml(text, source, env, BOOTSTRAP_KEYS);
+  const file = isObject(raw) ? raw : {};
+  if (!SETTINGS_KEYS.some((k) => Object.hasOwn(file, k))) {
+    throw new ConfigError(source, ["no settings: the file has none of embed_frame_ancestors, theme, limits, nodes, projects"]);
+  }
+
+  problems.nextPass();
+  if (!validateSettingsDocument(file)) reportSchemaErrors(validateSettingsDocument.errors ?? [], problems.report);
+
+  problems.nextPass();
+  const settings = checkSettingsSections(file, { report: problems.report, readLogo: fileLogos(baseDir) });
+  if (problems.list.length) throw new ConfigError(source, problems.list);
+
+  return { seed: seedOf(file, settings)!, warnings: settingsWarnings(settings) };
+}
+
+/** The keys of the bootstrap, which only tryout.yaml holds. */
+const BOOTSTRAP_KEYS = Object.keys(schema.$defs.bootstrap.properties);
+
+/**
+ * The first pass, shared by every YAML file: parses `text` (a syntax error
+ * throws at once, with its line), drops the top-level keys in `ignored`, and
+ * replaces ${VAR} in the rest. Returns the value and the problems collected
+ * so far, located by line.
+ */
+function readYaml(text: string, source: string, env: NodeJS.ProcessEnv, ignored: string[] = []): { raw: unknown; problems: Problems } {
   const lines = new LineCounter();
   const doc = parseDocument(text, { lineCounter: lines, prettyErrors: false });
   if (doc.errors.length) {
@@ -142,39 +187,24 @@ export function parseConfig(
   }
 
   const problems = createProblems(lineLocator(doc, lines));
-  const raw = interpolate(doc.toJS(), [], env, (path, name) =>
+  const parsed: unknown = doc.toJS();
+  const kept = isObject(parsed) ? Object.fromEntries(Object.entries(parsed).filter(([k]) => !ignored.includes(k))) : parsed;
+  const raw = interpolate(kept, [], env, (path, name) =>
     problems.report(path, `environment variable ${name} is not set`),
   );
-
-  problems.nextPass();
-  if (!validateFile(raw)) reportSchemaErrors(validateFile.errors ?? [], problems.report);
-
-  problems.nextPass();
-  const warnings: string[] = [];
-  const config = checkSemantics(raw, { baseDir, now, report: problems.report, warnings });
-  if (problems.list.length) throw new ConfigError(source, problems.list);
-
-  warnings.push(...overbookingWarnings(config));
-  warnings.push(...sessionUrlWarnings(config));
-  if (sameListen(config.listen, config.admin_listen)) {
-    warnings.push("admin_listen equals listen: /metrics is public; give the admin listener its own address to keep it private");
-  }
-  return { config, warnings };
+  return { raw, problems };
 }
 
 /**
- * The semantic pass: checks what the schema cannot express and derives
- * values (durations in seconds, PEM contents). The schema may have failed,
- * so every value is checked for its type before use; the result is only
- * complete when no problem was reported.
+ * The semantic pass over the bootstrap: listeners, agent_tls (its PEM files
+ * are read here) and client_ip. The result is only complete when no problem
+ * was reported.
  */
-function checkSemantics(
-  raw: unknown,
+function checkBootstrap(
+  file: Record<string, unknown>,
   ctx: { baseDir: string; now: Date; report: Report; warnings: string[] },
-): Config {
+): Bootstrap {
   const { baseDir, now, report, warnings } = ctx;
-  const file = isObject(raw) ? raw : {};
-  const nodes = (isObject(file.nodes) ? file.nodes : {}) as Record<string, NodeConfig>;
 
   const listen = parseListen(typeof file.listen === "string" ? file.listen : ":3000");
   if (!listen) report(["listen"], "must be [host]:port with a port between 1 and 65535");
@@ -188,39 +218,12 @@ function checkSemantics(
     report(["admin_listen"], "uses the port of listen with another host: give it its own port, or the same address as listen");
   }
 
-  checkServerNames(nodes, report);
-  const agentTls = loadAgentTls(file.agent_tls, baseDir, now, report, warnings);
-  const theme = loadTheme(file.theme, baseDir, report);
-  const clientIp = checkClientIp(file.client_ip, report);
-  const limits = parseLimits(file.limits, report);
-  const projects = checkProjects(file.projects, nodes, report);
-
   return {
     listen: listen!,
     ...(adminListen ? { admin_listen: adminListen } : {}),
-    embed_frame_ancestors: file.embed_frame_ancestors as string[],
-    theme,
-    client_ip: clientIp,
-    limits,
-    agent_tls: agentTls!,
-    nodes,
-    projects,
+    client_ip: checkClientIp(file.client_ip, report),
+    agent_tls: loadAgentTls(file.agent_tls, baseDir, now, report, warnings)!,
   };
-}
-
-/**
- * `server_name` overrides the name checked in the agent's certificate, so it
- * must be a DNS name: an IP address belongs in the certificate itself.
- */
-function checkServerNames(nodes: Record<string, NodeConfig>, report: Report): void {
-  for (const [name, n] of Object.entries(nodes)) {
-    if (isObject(n) && typeof n.server_name === "string" && isIP(n.server_name)) {
-      report(
-        ["nodes", name, "server_name"],
-        "must be a DNS name: to reach a node by IP address, put the address in the agent's certificate and leave server_name out",
-      );
-    }
-  }
 }
 
 /**
@@ -243,99 +246,22 @@ function checkClientIp(v: unknown, report: Report): ClientIpConfig {
   return { trusted_proxies: trustedProxies, ...(clientIp.header ? { header: clientIp.header } : {}) };
 }
 
-/** Applies the default limits and derives the new-ticket window in seconds. */
-function parseLimits(v: unknown, report: Report): Limits {
-  const limits = { ...DEFAULT_LIMITS, ...(isObject(v) ? v : {}) } as typeof DEFAULT_LIMITS;
-  const rate = limits.new_tickets_per_ip;
-  const per = isObject(rate) && typeof rate.per === "string" ? rate.per : "";
-  const perS = parseDuration(per);
-
-  if (per && !(perS > 0 && perS <= MAX_WINDOW_S)) {
-    report(["limits", "new_tickets_per_ip", "per"], `must be greater than zero and at most ${MAX_WINDOW_S / 60}m`);
-  }
-
-  return { ...limits, new_tickets_per_ip: { ...rate, per_s: perS } };
-}
-
-/** A project as written in the file: no derived values, an optional title. */
-type FileProject = Omit<ProjectConfig, "max_age_s" | "title"> & { title?: string };
-
-/** Checks each project's node and max_age, and derives max_age_s and the default title. */
-function checkProjects(v: unknown, nodes: Record<string, NodeConfig>, report: Report): Record<string, ProjectConfig> {
-  const fileProjects = (isObject(v) ? v : {}) as Record<string, FileProject>;
-  const projects: Record<string, ProjectConfig> = {};
-
-  for (const [name, p] of Object.entries(fileProjects)) {
-    if (!isObject(p)) continue;
-
-    if (typeof p.node === "string" && !Object.hasOwn(nodes, p.node)) {
-      report(["projects", name, "node"], `unknown node "${p.node}"`);
-    }
-
-    const maxAgeS = typeof p.max_age === "string" ? parseDuration(p.max_age) : 0;
-    if (typeof p.max_age === "string" && !(maxAgeS > 0 && maxAgeS <= MAX_AGE_LIMIT_S)) {
-      report(["projects", name, "max_age"], "must be greater than zero and at most 24h");
-    }
-
-    projects[name] = { ...p, title: p.title ?? name, max_age_s: maxAgeS };
-  }
-  return projects;
-}
-
-/** A node whose projects together allow more sessions than the node does: legal, but worth a warning. */
-/**
- * The embed page may frame sessions only from the nodes' public URLs. A CSP source can
- * wildcard the first label of a host only, so `{session}` deeper in the host widens it to
- * every https origin.
- */
-function sessionUrlWarnings(config: Config): string[] {
-  const warnings: string[] = [];
-
-  for (const [name, n] of Object.entries(config.nodes)) {
-    const host = n.public_url.split("://")[1].split("/")[0];
-    const firstLabel = host.split(".")[0];
-
-    if (host.includes("{session}") && (!firstLabel.includes("{session}") || !host.includes("."))) {
-      warnings.push(
-        `node ${name}: put {session} in the path or the first label of public_url's host, ` +
-          "or the embed page must allow session frames from any origin",
-      );
-    }
-  }
-  return warnings;
-}
-
-function overbookingWarnings(config: Config): string[] {
-  const warnings: string[] = [];
-
-  for (const [name, n] of Object.entries(config.nodes)) {
-    const booked = Object.values(config.projects)
-      .filter((p) => p.node === name)
-      .reduce((sum, p) => sum + p.max_sessions, 0);
-
-    if (booked > n.max_sessions) {
-      warnings.push(`node ${name}: its projects allow ${booked} sessions, the node caps them at ${n.max_sessions}`);
-    }
-  }
-  return warnings;
-}
-
 /** Whether the admin listener shares the public one: then a single server answers both. */
 export function sameListen(a: Listen, b: Listen | undefined): boolean {
   return b !== undefined && a.host === b.host && a.port === b.port;
 }
 
 /** Value of the frame-ancestors CSP directive for the embed page. */
-export function frameAncestors(cfg: Config): string {
+export function frameAncestors(cfg: Settings): string {
   return ["'self'", ...cfg.embed_frame_ancestors].join(" ");
 }
 
 /** The queue's view of the configuration: caps, maximum ages and per-client limits. */
-export function queueConfig(cfg: Config): QueueConfig {
+export function queueConfig(cfg: Settings): QueueConfig {
   const nodes = Object.entries(cfg.nodes).map(([name, n]) => [name, { maxSessions: n.max_sessions }]);
   const projects = Object.entries(cfg.projects).map(([name, p]) => [
     name,
-    { node: p.node, maxSessions: p.max_sessions, maxAgeS: p.max_age_s },
+    { node: p.node, maxSessions: p.max_sessions, maxAgeS: p.max_age_s, enabled: p.enabled },
   ]);
   const rate = cfg.limits.new_tickets_per_ip;
 

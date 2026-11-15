@@ -482,3 +482,60 @@ test("a start that outlives its deadline reports a timeout", async () => {
   await eventually(async () => outcomes.length, (n) => n === 1);
   assert.equal(outcomes[0]?.result, "timeout");
 });
+
+// ---------- new settings applied while running ----------
+
+test("a paused project refuses new tickets and keeps the ones it has", async () => {
+  await using s = await setup();
+  const [a, b, c] = await s.joinAll(["cli", "cli", "cli"]);
+  await s.active(a.ticket);
+
+  await s.queue.configure({ ...config, projects: { ...config.projects, cli: { ...config.projects.cli, enabled: false } } });
+  await assert.rejects(s.queue.join("cli"), UnknownProjectError);
+  assert.equal((await s.queue.poll(b.ticket))?.state, "active");
+  assert.equal((await s.queue.poll(c.ticket))?.state, "waiting");
+
+  await s.queue.release(a.ticket);
+  assert.equal((await s.active(c.ticket))?.state, "active", "queued visitors still get their turn");
+});
+
+test("removing a project ends its tickets without an error and stops its sessions", async () => {
+  await using s = await setup();
+  const [a, b, c] = await s.joinAll(["cli", "cli", "cli"]);
+  const [other] = await s.joinAll(["gui"]);
+  await s.active(a.ticket);
+  await s.active(b.ticket);
+
+  await s.queue.configure({ ...config, projects: { gui: config.projects.gui } });
+  for (const t of [a, b, c]) assert.deepEqual(await s.queue.poll(t.ticket), { ticket: t.ticket, state: "ended" });
+  assert.equal(s.fake.running.size, 1, "only the other project's session is left");
+  assert.equal((await s.active(other.ticket))?.state, "active");
+  await assert.rejects(s.queue.join("cli"), UnknownProjectError);
+});
+
+test("a higher cap promotes waiting visitors at once; a lower one evicts nobody", async () => {
+  await using s = await setup();
+  const [a, b, c] = await s.joinAll(["cli", "cli", "cli"]);
+  await s.active(a.ticket);
+  await s.active(b.ticket);
+
+  await s.queue.configure({ ...config, projects: { ...config.projects, cli: { ...config.projects.cli, maxSessions: 3 } } });
+  assert.equal((await s.active(c.ticket))?.state, "active");
+
+  await s.queue.configure({ ...config, projects: { ...config.projects, cli: { ...config.projects.cli, maxSessions: 1 } } });
+  for (const t of [a, b, c]) assert.equal((await s.queue.poll(t.ticket))?.state, "active");
+});
+
+test("a project moved to another node starts its next sessions there", async () => {
+  await using s = await setup();
+  const two: QueueConfig = { ...config, nodes: { n1: { maxSessions: 3 }, n2: { maxSessions: 3 } } };
+  await s.queue.configure(two);
+  const [a, b, c] = await s.joinAll(["cli", "cli", "cli"]);
+  await s.active(a.ticket);
+
+  await s.queue.configure({ ...two, projects: { ...two.projects, cli: { ...two.projects.cli, node: "n2" } } });
+  assert.match((await s.queue.poll(b.ticket))?.url ?? "", /^https:\/\/n1\.test\//, "a running session stays");
+
+  await s.queue.release(a.ticket);
+  assert.match((await s.active(c.ticket))?.url ?? "", /^https:\/\/n2\.test\//);
+});

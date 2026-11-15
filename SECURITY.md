@@ -33,7 +33,7 @@ supported: upgrade to it to get a fix.
 1. The node host and the operator's other services (e.g. a Dokploy instance and its databases).
 2. The operator's local network.
 3. The control plane and its PostgreSQL database, which hold the session ids (the credentials in
-   the session URLs).
+   the session URLs) and the settings (nodes, projects, images).
 4. Other visitors' sessions.
 5. The reputation of the operator's domain (phishing, cookies).
 6. Service availability.
@@ -73,7 +73,7 @@ can turn them off.
 | Per-IP limits | An IP address (an IPv6 /64) may hold 4 live tickets, create 10 tickets a minute and keep 8 event streams open, by default. Beyond that the control plane answers `429`. A single client cannot monopolise a queue. The address comes from the connection, or from forwarding headers only when the connection comes from a configured trusted proxy. It is stored in clear with the ticket (hashing would protect little: every IPv4 address can be hashed in seconds) and deleted 5 minutes after the ticket ends; it is never logged. |
 | Logs | Session and ticket ids appear in log lines only as a 6-character prefix, wherever they occur (container names and error messages included), so reading the logs does not give access to a session. Visitor IP addresses are never logged: the gateway removes the peer address from the error lines of Go's HTTP server and proxy. |
 | Admin listener | Off unless `admin_listen` is set. It serves `/metrics`, without authentication, so the operator keeps it on a private address; the control plane warns when it shares the public listener. Agents' metrics are relayed through it: the control plane reads at most 1 MB and 2000 series per node, relays only `tryout_` families, rebuilds every sample with the node's own `node` label, and drops invalid lines and HELP texts, labels the node set itself (`node`, `__name__`…) and the control plane's own metric names, so a compromised node cannot break the scrape, flood Prometheus or report for another node. Concurrent scrapes share one round of calls to the nodes. Error answers of the agent API are read up to 4 KB. |
-| State store | PostgreSQL is reachable by the control plane only: the dev compose file and the production example (`deploy/control-plane`) put it on an internal network that no node component joins. |
+| State store | PostgreSQL is reachable by the control plane only: the dev compose file and the production example (`deploy/control-plane`) put it on an internal network that no node component joins. It holds the queue and the settings revisions, which are checked by the same schema as the file before they are stored; no secret is stored in it. |
 | Prerequisites | The agent **refuses to start** if the declared profile is not met (see below). |
 
 ## Node profiles
@@ -168,7 +168,10 @@ published on an address you choose.
   broad, a visitor can claim any address in `X-Forwarded-For`. Rate limiting raw requests at the
   proxy is a useful complement.
 - **Keep PostgreSQL private to the control plane.** Never expose it on a network that nodes or
-  the Internet can reach, and use a strong password. It holds the ids of live sessions.
+  the Internet can reach, and use a strong password. It holds the ids of live sessions and the
+  settings: whoever can write to it chooses the images that nodes run and the origins allowed to
+  frame the embed page. The node's hardening does not depend on it: it is hard-coded in the
+  agent. No secret is stored there; the TLS keys stay files.
 
 ## Known limitations
 

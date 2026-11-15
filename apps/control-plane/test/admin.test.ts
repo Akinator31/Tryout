@@ -10,7 +10,7 @@ const agentText = "# HELP tryout_node_docker_up Docker.\n# TYPE tryout_node_dock
 function setup() {
   const cp = controlPlaneMetrics();
   const page = createMetricsPage({
-    nodes: ["a", "b"],
+    nodes: () => ["a", "b"],
     metrics: cp,
     stats: async () => ({ cli: { waiting: 3, starting: 1, active: 2 } }),
     health: () => ({ a: { up: true, checkedAt: 1 }, b: { up: false, checkedAt: 1, error: "refused" } }),
@@ -55,7 +55,7 @@ test("start outcomes are counted, and successful start times observed", async ()
 test("a node cannot spoof the control plane's own families", async () => {
   const cp = controlPlaneMetrics();
   const page = createMetricsPage({
-    nodes: ["a"],
+    nodes: () => ["a"],
     metrics: cp,
     stats: async () => ({}),
     health: () => ({}),
@@ -68,7 +68,7 @@ test("a node cannot spoof the control plane's own families", async () => {
 test("concurrent scrapes share one round of node fetches", async () => {
   let fetches = 0;
   const page = createMetricsPage({
-    nodes: ["a"],
+    nodes: () => ["a"],
     metrics: controlPlaneMetrics(),
     stats: async () => ({}),
     health: () => ({}),

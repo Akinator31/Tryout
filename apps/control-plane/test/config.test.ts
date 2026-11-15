@@ -2,11 +2,13 @@
 // files, every pass of parseConfig and its error locations, client_ip and
 // limits, agent_tls.
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { test } from "node:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  checkSettings,
   ConfigError,
   DEFAULT_LIMITS,
   frameAncestors,
@@ -149,7 +151,7 @@ limits:
 });
 
 test("the schema's default annotations match the limits applied", () => {
-  const props = schema.properties.limits.properties;
+  const props = schema.$defs.settings.properties.limits.properties;
   const defaults = Object.entries(props).map(([k, p]) => [k, (p as { default: unknown }).default]);
   assert.deepEqual(Object.fromEntries(defaults), DEFAULT_LIMITS);
 });
@@ -435,4 +437,88 @@ test("theme.logo: missing, oversized, not an image, or without alt text", () => 
   assert.match(problems(themed(`  logo: { file: ${page}, alt: Me }\n`))[0], /page\.svg is not an SVG, PNG or WebP image$/);
   assert.match(problems(themed(`  logo: { file: ${big}, alt: Me }\n`))[0], /big\.png is larger than 64 KB$/);
   assert.match(problems(themed(`  logo: { file: ${page} }\n`))[0], /^\/theme\/logo \(line 22\): must have required property 'alt'$/);
+});
+
+// ---------- settings: seeding the database, stored revisions ----------
+
+const bootstrapOnly = `
+agent_tls:
+  ca: ca.crt
+  cert: cp.crt
+  key: cp.key
+`;
+
+/** Asserts that a stored document is refused; returns the problems reported. */
+function documentProblems(document: unknown, assets = new Map<string, Buffer>()): string[] {
+  try {
+    checkSettings(document, { assets });
+  } catch (err) {
+    assert.ok(err instanceof ConfigError, String(err));
+    return err.problems;
+  }
+  assert.fail("document was accepted");
+}
+
+test("a file without settings starts with none and seeds nothing", () => {
+  const { config, seed } = parseConfig(bootstrapOnly, opts);
+  assert.deepEqual(config.nodes, {});
+  assert.deepEqual(config.projects, {});
+  assert.deepEqual(config.embed_frame_ancestors, []);
+  assert.equal(config.limits.live_tickets_per_ip, 4);
+  assert.equal(seed, null);
+});
+
+test("a file's settings seed the database: its settings sections only, interpolated", () => {
+  const { seed } = parseConfig(base, opts);
+  assert.deepEqual(Object.keys(seed!.document).sort(), ["embed_frame_ancestors", "nodes", "projects"]);
+  assert.equal((seed!.document.nodes as Record<string, { server_name: string }>).n1.server_name, "n1.example");
+  assert.equal(seed!.assets.size, 0);
+});
+
+test("a seeded logo is stored as an asset named by its SHA-256", () => {
+  logoFile("seed.png", PNG);
+  const { config, seed } = parseConfig(themed("  logo: { file: seed.png, alt: Me }\n"), opts);
+  const sha256 = createHash("sha256").update(PNG).digest("hex");
+
+  assert.deepEqual((seed!.document.theme as Record<string, unknown>).logo, { asset: sha256, alt: "Me" });
+  assert.deepEqual(seed!.assets.get(sha256), PNG);
+  assert.deepEqual(checkSettings(seed!.document, { assets: seed!.assets }).settings.theme, config.theme);
+});
+
+test("a stored document gives the same settings as the file it came from", () => {
+  const { config, seed } = parseConfig(base, opts);
+  const { settings, warnings } = checkSettings(seed!.document);
+
+  assert.deepEqual(settings.projects, config.projects);
+  assert.deepEqual(settings.nodes, config.nodes);
+  assert.deepEqual(warnings, []);
+});
+
+test("a stored document holds settings only, and is checked like the file", () => {
+  const { seed } = parseConfig(base, opts);
+  const doc = seed!.document as { projects: Record<string, Record<string, unknown>> };
+
+  assert.deepEqual(documentProblems({ ...doc, listen: ":3000" }), ["/listen: unknown field"]);
+  assert.deepEqual(documentProblems({ ...doc, projects: { cli: { ...doc.projects.cli, node: "n2" } } }), [
+    '/projects/cli/node: unknown node "n2"',
+  ]);
+});
+
+test("a stored document names its logo by an asset it was given", () => {
+  const sha256 = createHash("sha256").update(PNG).digest("hex");
+
+  assert.deepEqual(documentProblems({ theme: { logo: { file: "logo.png", alt: "Me" } } }), [
+    "/theme/logo: needs asset: a stored revision names its logo by its SHA-256",
+  ]);
+  assert.deepEqual(documentProblems({ theme: { logo: { asset: sha256, alt: "Me" } } }), [
+    "/theme/logo/asset: unknown asset: upload the logo first",
+  ]);
+  assert.match(problems(themed(`  logo: { asset: ${sha256}, alt: Me }\n`))[0], /^\/theme\/logo \(line 22\): needs file/);
+});
+
+test("projects are enabled unless paused", () => {
+  const { config } = parseConfig(base.replace("    max_age: 15m", "    max_age: 15m\n    enabled: false"), opts);
+  assert.equal(config.projects.cli.enabled, false);
+  assert.equal(queueConfig(config).projects.cli.enabled, false);
+  assert.equal(parseConfig(base, opts).config.projects.cli.enabled, true);
 });

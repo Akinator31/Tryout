@@ -61,8 +61,9 @@ Key facts that are easy to forget:
 - **Measured costs**: gVisor uses 2–2.5× the CPU of runc for Selkies desktops on a Raspberry Pi 5,
   with negligible overhead for terminals. Without the resolution cap, a HiDPI client pushes near-4K
   at 60 fps and saturates a small node.
-- **Config schema**: `schema/tryout.schema.json` validates the control plane's YAML and the
-  agent's `POST /v1/sessions` body (`$defs/workload` is shared). Edit only that file, then run
+- **Config schema**: `schema/tryout.schema.json` validates the control plane's YAML
+  (`$defs/bootstrap` + `$defs/settings`), stored settings revisions (`$defs/settings_document`)
+  and the agent's `POST /v1/sessions` body (`$defs/workload` is shared). Edit only that file, then run
   `scripts/sync-schema.sh` to refresh its three copies; tests and CI fail on a stale copy.
 - **Docker client**: a hand-written Engine API client (`apps/node/internal/dockerapi`, API
   v1.47), with no SDK dependency.
@@ -119,8 +120,10 @@ vault with the original stack study (in French) and its sources.
   6-character prefix; agent `/metrics` (hand-written Prometheus format, `internal/metrics`) and
   a richer `/healthz`, version injected at build time (`internal/version`); control plane
   health checks (`health.ts`, no promotion to a down node), admin listener `admin_listen` with
-  `/metrics` relaying the agents' metrics (`admin.ts`, `metrics-relay.ts`). Next: configuration
-  in Postgres (PR 4 of the M4 plan). Then M5 Hosting options.
+  `/metrics` relaying the agents' metrics (`admin.ts`, `metrics-relay.ts`); settings in Postgres
+  as revisions (`config-store.ts`, `config-live.ts`, `cli.ts` import/export; `tryout.yaml`
+  keeps the bootstrap and only seeds an empty database). Next: admin accounts (PR 5 of the M4
+  plan). Then M5 Hosting options.
 - CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module
