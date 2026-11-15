@@ -25,7 +25,8 @@ function originParts(origin: string): { scheme: string; host: string; port: stri
 /**
  * Whether the embed page lets `parent` frame it: the embed page's own origin
  * (`'self'`), an origin of `ancestors`, or a subdomain of a wildcard one
- * (`https://*.example.org`), as Content-Security-Policy frame-ancestors matches.
+ * (`https://*.example.org`), as Content-Security-Policy frame-ancestors
+ * matches; an http source also matches its https upgrade.
  */
 export function allowsParent(ancestors: readonly string[], parent: string, publicUrl: string): boolean {
   if (parent === publicUrl) return true;
@@ -36,17 +37,17 @@ export function allowsParent(ancestors: readonly string[], parent: string, publi
   return ancestors.some((ancestor) => {
     const wildcard = ancestor.includes("://*.");
     const a = originParts(ancestor.replace("://*.", "://"));
-    if (!a || a.scheme !== p.scheme || a.port !== p.port) return false;
+    if (!a || a.port !== p.port || !(a.scheme === p.scheme || (a.scheme === "http:" && p.scheme === "https:"))) return false;
     return wildcard ? p.host.endsWith(`.${a.host}`) : p.host === a.host;
   });
 }
 
 /** Why the preview cannot start here, or null when it can. */
-export type PreviewBlock = "no-url" | "off" | "not-applied" | "paused" | "parent";
+export type PreviewBlock = "off" | "not-applied" | "paused" | "parent";
 
 export interface PreviewInput {
-  /** `GET me`'s public_url and preview. */
-  publicUrl: string | null;
+  /** `GET me`'s public_url and preview; without public_url, the card is not shown. */
+  publicUrl: string;
   preview: boolean;
   /** Whether the active revision has the project, and whether it is paused there. */
   applied: boolean;
@@ -57,12 +58,11 @@ export interface PreviewInput {
 }
 
 /**
- * Why the preview cannot start: no public_url, turned off, the project not
+ * Why the preview cannot start: turned off, the project not
  * applied yet or paused (visitors would see "unavailable" too), or the embed
  * page refusing the admin as a parent. Null when it can start.
  */
 export function previewBlock(input: PreviewInput): PreviewBlock | null {
-  if (!input.publicUrl) return "no-url";
   if (!input.preview) return "off";
   if (!input.applied) return "not-applied";
   if (input.paused) return "paused";

@@ -131,13 +131,12 @@ export const strings = {
       title: "Preview",
       heading: "Try the project as a visitor",
       body: (name: string, slots: number) =>
-        `Runs /embed/${name} here. It goes through the queue and takes one of the ${slots === 1 ? "1 slot" : `${slots} slots`} until you stop it.`,
+        `Runs /embed/${name} here. It goes through the queue and takes ${slots === 1 ? "its only slot" : `one of the ${slots} slots`} until you stop it.`,
       start: "Start preview",
       stop: "Stop preview",
       frame: (name: string) => `Preview of ${name}`,
       refused: "Session blank? Add this admin's origin to the node's FRAME_ANCESTORS.",
       blocked: {
-        "no-url": "Set public_url in tryout.yaml to preview here.",
         off: "Turned off in tryout.yaml (admin_preview: false).",
         "not-applied": "Apply your pending changes first.",
         paused: "Unavailable while the project is paused.",

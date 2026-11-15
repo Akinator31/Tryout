@@ -28,15 +28,15 @@ test("a parent is allowed as frame-ancestors matches it", () => {
 
   assert.equal(allowsParent(ancestors, "https://example.net", URL_), false, "a wildcard leaves out the bare domain");
   assert.equal(allowsParent(ancestors, "http://portfolio.example.org", URL_), false, "scheme");
+  assert.equal(allowsParent(["http://portfolio.example.org"], "https://portfolio.example.org", URL_), true, "https upgrade");
   assert.equal(allowsParent(ancestors, "http://localhost:9091", URL_), false, "port");
   assert.equal(allowsParent(ancestors, "https://evilexample.net", URL_), false);
 });
 
-test("the preview starts only with a public URL, turned on, applied, not paused and allowed", () => {
+test("the preview starts only turned on, applied, not paused and allowed", () => {
   const ok: PreviewInput = { publicUrl: URL_, preview: true, applied: true, paused: false, ancestors: ["http://localhost:9090"], adminOrigin: "http://localhost:9090" };
 
   assert.equal(previewBlock(ok), null);
-  assert.equal(previewBlock({ ...ok, publicUrl: null }), "no-url");
   assert.equal(previewBlock({ ...ok, preview: false }), "off");
   assert.equal(previewBlock({ ...ok, applied: false }), "not-applied");
   assert.equal(previewBlock({ ...ok, paused: true }), "paused");

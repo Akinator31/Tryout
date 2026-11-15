@@ -358,9 +358,9 @@ review marks it. A rollback waits until the draft is applied or discarded.
 frame on the project's page, as a visitor would: it goes through the queue, takes one of the
 project's slots and counts towards the per-IP limits of the admin's address. *Stop preview*
 removes the frame, and the embed page gives its ticket back. Nothing starts until the click.
-The preview needs `public_url`, `admin_preview` left on, the project applied and not paused,
-and the admin's own origin in `embed_frame_ancestors` (the embed page refuses other parents);
-otherwise the card says which is missing. The session inside the preview also needs the
+Without `public_url` there is no preview card. The preview also needs `admin_preview` left
+on, the project applied and not paused, and the admin's own origin in `embed_frame_ancestors`
+(the embed page refuses other parents); otherwise the card says which is missing. The session inside the preview also needs the
 admin's origin in the node's `FRAME_ANCESTORS`, since browsers check every ancestor of a frame
 (see [Iframes](exposure.md#iframes)); the admin cannot see that setting, so a refused session
 shows as the browser's error inside the preview. The dev stack allows `http://localhost:9090`

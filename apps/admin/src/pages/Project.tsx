@@ -262,21 +262,23 @@ function ProjectPage({ name, project, document, applied }: { name: string; proje
           <SettingsCard rows={settingsRows(project, defaultRuntime)} source={pending ? P.settings.pending : P.settings.active(active.data?.revision ?? null)} />
         </Stack>
         <Stack w="420px" flexShrink="0" gap="6">
-          <PreviewCard
-            key={name}
-            name={name}
-            slots={(running ?? project).max_sessions}
-            input={{
-              publicUrl: me?.public_url ?? null,
-              preview: me?.preview ?? false,
-              applied: isApplied,
-              paused: running?.enabled === false,
-              // The embed page answers with the active revision's allowlist, not the draft's.
-              ancestors: applied?.embed_frame_ancestors ?? [],
-              adminOrigin: window.location.origin,
-            }}
-          />
-          <EmbedCard name={name} publicUrl={me?.public_url ?? null} ancestors={document.embed_frame_ancestors ?? []} />
+          {me?.public_url && (
+            <PreviewCard
+              key={name}
+              name={name}
+              slots={(running ?? project).max_sessions}
+              input={{
+                publicUrl: me.public_url,
+                preview: me.preview,
+                applied: isApplied,
+                paused: running?.enabled === false,
+                // The embed page answers with the active revision's allowlist, not the draft's.
+                ancestors: applied?.embed_frame_ancestors ?? [],
+                adminOrigin: window.location.origin,
+              }}
+            />
+          )}
+          <EmbedCard name={name} publicUrl={me?.public_url ?? null} ancestors={applied?.embed_frame_ancestors ?? []} />
           <RemoveCard name={name} onRemove={remove} />
         </Stack>
       </Flex>

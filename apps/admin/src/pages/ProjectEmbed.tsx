@@ -9,7 +9,7 @@ import { Link as RouterLink } from "react-router";
 import { Card, Footnote } from "../components/Card.tsx";
 import { TagBadge } from "../components/StateBadge.tsx";
 import { paths } from "../navigation.ts";
-import { embedAddress, IFRAME_ALLOW, iframeSnippet, previewBlock, type PreviewInput } from "../preview.ts";
+import { embedAddress, IFRAME_ALLOW, iframeSnippet, previewBlock, type PreviewBlock, type PreviewInput } from "../preview.ts";
 import { strings } from "../strings.ts";
 import { useCopy } from "../useCopy.ts";
 
@@ -32,7 +32,7 @@ function SideCard({ title, action, children }: { title: string; action?: ReactNo
 }
 
 /** What the preview says before it starts, and why it cannot when it cannot. */
-function NotStarted({ name, slots, block, adminOrigin, onStart }: { name: string; slots: number; block: ReturnType<typeof previewBlock>; adminOrigin: string; onStart: () => void }) {
+function NotStarted({ name, slots, block, adminOrigin, onStart }: { name: string; slots: number; block: PreviewBlock | null; adminOrigin: string; onStart: () => void }) {
   const reason = block === "parent" ? P.blocked.parent(adminOrigin) : block ? P.blocked[block] : null;
 
   return (
@@ -91,7 +91,7 @@ export function PreviewCard({ name, slots, input }: { name: string; slots: numbe
   );
 }
 
-/** The address to embed with a copy button, the allowed parents, and the iframe snippet to copy. */
+/** The address to embed with a copy button, the active revision's allowed parents, and the iframe snippet to copy. */
 export function EmbedCard({ name, publicUrl, ancestors }: { name: string; publicUrl: string | null; ancestors: readonly string[] }) {
   const address = embedAddress(publicUrl, name);
   const addressCopy = useCopy();

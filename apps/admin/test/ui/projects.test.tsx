@@ -217,11 +217,11 @@ test("the embed card gives the address, the allowed parents and the snippet", as
   expect(within(card).getByRole("button", { name: "Copied" })).toBeTruthy();
 });
 
-test("without public_url, the embed card shows the path and the preview asks for it", async () => {
+test("without public_url, the embed card shows the path and there is no preview", async () => {
   renderAdmin("/admin/projects/cli-hello", routes());
 
   const embed = await screen.findByRole("region", { name: "Embed" });
   expect(within(embed).getByText("/embed/cli-hello")).toBeTruthy();
   expect(within(embed).getByText("Set public_url in tryout.yaml for the full address.")).toBeTruthy();
-  expect(within(screen.getByRole("region", { name: "Preview" })).getByText("Set public_url in tryout.yaml to preview here.")).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "Preview" })).toBeNull();
 });
