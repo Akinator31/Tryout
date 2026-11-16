@@ -150,12 +150,12 @@ issue_certificates() {
 
 # install_node_dir: with NODE_USER, the node's directory copied to that user's home, as
 # the guide has it, and its certificates given to the agent's uid inside the rootless
-# daemon's user namespace.
+# daemon's user namespace, from a container of that daemon.
 install_node_dir() {
   node_dir=$(sudo -u "$node_user" mktemp -d -p "$node_home" e2e-node.XXXXXX)
   sudo cp -r "$work/node/." "$node_dir/"
   sudo chown -R "$node_user:" "$node_dir"
-  "${as_node_user[@]}" dockerd-rootless-setuptool.sh nsenter -- chown -R 65532:65532 "$node_dir/pki"
+  node_docker run --rm -v "$node_dir/pki:/pki" busybox:1.37 chown -R 65532:65532 /pki
 }
 
 # socket_gid <socket>: the group of the daemon's socket, as the agent sees it: for a

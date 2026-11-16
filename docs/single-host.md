@@ -154,14 +154,14 @@ In the user's shell, give the certificates to the agent, then prepare `.env`:
 
 ```bash
 cd ~/tryout-node
-dockerd-rootless-setuptool.sh nsenter -- chown -R 65532:65532 pki
+docker run --rm -v "$PWD/pki:/pki" busybox:1.37 chown -R 65532:65532 /pki
 cp .env.example .env
 docker run --rm -v "$XDG_RUNTIME_DIR/docker.sock:/s" busybox:1.37 stat -c %g /s   # DOCKER_GID
 ```
 
 The agent runs as uid 65532 inside the daemon's user namespace, which is one of the
-subordinate uids on the host: a `chown` on the host would give the files to another uid.
-`nsenter` runs it inside the namespace. Likewise, the daemon's socket belongs to a group whose
+subordinate uids on the host: a `chown` on the host would give the files to another uid, so
+it runs in a container of the daemon. Likewise, the daemon's socket belongs to a group whose
 number differs inside the namespace, which the last command prints.
 
 Fill in `.env` as in [Production deployment](deployment.md#2-set-up-the-node), with these
