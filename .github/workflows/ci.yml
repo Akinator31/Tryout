@@ -450,3 +450,6 @@ jobs:
           kill "$server"
       - name: Deploy and test
         run: scripts/e2e/deploy.sh
+      - name: Rootless daemon logs
+        if: failure()
+        run: sudo journalctl --no-pager -n 80 _UID="$NODE_UID"
