@@ -12,7 +12,7 @@ Next: M5, more ways to run nodes.
 | [M2 — Live](#m2-live) | A first public deployment, a public repository and versioned releases | Done |
 | [M3 — Design](#m3-design) | A dark, clear and robust visitor experience, designed before it is built | Done |
 | [M4 — Operate](#m4-operate) | Set up and control projects from an admin UI; metrics and logs | Done |
-| [M5 — Hosting options](#m5-hosting-options) | More ways to run nodes safely | Planned |
+| [M5 — Hosting options](#m5-hosting-options) | More ways to run nodes safely | In progress |
 
 ## M0 — Proof of concept
 
@@ -232,4 +232,4 @@ Done. Checked on the dev stack from an empty database, in a browser:
 - **M5:** terminals served by the agent's own ttyd, mounted read-only from the `tryout-ttyd`
   image that each node release pins: project images hold their program alone; a terminal with a
   `port` keeps serving its own page, so v0.2 configurations work unchanged. Nodes need Docker Engine 28. See
-  [Architecture](architecture.md#terminals-served-by-the-agent).
+  [Architecture](architecture.md#terminals-served-by-the-agent). Released as `v0.3.0`.

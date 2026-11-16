@@ -81,7 +81,7 @@ Fill in `.env`:
 
 | Variable | Value |
 |---|---|
-| `TRYOUT_VERSION` | the version to run, pinned by digest in production: `0.2.0@sha256:…` |
+| `TRYOUT_VERSION` | the version to run, pinned by digest in production: `0.3.0@sha256:…` |
 | `NODE_PROFILE` | `strict`: a machine or VM dedicated to sessions |
 | `DOCKER_SOCKET`, `DOCKER_GID` | the socket of the daemon that runs sessions, and its group: `stat -c %g /var/run/docker.sock` |
 | `GATEWAY_TOKEN` | `openssl rand -hex 32` |

@@ -138,7 +138,8 @@ vault with the original stack study (in French) and its sources.
     dev stack.
 
   - M5 Hosting options, in progress: Go code split into thin `cmd/*` and `internal/` packages;
-    terminals served by the agent's ttyd (`apps/node/ttyd`, `internal/session/ttyd.go`).
+    terminals served by the agent's ttyd (`apps/node/ttyd`, `internal/session/ttyd.go`); both
+    released as `v0.3.0`.
 
   Next: the rest of M5 (`docs/roadmap.md`).
 - CI publishes `tryout-ttyd` (first), `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
