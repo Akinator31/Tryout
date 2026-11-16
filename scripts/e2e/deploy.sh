@@ -39,6 +39,9 @@ if [ -n "$node_user" ]; then
   profile=${NODE_PROFILE:-single-host}
   node_uid=$(id -u "$node_user")
   node_home=$(getent passwd "$node_user" | cut -d: -f6)
+  # Commands run as that user inherit the working directory, which it may not enter: every
+  # path below is absolute.
+  cd /
 else
   profile=${NODE_PROFILE:-strict}
 fi
