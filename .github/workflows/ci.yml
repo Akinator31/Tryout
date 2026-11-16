@@ -397,8 +397,14 @@ jobs:
           node-version: 24
       - name: Install the rootless extras
         run: |
+          # The runner's Docker comes from Docker's repository, whose source the image drops:
+          # add it back and take the extras of the installed version.
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-ci.gpg
+          echo "deb [signed-by=/usr/share/keyrings/docker-ci.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
+            | sudo tee /etc/apt/sources.list.d/docker-ci.list >/dev/null
           sudo apt-get update -q
-          sudo apt-get install -y -q docker-ce-rootless-extras uidmap slirp4netns dbus-user-session
+          version=$(dpkg-query -W -f '${Version}' docker-ce)
+          sudo apt-get install -y -q "docker-ce-rootless-extras=$version" uidmap slirp4netns dbus-user-session
       - name: Create the user, delegate its cgroup controllers, enable lingering
         run: |
           sudo adduser --disabled-password --comment "" "$NODE_USER"
