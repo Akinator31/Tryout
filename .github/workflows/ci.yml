@@ -404,25 +404,24 @@ jobs:
           sudo adduser --disabled-password --comment "" "$NODE_USER"
           grep "^$NODE_USER:" /etc/subuid /etc/subgid
           uid=$(id -u "$NODE_USER")
+          echo "NODE_UID=$uid" >>"$GITHUB_ENV"
           sudo install -D -m 644 deploy/node/single-host/delegate.conf \
             "/etc/systemd/system/user@$uid.service.d/delegate.conf"
           sudo systemctl daemon-reload
           sudo loginctl enable-linger "$NODE_USER"
-          until [ -S "/run/user/$uid/bus" ]; do sleep 1; done
+          timeout 30 sh -c "until [ -S /run/user/$uid/bus ]; do sleep 1; done"
       - name: Install the rootless daemon
         run: |
-          uid=$(id -u "$NODE_USER")
-          sudo -u "$NODE_USER" -H env XDG_RUNTIME_DIR="/run/user/$uid" \
-            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+          sudo -u "$NODE_USER" -H env XDG_RUNTIME_DIR="/run/user/$NODE_UID" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$NODE_UID/bus" \
             dockerd-rootless-setuptool.sh install
           sudo -u "$NODE_USER" -H docker --context rootless info | tee info.txt
           grep -q "name=rootless" info.txt
       - name: Load the egress filter
         run: |
-          uid=$(id -u "$NODE_USER")
           IFS=: read -r _ start count < <(grep "^$NODE_USER:" /etc/subuid)
           sudo install -d /etc/tryout
-          sed "s|^define tryout_uids = .*|define tryout_uids = { $uid, $start-$((start + count - 1)) }|" \
+          sed "s|^define tryout_uids = .*|define tryout_uids = { $NODE_UID, $start-$((start + count - 1)) }|" \
             deploy/node/single-host/tryout-egress.nft | sudo tee /etc/tryout/tryout-egress.nft >/dev/null
           sudo install -m 644 deploy/node/single-host/tryout-egress.service /etc/systemd/system/
           sudo systemctl enable --now tryout-egress.service
@@ -432,7 +431,7 @@ jobs:
           addr=$(hostname -I | awk '{print $1}')
           python3 -m http.server 8999 --bind "$addr" >/dev/null 2>&1 &
           server=$!
-          until curl -fs "http://$addr:8999/" >/dev/null; do sleep 1; done
+          timeout 30 sh -c "until curl -fs http://$addr:8999/ >/dev/null; do sleep 1; done"
           # The user and its subordinate uids reach neither the host nor private ranges...
           if sudo -u "$NODE_USER" curl -fsS -m 5 "http://$addr:8999/"; then exit 1; fi
           IFS=: read -r _ start _ < <(grep "^$NODE_USER:" /etc/subuid)

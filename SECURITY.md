@@ -115,7 +115,10 @@ not a code fork.
   owns the rootless daemon, the agent, the gateway and the sessions; and an nftables table
   that lets that user and its subordinate uids reach the public Internet only, never the
   host's own addresses, private ranges or cloud metadata, with DNS sent to a public resolver
-  (`deploy/node/single-host/tryout-egress.nft`).
+  (`deploy/node/single-host/tryout-egress.nft`). Two gaps are left to the operator: a DNS
+  stub on the host's loopback (systemd-resolved) stays reachable, so queries reach its
+  upstream; and with global IPv6 on the LAN, the host's own prefixes must be added to the
+  table.
 - **If a session escapes** its container (a runc or kernel flaw), it runs on the host as one of
   the user's subordinate uids, or as the user itself. It can read what every user can read; as
   the user, it also controls the rootless daemon, so every session, the node's certificate and

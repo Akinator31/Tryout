@@ -1,9 +1,12 @@
 # Loads the egress filter of a single-host Tryout node (docs/single-host.md) at boot, before
-# the network and the rootless daemon start. Install it as
+# the network and the rootless daemon start, and again whenever nftables.service reloads the
+# host's rules, since /etc/nftables.conf usually begins with "flush ruleset". Install it as
 # /etc/systemd/system/tryout-egress.service, with the filter in /etc/tryout/tryout-egress.nft.
 [Unit]
 Description=Tryout egress filter (nftables)
 Wants=network-pre.target
+After=nftables.service
+PartOf=nftables.service
 Before=network-pre.target shutdown.target
 Conflicts=shutdown.target
 DefaultDependencies=no
@@ -16,4 +19,4 @@ ExecReload=/usr/sbin/nft -f /etc/tryout/tryout-egress.nft
 ExecStop=/usr/sbin/nft delete table inet tryout_egress
 
 [Install]
-WantedBy=sysinit.target
+WantedBy=sysinit.target nftables.service

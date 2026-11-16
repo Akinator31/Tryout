@@ -14,7 +14,7 @@
 # gives start:count; the range is start to start+count-1).
 define tryout_uids = { 1001, 165536-231071 }
 
-# Public resolvers the daemon's DNS queries are sent to.
+# Public resolvers the daemon's DNS queries are sent to (Quad9 here; any public one works).
 define dns4 = 9.9.9.9
 define dns6 = 2620:fe::fe
 
@@ -33,8 +33,11 @@ table inet tryout_egress {
 			169.254.0.0/16,     # link-local, cloud metadata (169.254.169.254)
 			172.16.0.0/12,      # private, Docker's default bridges
 			192.0.0.0/24,       # IETF protocol assignments
+			192.0.2.0/24,       # documentation
 			192.168.0.0/16,     # private
 			198.18.0.0/15,      # benchmarking
+			198.51.100.0/24,    # documentation
+			203.0.113.0/24,     # documentation
 			224.0.0.0/3,        # multicast, reserved, broadcast
 		}
 	}
@@ -46,10 +49,14 @@ table inet tryout_egress {
 			::/127,             # unspecified, loopback
 			::ffff:0:0/96,      # IPv4-mapped
 			64:ff9b:1::/48,     # local-use NAT64
+			100::/64,           # discard
+			2001:db8::/32,      # documentation
 			fc00::/7,           # unique local
 			fe80::/10,          # link-local
 			fec0::/10,          # site-local (deprecated)
 			ff00::/8,           # multicast
+			# With global IPv6 on the LAN, add the host's own prefixes here, e.g.
+			# 2001:db8:1:2::/64: the LAN's neighbours use global addresses too.
 		}
 	}
 

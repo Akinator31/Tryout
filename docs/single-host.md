@@ -31,7 +31,7 @@ one machine
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-CI follows this guide on a fresh Ubuntu machine, with a root daemon running next to the
+CI follows this guide on a fresh Ubuntu runner (amd64), with a root daemon running next to the
 rootless one, and runs the end-to-end tests against it (`NODE_USER=tryout
 scripts/e2e/deploy.sh`).
 
@@ -39,7 +39,7 @@ scripts/e2e/deploy.sh`).
 
 | Needs | |
 |---|---|
-| System | Debian 13 (the reference) or Ubuntu 24.04 or later, amd64 or arm64, with systemd and cgroup v2 (the default on both) |
+| System | Debian 13 or Ubuntu 24.04 or later, amd64 or arm64, with systemd and cgroup v2 (the default on both) |
 | Docker | Docker Engine 28 or later [from Docker's repository](https://docs.docker.com/engine/install/), with the `docker-ce-rootless-extras` package |
 | Access | `sudo` on the machine, for the setup only |
 
@@ -110,10 +110,15 @@ table in `tryout-egress.nft` filters what they send:
   link-local and cloud metadata, unique local IPv6…) are refused;
 - DNS goes to a public resolver, since the host's resolver is often on the LAN or a metadata
   address. A resolver on the host's loopback, such as systemd-resolved on Ubuntu, is allowed
-  on port 53 instead, since a redirection cannot leave the loopback.
+  on port 53 instead, since a redirection cannot leave the loopback: on such a host, the
+  user's queries reach the stub's upstream, LAN names included.
+
+With global IPv6 on the LAN, the LAN's neighbours have global addresses too: add the host's
+own prefixes to the `denied6` set.
 
 The table is its own: it leaves the rules of the root daemon, UFW or anything else alone. Fill
-in its three definitions, then load it at boot:
+in its three definitions, then load it at boot, and again whenever `nftables.service` reloads
+the host's rules (Debian's `/etc/nftables.conf` begins with `flush ruleset`):
 
 ```bash
 id -u tryout; grep ^tryout: /etc/subuid    # e.g. 1001, and tryout:165536:65536
@@ -132,10 +137,6 @@ curl -sI https://ghcr.io | head -1  # the Internet: answers
 
 The user cannot reach the host's own ports either, its own published ports included: check
 those from your own account.
-
-If the host loads `/etc/nftables.conf` with `flush ruleset` (Debian's default file), reloading
-it removes this table too, as well as Docker's rules: run
-`sudo systemctl restart tryout-egress.service` after it.
 
 ## 5. Set up the node
 

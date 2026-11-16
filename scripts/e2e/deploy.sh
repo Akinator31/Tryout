@@ -62,11 +62,11 @@ if [ -z "$project_image" ]; then
 fi
 
 # node_docker <args...>: docker on the daemon that runs sessions: the default one, or
-# NODE_USER's rootless daemon.
+# NODE_USER's rootless daemon, run as that user (as_node_user).
 node_docker_cmd=(docker)
 if [ -n "$node_user" ]; then
-  node_docker_cmd=(sudo -u "$node_user" -H env XDG_RUNTIME_DIR="/run/user/$node_uid"
-    DOCKER_HOST="unix:///run/user/$node_uid/docker.sock" docker)
+  as_node_user=(sudo -u "$node_user" -H env XDG_RUNTIME_DIR="/run/user/$node_uid")
+  node_docker_cmd=("${as_node_user[@]}" DOCKER_HOST="unix:///run/user/$node_uid/docker.sock" docker)
 fi
 node_docker() { "${node_docker_cmd[@]}" "$@"; }
 
@@ -119,7 +119,7 @@ cleanup() {
     compose node down -v >/dev/null 2>&1 || true
     # Files written by other uids: remove them from a container.
     docker run --rm -u 0 -v "$work:/w" --entrypoint rm "$cp_image" -rf /w/node /w/control-plane /w/pki >/dev/null 2>&1 || true
-    if [ "$node_dir" != "$work/node" ]; then sudo rm -rf "$node_dir"; fi
+    if [ -n "$node_user" ]; then sudo rm -rf "$node_dir" || true; fi
     rm -rf "$work" || true
   else
     echo "stack kept; files in $work"
@@ -151,8 +151,7 @@ install_node_dir() {
   node_dir=$(sudo -u "$node_user" mktemp -d -p "$node_home" e2e-node.XXXXXX)
   sudo cp -r "$work/node/." "$node_dir/"
   sudo chown -R "$node_user:" "$node_dir"
-  sudo -u "$node_user" -H env XDG_RUNTIME_DIR="/run/user/$node_uid" \
-    dockerd-rootless-setuptool.sh nsenter -- chown -R 65532:65532 "$node_dir/pki"
+  "${as_node_user[@]}" dockerd-rootless-setuptool.sh nsenter -- chown -R 65532:65532 "$node_dir/pki"
 }
 
 # socket_gid <socket>: the group of the daemon's socket, as the agent sees it: for a
