@@ -289,9 +289,17 @@ test("a terminal runs in the agent's ttyd by default: no port, an optional comma
   assert.equal(cfg.projects.cli.port, undefined);
   assert.deepEqual(cfg.projects.cli.command, ["python3", "-q"]);
 
-  assert.deepEqual(problems(base.replace("    ttyd: image\n", "")), ["/projects/cli/port (line 14): not allowed here"]);
+  assert.deepEqual(problems(base.replace("ttyd: image", "ttyd: agent")), ["/projects/cli/port (line 14): not allowed here"]);
   assert.deepEqual(problems(agentTtyd.replace("max_age: 15m", "max_age: 15m\n    strip_prefix: true")), [
     "/projects/cli/strip_prefix (line 16): not allowed here",
+  ]);
+});
+
+test("a terminal with a port and no ttyd serves its own page, as before ttyd existed", () => {
+  const v02 = base.replace("    ttyd: image\n", "");
+  assert.equal(parseConfig(v02, opts).config.projects.cli.port, 7681);
+  assert.deepEqual(problems(v02.replace("max_age: 15m", "max_age: 15m\n    command: [sh]")), [
+    "/projects/cli/command (line 17): not allowed here",
   ]);
 });
 

@@ -254,9 +254,9 @@ the embed page poll instead, which keeps its place in line.
 | `node` | Node that runs the project. |
 | `image` | Docker image, preferably pinned by digest. Must exist for the node's architecture. |
 | `kind` | `terminal` or `desktop`. Selects the hardening profile (see [Security](security.md)). |
-| `ttyd` | Terminals only, default `agent`: the agent runs the image's program in its own web terminal, ttyd, so the image needs no web server (see [Project images](project-images.md#command-line-project-kind-terminal)). `image`: the image serves its own page on `port`. |
+| `ttyd` | Terminals only. `agent`: the agent runs the image's program in its own web terminal, ttyd, so the image needs no web server (see [Project images](project-images.md#command-line-project-kind-terminal)). `image`: the image serves its own page on `port`. Optional: a terminal without `port` defaults to `agent`, one with a `port` to `image`, as every terminal did before the agent's ttyd. |
 | `command` | Optional, with the agent's ttyd only: the program ttyd runs, as a list (`[python3, -q]`). Defaults to the image's `ENTRYPOINT` and `CMD`. |
-| `port` | HTTP port of an image that serves its own page: a desktop (LinuxServer images: 3000) or a terminal with `ttyd: image`. Not allowed with the agent's ttyd. |
+| `port` | HTTP port of an image that serves its own page: required for a desktop (LinuxServer images: 3000) and a terminal with `ttyd: image`. On a terminal without `ttyd`, setting it means the image serves its own page. Not allowed with `ttyd: agent`. |
 | `max_sessions` | Concurrent sessions for this project. Later visitors wait in the queue. |
 | `max_age` | Maximum session age: `90s`, `15m`, `1h30m`, at most `24h`. The agent also enforces its own cap (`SESSION_MAX_AGE_CAP`). |
 | `runtime` | Optional: `runsc`, `runc`… Defaults to the node's runtime. Outside the `dev` profile, the agent refuses any runtime but `runsc` unless it runs with `ALLOW_RUNC=true`. |

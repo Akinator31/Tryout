@@ -174,7 +174,7 @@ export function projectForm(name: string, p: ProjectSettings): ProjectForm {
     title: p.title ?? "",
     kind: p.kind,
     image: p.image,
-    ownServer: p.ttyd === "image",
+    ownServer: p.kind === "terminal" && (p.ttyd === "image" || (p.ttyd === undefined && p.port !== undefined)),
     command: formatCommand(p.command ?? []),
     port: String(p.port ?? KIND_PORTS[p.kind]),
     stripPrefix: p.strip_prefix ?? false,
@@ -282,8 +282,10 @@ function checkWorkload(form: ProjectForm, { taken, nodes, isNew }: FormContext, 
   if (servesOwnPage(form)) {
     const port = parseWhole(form.port);
     if (port === undefined || port < 1 || port > 65535) problems.port = P.port;
-  } else if (parseCommand(form.command) === undefined) {
-    problems.command = P.command;
+  } else {
+    const command = parseCommand(form.command);
+    if (command === undefined) problems.command = P.command;
+    else if (command[0] === "") problems.command = P.commandProgram;
   }
 
   if (!form.node) problems.node = nodes.length ? P.required : P.noNode;
@@ -366,7 +368,7 @@ export function projectFromForm(form: ProjectForm, previous?: ProjectSettings): 
     node: form.node,
     image: form.image.trim(),
     kind: form.kind,
-    ttyd: form.kind === "terminal" && form.ownServer ? "image" : undefined,
+    ttyd: ttydSetting(form, previous),
     command: command.length ? command : undefined,
     port: ownPage ? parseWhole(form.port)! : undefined,
     runtime: form.runtime || undefined,
@@ -376,6 +378,21 @@ export function projectFromForm(form: ProjectForm, previous?: ProjectSettings): 
     limits,
     env,
   };
+}
+
+/**
+ * The ttyd setting to write: none for a desktop; for a terminal, what the
+ * project already said, unless the form changed it. A new terminal that
+ * serves its own page says ttyd: image; the agent's ttyd is the default
+ * without a port, so it needs no setting.
+ */
+function ttydSetting(form: ProjectForm, previous?: ProjectSettings): ProjectSettings["ttyd"] {
+  if (form.kind !== "terminal") return undefined;
+
+  const mode = form.ownServer ? "image" : "agent";
+  const before = previous?.kind === "terminal" ? (previous.ttyd ?? (previous.port !== undefined ? "image" : "agent")) : undefined;
+  if (mode === before) return previous?.ttyd;
+  return mode === "image" ? "image" : undefined;
 }
 
 /** The resources a project gets: its own limits, else its kind's defaults; `defaults` when it sets none. */

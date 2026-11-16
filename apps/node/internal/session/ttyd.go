@@ -53,14 +53,15 @@ type Image struct {
 var errNoProgram = errors.New("the image has no entrypoint or command: set the project's command")
 
 // program is what the agent's ttyd runs: the request's command, else the
-// image's entrypoint followed by its command, as docker run would.
+// image's entrypoint followed by its command, as docker run would. Its first
+// argument, the program itself, cannot be empty.
 func program(r Request, img Image) ([]string, error) {
-	if len(r.Command) > 0 {
-		return r.Command, nil
+	p := r.Command
+	if len(p) == 0 {
+		p = slices.Concat(img.Entrypoint, img.Cmd)
 	}
 
-	p := slices.Concat(img.Entrypoint, img.Cmd)
-	if len(p) == 0 {
+	if len(p) == 0 || p[0] == "" {
 		return nil, errNoProgram
 	}
 	return p, nil
@@ -68,17 +69,20 @@ func program(r Request, img Image) ([]string, error) {
 
 // ttydArgs are the options of the agent's ttyd, all locked: writable, one
 // client at a time, the session's base path, the Tryout theme and no
-// "leave this page?" prompt. "--" ends the options, so that an argument of
-// the program that starts with a dash is not read as one of ttyd's.
+// "leave this page?" prompt. ttyd reads a client option's value as JSON when
+// it parses, so the font stack, which starts with a quoted name, is sent as a
+// JSON string. "--" ends the options, so that an argument of the program
+// that starts with a dash is not read as one of ttyd's.
 func ttydArgs(r Request) []string {
 	theme, _ := json.Marshal(ttydTheme)
+	font, _ := json.Marshal(ttydFont)
 	return []string{
 		"--writable",
 		"--max-clients", "1",
 		"--port", strconv.Itoa(ttydPort),
 		"--base-path", "/s/" + r.ID,
 		"--client-option", "disableLeaveAlert=true",
-		"--client-option", "fontFamily=" + ttydFont,
+		"--client-option", "fontFamily=" + string(font),
 		"--client-option", "theme=" + string(theme),
 		"--",
 	}

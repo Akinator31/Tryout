@@ -9,7 +9,7 @@ session.
 disposable Docker container:
 
 - **command-line** projects are served through a web terminal (**ttyd**) that the agent mounts
-  read-only into the session (`ttyd: image` for an image that serves its own page);
+  read-only into the session; a terminal with a `port` (or `ttyd: image`) serves its own page;
 - **graphical** projects are streamed through **Selkies** (WebSocket mode);
 - each project has a **limit on concurrent sessions** and an app-managed **queue**;
 - every session is a **fresh container** on its own `--internal` network, with no egress and a

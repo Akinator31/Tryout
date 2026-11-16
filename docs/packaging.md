@@ -90,8 +90,9 @@ MSG
 ```
 
 An image that already serves its own terminal page, such as one with its own ttyd, or any web
-application with the terminal's hardening, declares `ttyd: image` and its `port` instead: it then
-serves `/s/<id>/` itself, like a desktop image (see [Project images](project-images.md)).
+application with the terminal's hardening, declares its `port` instead (and `ttyd: image`, to say
+so explicitly): it then serves `/s/<id>/` itself, like a desktop image (see
+[Project images](project-images.md)).
 
 ### Check the image
 
@@ -118,7 +119,8 @@ image does not answer. Its options mirror the project's configuration:
 
 - `--kind terminal|desktop`;
 - a command after `--`, as the project's `command`: `scripts/check-image.sh wordfreq:dev -- wordfreq --interactive`;
-- `--own-server`, `--port N` and `--strip-prefix` for an image that serves its own page;
+- `--port N` (or `--own-server` on 7681) and `--strip-prefix` for an image that serves its own
+  page;
 - `--env KEY=VALUE`, repeatable, for the project's variables;
 - `--runtime runsc` to try the image under gVisor, like a production node.
 

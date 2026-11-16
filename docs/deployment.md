@@ -348,11 +348,12 @@ docker compose run --rm control-plane node apps/control-plane/src/cli.ts import 
 The import ignores the bootstrap keys. Run it from the directory of the running stack, or with
 its project name (`-p`), so that it reaches the same PostgreSQL.
 
-From `v0.2`, `v0.3` serves terminals with the agent's own ttyd, and needs Docker Engine 28 or
-later on the nodes. A terminal project whose image runs its own ttyd (images built from the
-`v0.2` guide or from `cli-hello` before `v0.3`) must declare `ttyd: image` before the upgrade, or
-be rebuilt without ttyd: the agent would otherwise start a second ttyd on the same port. Its
-`port` stays. See [Packaging a project](packaging.md#a-command-line-project).
+From `v0.2`, `v0.3` needs Docker Engine 28 or later on the nodes. It serves new terminal
+projects with the agent's own ttyd, those without a `port`. Existing terminal projects have a
+`port`, so their images keep serving their own page, unchanged. To move one to the agent's ttyd,
+rebuild its image without ttyd and remove its `port`, in the same change: an image that still
+starts its own ttyd would clash with the agent's on the same port. See
+[Packaging a project](packaging.md#a-command-line-project).
 
 Running sessions survive a node upgrade, with a short interruption. A recreated gateway is no
 longer attached to the session networks: the agent attaches it again and pushes its routes on

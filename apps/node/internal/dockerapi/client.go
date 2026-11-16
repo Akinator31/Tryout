@@ -20,13 +20,13 @@ import (
 	"strings"
 )
 
-// apiVersion pins the Engine API version of every request. 1.48 (Docker
-// Engine 28) brings image mounts, which carry the agent's ttyd.
-const apiVersion = "v1.48"
-
-// MinAPIVersion is the oldest daemon API the client works with: apiVersion
-// without its "v".
+// MinAPIVersion is the Engine API version of every request, so the oldest
+// daemon API the client works with. 1.48 (Docker Engine 28) brings image
+// mounts, which carry the agent's ttyd.
 const MinAPIVersion = "1.48"
+
+// apiVersion is MinAPIVersion as it appears in request paths.
+const apiVersion = "v" + MinAPIVersion
 
 // Client calls the Engine API of one Docker daemon.
 type Client struct {

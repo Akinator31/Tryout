@@ -133,6 +133,9 @@ test("an existing project's form round-trips, keeping enabled", () => {
   roundTrip({ ...CLI, title: "CLI", enabled: false, runtime: "runsc", limits: { memory_mb: 512 }, env: { GREETING: "hi" } });
   roundTrip({ ...CLI, command: ["bash", "-c", "hello; exec bash -l"], limits: {}, env: {} });
   roundTrip({ ...CLI, ttyd: "image", port: 7681, strip_prefix: true, limits: {}, env: {} });
+  roundTrip({ ...CLI, port: 7681, limits: {}, env: {} });
+  roundTrip({ ...CLI, ttyd: "agent", limits: {}, env: {} });
+  assert.equal(projectForm("v02", { ...CLI, port: 7681 }).ownServer, true, "a terminal with a port serves its own page");
 });
 
 test("a terminal runs in Tryout's ttyd unless its image serves its own page", () => {
@@ -150,6 +153,7 @@ test("a terminal runs in Tryout's ttyd unless its image serves its own page", ()
   assert.deepEqual([desktop.ttyd, desktop.port], [undefined, 3000]);
 
   assert.equal(checkProjectForm(form({ command: 'bash -c "unclosed' }), ctx).command, "Close the quote.");
+  assert.match(checkProjectForm(form({ command: '"" x' }), ctx).command ?? "", /cannot be empty/);
   assert.equal(checkProjectForm(form({ port: "0" }), ctx).port, undefined, "the port is not used with Tryout's ttyd");
 });
 

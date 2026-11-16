@@ -13,7 +13,7 @@ and `scripts/check-image.sh` checks an image against the contract before it goes
 
 Variables provided by the agent: `TRYOUT_SESSION_ID`, `TRYOUT_BASE_PATH`.
 
-An image that **serves its own page** (a desktop, or a terminal with `ttyd: image`) also:
+An image that **serves its own page** (a desktop, or a terminal with a `port`) also:
 
 - listens over **HTTP** on the port declared in the configuration (`port`), on every interface;
 - serves its UI **under the path `$TRYOUT_BASE_PATH`** (e.g. `/s/abc…`), or the project
@@ -75,8 +75,9 @@ CMD ["bash", "-c", "hello; exec bash -l"]
   starts. Anything the image has at `/opt/tryout` is hidden by the mount.
 - The agent fixes ttyd's options: one visitor at a time, writable, the session's base path, the
   Tryout colours and font. A project cannot change them.
-- With `ttyd: image`, the image serves its own page instead, on its `port`: the terminal
-  hardening stays, the common contract above applies.
+- With a `port` (or `ttyd: image` and a `port`), the image serves its own page instead: the
+  terminal hardening stays, the common contract above applies. Terminal projects configured
+  before the agent's ttyd all have a `port`, so they keep working unchanged.
 
 ## Graphical project (`kind: desktop`)
 

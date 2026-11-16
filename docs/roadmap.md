@@ -230,6 +230,6 @@ Done. Checked on the dev stack from an empty database, in a browser:
   turns the preview off. See [Admin interface](configuration.md#admin-interface).
 - **M4** closed and released as `v0.2.0`, see [above](#m4-operate).
 - **M5:** terminals served by the agent's own ttyd, mounted read-only from the `tryout-ttyd`
-  image that each node release pins: project images hold their program alone; `ttyd: image`
-  keeps an image that serves its own page. Nodes need Docker Engine 28. See
+  image that each node release pins: project images hold their program alone; a terminal with a
+  `port` keeps serving its own page, so v0.2 configurations work unchanged. Nodes need Docker Engine 28. See
   [Architecture](architecture.md#terminals-served-by-the-agent).

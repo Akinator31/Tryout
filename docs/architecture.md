@@ -225,9 +225,11 @@ runs the ttyd version, options and theme of its node's release.
   or the project's `command`, after its own options and `--`. The container keeps the image's
   user, working directory and environment. ttyd's options are locked: writable, one client, the
   session's base path, Tryout's colours and font.
-- **An image that serves its own page** declares `ttyd: image` and a `port`, and runs unchanged,
-  like a desktop image. The schema refuses `port` and `strip_prefix` with the agent's ttyd, and
-  `command` without it, rather than ignore them.
+- **An image that serves its own page** declares a `port` (with `ttyd: image`, or alone), and
+  runs unchanged, like a desktop image. Without `ttyd`, the mode follows `port`: every terminal
+  configured before the agent's ttyd has one, so stored revisions and their images keep working
+  through the upgrade, with no migration. The schema refuses `port` and `strip_prefix` with
+  `ttyd: agent`, and `command` without the agent's ttyd, rather than ignore them.
 
 ### A thin orchestrator
 

@@ -143,13 +143,17 @@ func (r *Request) checkShape() error {
 }
 
 // applyTTYDMode settles who serves the session's page. A terminal runs in
-// the agent's ttyd unless it says ttyd: image; ttyd then listens on ttydPort
-// and serves under the base path itself, so the request must not set a port
-// or strip_prefix. Any other session serves its own page on its port, and
-// runs the image as it is.
+// the agent's ttyd when it says ttyd: agent, or sets neither ttyd nor a port;
+// ttyd then listens on ttydPort and serves under the base path itself, so the
+// request must not set a port or strip_prefix. A terminal with a port and no
+// ttyd serves its own page, as every terminal did before the agent's ttyd.
+// Any session that serves its own page runs the image as it is.
 func (r *Request) applyTTYDMode(ttydImage string) error {
 	if r.Kind == Terminal && r.TTYD == "" {
 		r.TTYD = TTYDAgent
+		if r.Port != 0 {
+			r.TTYD = TTYDImage
+		}
 	}
 
 	switch {

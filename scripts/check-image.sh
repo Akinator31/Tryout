@@ -14,11 +14,13 @@
 #
 # Usage: scripts/check-image.sh [options] <image> [-- <command>...]
 #   --kind terminal|desktop   default terminal
-#   --own-server              a terminal that serves its own page (ttyd: image)
+#   --own-server              a terminal that serves its own page (ttyd: image), on port 7681
+#                             unless --port says otherwise
+#   --port N                  the port of an image that serves its own page; on a terminal,
+#                             implies --own-server, as a port does in the configuration.
+#                             Default 3000 for a desktop
 #   --ttyd-image REF          ttyd image to mount; default $TTYD_IMAGE, else
-#                             ghcr.io/akinator31/tryout-ttyd:latest
-#   --port N                  the image's port, when it serves its own page: default 7681
-#                             (terminal), 3000 (desktop)
+#                             ghcr.io/akinator31/tryout-ttyd:edge
 #   --strip-prefix            the project sets strip_prefix: true
 #   --env KEY=VALUE           project environment variable; repeatable
 #   --runtime NAME            container runtime, such as runsc (default: the daemon's default)
@@ -28,7 +30,7 @@ set -euo pipefail
 
 kind=terminal
 own_server=false
-ttyd_image=${TTYD_IMAGE:-ghcr.io/akinator31/tryout-ttyd:latest}
+ttyd_image=${TTYD_IMAGE:-ghcr.io/akinator31/tryout-ttyd:edge}
 command=()
 port=
 strip_prefix=false
@@ -89,6 +91,7 @@ parse_args() {
   done
 
   [ -n "$image" ] || usage
+  if [ "$kind" = terminal ] && [ -n "$port" ]; then own_server=true; fi
   case $kind in
     terminal) port=${port:-7681}; timeout=${timeout:-30} ;;
     desktop) port=${port:-3000}; timeout=${timeout:-170} ;;
@@ -96,8 +99,8 @@ parse_args() {
   esac
 
   if agent_ttyd; then
-    if [ "$port" != 7681 ] || [ "$strip_prefix" = true ]; then
-      echo "--port and --strip-prefix are for an image that serves its own page (--own-server)" >&2
+    if [ "$strip_prefix" = true ]; then
+      echo "--strip-prefix is for an image that serves its own page (--own-server or --port)" >&2
       exit 2
     fi
   elif [ ${#command[@]} -gt 0 ]; then
@@ -183,7 +186,7 @@ add_ttyd() {
     while IFS= read -r arg; do [ -z "$arg" ] || program+=("$arg"); done < <(docker image inspect -f \
       '{{range .Config.Entrypoint}}{{println .}}{{end}}{{range .Config.Cmd}}{{println .}}{{end}}' "$image")
   fi
-  if [ ${#program[@]} -eq 0 ]; then
+  if [ ${#program[@]} -eq 0 ] || [ -z "${program[0]}" ]; then
     fail "the image has no entrypoint or command: set the project's command (here: after --)"
   fi
 

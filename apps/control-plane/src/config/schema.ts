@@ -6,7 +6,9 @@ import { Ajv2020 } from "ajv/dist/2020.js";
 
 export const schema = JSON.parse(readFileSync(new URL("./tryout.schema.json", import.meta.url), "utf8"));
 
-const ajv = new Ajv2020({ allErrors: true, strict: true });
+// strictTuples off: a project's command constrains its first item only (the
+// program, not empty) with prefixItems, which strict mode wants as a full tuple.
+const ajv = new Ajv2020({ allErrors: true, strict: true, strictTuples: false });
 ajv.addSchema(schema, "tryout");
 
 /** tryout.yaml: bootstrap and, optionally, settings. */

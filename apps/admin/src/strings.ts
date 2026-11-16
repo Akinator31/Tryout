@@ -177,6 +177,7 @@ export const strings = {
       image: "No spaces.",
       port: "A port from 1 to 65535.",
       command: "Close the quote.",
+      commandProgram: "The first argument is the program: it cannot be empty.",
       noNode: "Add a node first.",
       unknownNode: "This node is not in the settings.",
       runtime: "Letters, digits, dot, dash and underscore.",

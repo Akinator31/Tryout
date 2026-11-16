@@ -30,6 +30,13 @@ func (a *Agent) create(ctx context.Context, r session.Request) error {
 	if err != nil {
 		return err
 	}
+	// Pulled at startup, but only image mounts refer to it: a prune may have
+	// removed it since.
+	if r.TTYD == session.TTYDAgent {
+		if _, err := a.ensureImage(ctx, a.policy.TTYDImage); err != nil {
+			return fmt.Errorf("ttyd image: %w", err)
+		}
+	}
 
 	name := session.Name(r.ID)
 	spec, err := session.Spec(r, session.Image{Entrypoint: img.Config.Entrypoint, Cmd: img.Config.Cmd}, name, time.Now())

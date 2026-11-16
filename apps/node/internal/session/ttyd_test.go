@@ -24,11 +24,18 @@ func TestTTYDMode(t *testing.T) {
 		t.Errorf("terminal serving its own page: %v, %+v", err, r)
 	}
 
+	r = validReq(Terminal)
+	r.Port, r.StripPrefix = 7681, true
+	if err := r.validate(p); err != nil || r.TTYD != TTYDImage {
+		t.Errorf("a terminal with a port and no ttyd serves its own page, as before: %v, %+v", err, r)
+	}
+
 	for name, bad := range map[string]func(*Request){
-		"port with the agent's ttyd":         func(r *Request) { r.Port = 7681 },
+		"port with the agent's ttyd":         func(r *Request) { r.TTYD, r.Port = TTYDAgent, 7681 },
 		"strip_prefix with the agent's ttyd": func(r *Request) { r.StripPrefix = true },
 		"image mode without a port":          func(r *Request) { r.TTYD = TTYDImage },
 		"command in image mode":              func(r *Request) { r.TTYD, r.Port, r.Command = TTYDImage, 8080, []string{"sh"} },
+		"command with a port":                func(r *Request) { r.Port, r.Command = 8080, []string{"sh"} },
 		"unknown mode":                       func(r *Request) { r.TTYD = "builtin" },
 		"desktop with ttyd":                  func(r *Request) { r.Kind, r.Port, r.TTYD = Desktop, 3000, TTYDImage },
 		"desktop with a command":             func(r *Request) { r.Kind, r.Port, r.Command = Desktop, 3000, []string{"sh"} },
@@ -66,7 +73,7 @@ func TestSpecRunsTheProgramInTTYD(t *testing.T) {
 		t.Errorf("entrypoint %v", c.Entrypoint)
 	}
 	args := strings.Join(c.Cmd, " ")
-	for _, want := range []string{"--writable", "--max-clients 1", "--port 7681", "--base-path /s/" + r.ID, "disableLeaveAlert=true"} {
+	for _, want := range []string{"--writable", "--max-clients 1", "--port 7681", "--base-path /s/" + r.ID, "disableLeaveAlert=true", `fontFamily="\"IBM Plex Mono\", ui-monospace`} {
 		if !strings.Contains(args, want) {
 			t.Errorf("ttyd options lack %q: %s", want, args)
 		}
@@ -97,6 +104,9 @@ func TestProgram(t *testing.T) {
 	}
 	if _, err := program(Request{}, Image{}); err == nil {
 		t.Error("an image with nothing to run must be refused")
+	}
+	if _, err := program(Request{Command: []string{"", "x"}}, img); err == nil {
+		t.Error("an empty program must be refused")
 	}
 }
 

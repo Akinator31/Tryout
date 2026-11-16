@@ -1,6 +1,7 @@
 # tryout-ttyd: the web terminal the agent mounts, read-only, into terminal sessions
 # (Docker image mount at /opt/tryout). It holds a single static binary, /ttyd, so project
-# images need no web server of their own. Tags follow ttyd's version.
+# images need no web server of their own. CI tags it like the other images and builds its digest
+# into tryout-node as the agent's default TTYD_IMAGE.
 FROM --platform=$BUILDPLATFORM alpine:3.22 AS fetch
 ARG TARGETARCH
 ARG TTYD_VERSION=1.7.7
