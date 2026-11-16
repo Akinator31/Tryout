@@ -1,4 +1,4 @@
-package spec
+package session
 
 import (
 	"bytes"
@@ -20,7 +20,7 @@ func TestEmbeddedSchemaIsInSync(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(src, schemaJSON) {
-		t.Fatal("internal/spec/tryout.schema.json is stale: run scripts/sync-schema.sh")
+		t.Fatal("internal/session/tryout.schema.json is stale: run scripts/sync-schema.sh")
 	}
 }
 
@@ -38,7 +38,7 @@ func TestSessionRequestFixtures(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				err = ValidateSessionRequest(body)
+				err = validateSchema(body)
 				if want == "valid" && err != nil {
 					t.Fatalf("rejected: %v", err)
 				}
@@ -55,7 +55,7 @@ func TestSessionRequestFixtures(t *testing.T) {
 
 // TestErrorNamesThePath checks that an error names the failing field.
 func TestErrorNamesThePath(t *testing.T) {
-	err := ValidateSessionRequest([]byte(`{"id":"abcdefghijklmnopqrstuvwxyz","project":"p","image":"x","kind":"terminal","port":7681,"max_age_s":60,"limits":{"cpus":0}}`))
+	err := validateSchema([]byte(`{"id":"abcdefghijklmnopqrstuvwxyz","project":"p","image":"x","kind":"terminal","port":7681,"max_age_s":60,"limits":{"cpus":0}}`))
 	if err == nil || !strings.Contains(err.Error(), "/limits/cpus") {
 		t.Fatalf("got %v", err)
 	}
@@ -63,7 +63,7 @@ func TestErrorNamesThePath(t *testing.T) {
 
 // TestInvalidJSON checks that a body that is not JSON is refused.
 func TestInvalidJSON(t *testing.T) {
-	if err := ValidateSessionRequest([]byte(`{`)); err == nil {
+	if err := validateSchema([]byte(`{`)); err == nil {
 		t.Fatal("accepted")
 	}
 }
@@ -72,7 +72,7 @@ func TestInvalidJSON(t *testing.T) {
 // reported with the other errors, and that a failing known field is not
 // also reported as unknown.
 func TestUnknownFieldReportedBesideOtherErrors(t *testing.T) {
-	err := ValidateSessionRequest([]byte(`{"id":"abcdefghijklmnopqrstuvwxyz","project":"p","image":"x","kind":"terminal","port":0,"max_age_s":60,"privileged":true}`))
+	err := validateSchema([]byte(`{"id":"abcdefghijklmnopqrstuvwxyz","project":"p","image":"x","kind":"terminal","port":0,"max_age_s":60,"privileged":true}`))
 	if err == nil || !strings.Contains(err.Error(), "/privileged: unknown field") || !strings.Contains(err.Error(), "/port:") {
 		t.Fatalf("got %v", err)
 	}

@@ -1,4 +1,4 @@
-package main
+package gateway
 
 import (
 	"log/slog"
@@ -8,13 +8,14 @@ import (
 	"strings"
 
 	"github.com/Akinator31/Tryout/apps/node/internal/logging"
+	"github.com/Akinator31/Tryout/apps/node/internal/routes"
 )
 
 // newProxy returns the reverse proxy of one session. It keeps the public
 // Host header (so that the apps' Origin checks stay coherent), optionally
 // strips the /s/<id> prefix, never forwards cookies, streams responses
 // immediately (video, terminal) and hardens every response.
-func (g *gateway) newProxy(rt route) (*httputil.ReverseProxy, error) {
+func (g *Gateway) newProxy(rt routes.Route) (*httputil.ReverseProxy, error) {
 	target, err := url.Parse(rt.Target)
 	if err != nil {
 		return nil, err
@@ -64,7 +65,7 @@ func stripPrefix(path, prefix string) string {
 //   - Set-Cookie is removed: sessions get no cookies;
 //   - Referrer-Policy is no-referrer: the URL is the credential, never leak it;
 //   - nosniff, and no-store caching.
-func (g *gateway) harden(resp *http.Response) error {
+func (g *Gateway) harden(resp *http.Response) error {
 	h := resp.Header
 	h.Del("X-Frame-Options")
 	h.Del("Service-Worker-Allowed")

@@ -1,4 +1,15 @@
-package main
+// Package gateway is the node's public reverse proxy: /s/<session-id>/...
+// goes to the session's container, over HTTP and WebSocket. It has NO Docker
+// socket. The agent replaces its route table through the admin API, on a
+// unix socket only (see package routes).
+//
+// The session id is a 130-bit random capability carried in every request,
+// so no cookies are needed (third-party cookies are blocked in iframes).
+//
+// Files of this package: routes.go (the route table, the public and admin
+// handlers), proxy.go (the per-session reverse proxy and the response
+// hardening).
+package gateway
 
 import (
 	"crypto/subtle"
@@ -11,29 +22,20 @@ import (
 	"sync"
 
 	"github.com/Akinator31/Tryout/apps/node/internal/logging"
+	"github.com/Akinator31/Tryout/apps/node/internal/routes"
 )
-
-// maxRoutesBytes bounds the body of PUT /routes.
-const maxRoutesBytes = 1 << 20
 
 // pathRe matches a public session path and captures the session id and the
 // rest of the path.
 var pathRe = regexp.MustCompile(`^/s/([a-z0-9]{26})(/.*)?$`)
-
-// route is one entry of the route table the agent pushes.
-type route struct {
-	ID          string `json:"id"`
-	Target      string `json:"target"`
-	StripPrefix bool   `json:"strip_prefix"`
-}
 
 // entry is a session's live proxy.
 type entry struct {
 	proxy *httputil.ReverseProxy
 }
 
-// gateway holds the route table, replaced as a whole by each PUT /routes.
-type gateway struct {
+// Gateway holds the route table, replaced as a whole by each PUT /routes.
+type Gateway struct {
 	token          string
 	frameAncestors string
 
@@ -41,9 +43,21 @@ type gateway struct {
 	routes map[string]entry
 }
 
+// New returns a gateway with an empty route table. token authenticates the
+// agent on the admin API; frameAncestors is the CSP frame-ancestors value
+// every session answer carries.
+func New(token, frameAncestors string) *Gateway {
+	return &Gateway{token: token, frameAncestors: frameAncestors, routes: map[string]entry{}}
+}
+
+// Public is the public handler: /healthz and the routed sessions.
+func (g *Gateway) Public() http.Handler {
+	return http.HandlerFunc(g.public)
+}
+
 // public serves /healthz and /s/<id>/... for the sessions in the route table;
 // everything else is a 404. The session path is the only credential.
-func (g *gateway) public(w http.ResponseWriter, r *http.Request) {
+func (g *Gateway) public(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/healthz" {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -70,7 +84,7 @@ func (g *gateway) public(w http.ResponseWriter, r *http.Request) {
 }
 
 // lookup returns the proxy of a session.
-func (g *gateway) lookup(id string) (entry, bool) {
+func (g *Gateway) lookup(id string) (entry, bool) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
@@ -86,23 +100,23 @@ func redirectToTrailingSlash(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, u.String(), http.StatusPermanentRedirect)
 }
 
-// admin is the admin API, served on the unix socket only: PUT /routes
+// Admin is the admin API, to serve on the unix socket only: PUT /routes
 // replaces the route table, with the agent's bearer token.
-func (g *gateway) admin() http.Handler {
+func (g *Gateway) Admin() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("PUT /routes", g.handlePutRoutes)
 	return mux
 }
 
 // handlePutRoutes checks the token, then replaces the route table.
-func (g *gateway) handlePutRoutes(w http.ResponseWriter, r *http.Request) {
+func (g *Gateway) handlePutRoutes(w http.ResponseWriter, r *http.Request) {
 	if !g.authorized(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	var rs []route
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRoutesBytes)).Decode(&rs); err != nil {
+	var rs []routes.Route
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, routes.MaxTableBytes)).Decode(&rs); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -117,7 +131,7 @@ func (g *gateway) handlePutRoutes(w http.ResponseWriter, r *http.Request) {
 }
 
 // authorized compares the bearer token in constant time.
-func (g *gateway) authorized(r *http.Request) bool {
+func (g *Gateway) authorized(r *http.Request) bool {
 	got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	return subtle.ConstantTimeCompare([]byte(got), []byte(g.token)) == 1
 }
@@ -125,7 +139,7 @@ func (g *gateway) authorized(r *http.Request) bool {
 // buildRouteTable builds the next route table. A session already routed keeps
 // its proxy, and with it its open connections; routes with a malformed id or
 // target are skipped.
-func (g *gateway) buildRouteTable(rs []route) map[string]entry {
+func (g *Gateway) buildRouteTable(rs []routes.Route) map[string]entry {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 

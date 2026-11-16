@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"cmp"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/Akinator31/Tryout/apps/node/internal/dockerapi"
 	"github.com/Akinator31/Tryout/apps/node/internal/metrics"
+	"github.com/Akinator31/Tryout/apps/node/internal/session"
 	"github.com/Akinator31/Tryout/apps/node/internal/version"
 )
 
@@ -57,10 +58,10 @@ func (m *agentMetrics) observeStart(project string, took time.Duration, err erro
 // the mutual TLS API like every other endpoint. When the Docker daemon does
 // not answer, the counters are still served, without the session gauge, and
 // tryout_node_docker_up is 0.
-func (a *agent) handleMetrics(w http.ResponseWriter, r *http.Request) {
+func (a *Agent) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	gauges := []metrics.Gauge{a.infoGauge(), a.maxSessionsGauge()}
 
-	cs, err := a.docker.ContainerList(r.Context(), labelSession)
+	cs, err := a.docker.ContainerList(r.Context(), session.LabelSession)
 	if err != nil {
 		gauges = append(gauges, dockerUpGauge(false))
 	} else {
@@ -85,12 +86,12 @@ func dockerUpGauge(up bool) metrics.Gauge {
 }
 
 // infoGauge describes the agent: always 1, the information is in the labels.
-func (a *agent) infoGauge() metrics.Gauge {
+func (a *Agent) infoGauge() metrics.Gauge {
 	return metrics.Gauge{
 		Name:    "tryout_agent_info",
 		Help:    "Agent build and configuration.",
 		Labels:  []string{"version", "profile", "default_runtime", "arch"},
-		Samples: []metrics.Sample{{Labels: []string{version.Version, a.cfg.profile, a.cfg.defaultRuntime, a.arch}, Value: 1}},
+		Samples: []metrics.Sample{{Labels: []string{version.Version, a.policy.Profile, a.policy.DefaultRuntime, a.arch}, Value: 1}},
 	}
 }
 
@@ -99,7 +100,7 @@ func sessionsGauge(cs []dockerapi.ContainerSummary) metrics.Gauge {
 	type key struct{ project, state string }
 	counts := map[key]int{}
 	for _, c := range cs {
-		counts[key{c.Labels[labelProject], c.State}]++
+		counts[key{c.Labels[session.LabelProject], c.State}]++
 	}
 	order := slices.Collect(maps.Keys(counts))
 
@@ -118,10 +119,10 @@ func sessionsGauge(cs []dockerapi.ContainerSummary) metrics.Gauge {
 }
 
 // maxSessionsGauge is the node's MAX_SESSIONS.
-func (a *agent) maxSessionsGauge() metrics.Gauge {
+func (a *Agent) maxSessionsGauge() metrics.Gauge {
 	return metrics.Gauge{
 		Name:    "tryout_node_sessions_max",
 		Help:    "Most sessions the node runs at once (MAX_SESSIONS).",
-		Samples: []metrics.Sample{{Value: float64(a.cfg.maxSessions)}},
+		Samples: []metrics.Sample{{Value: float64(a.cfg.MaxSessions)}},
 	}
 }

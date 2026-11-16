@@ -1,12 +1,10 @@
-package main
+package agent
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -14,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Akinator31/Tryout/apps/node/internal/dockerapi"
+	"github.com/Akinator31/Tryout/apps/node/internal/session"
 )
 
 // TestReconcileReattachesGateway: a recreated gateway (an upgrade) is attached
@@ -28,20 +27,20 @@ func TestReconcileReattachesGateway(t *testing.T) {
 	attached, missing, creating, stopped, removing := id("a"), id("b"), id("c"), id("d"), id("e")
 
 	future := fmt.Sprint(time.Now().Add(time.Hour).Unix())
-	session := func(id string) map[string]any {
+	container := func(id string) map[string]any {
 		state := "running"
 		if id == stopped {
 			state = "created"
 		}
-		labels := map[string]string{labelSession: id, labelExpires: future, labelPort: "7681"}
-		labels[labelCreated] = fmt.Sprint(time.Now().Unix())
+		labels := map[string]string{session.LabelSession: id, session.LabelExpires: future, session.LabelPort: "7681"}
+		labels[session.LabelCreated] = fmt.Sprint(time.Now().Unix())
 		return map[string]any{"Id": id, "State": state, "Labels": labels}
 	}
-	gatewayNetworks := map[string]any{"tryout_default": map[string]any{}, namePrefix + attached: map[string]any{}}
+	gatewayNetworks := map[string]any{"tryout_default": map[string]any{}, session.Name(attached): map[string]any{}}
 
 	var mu sync.Mutex
 	var connected []string
-	var a *agent
+	var a *Agent
 	docker := fakeDockerClient(t, func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -49,7 +48,7 @@ func TestReconcileReattachesGateway(t *testing.T) {
 		p := r.URL.Path
 		switch {
 		case r.Method == http.MethodGet && strings.HasSuffix(p, "/containers/json"):
-			_ = json.NewEncoder(w).Encode([]any{session(attached), session(missing), session(creating), session(stopped), session(removing)})
+			_ = json.NewEncoder(w).Encode([]any{container(attached), container(missing), container(creating), container(stopped), container(removing)})
 
 		case r.Method == http.MethodGet && strings.HasSuffix(p, "/networks"):
 			_ = json.NewEncoder(w).Encode([]any{})
@@ -71,23 +70,13 @@ func TestReconcileReattachesGateway(t *testing.T) {
 		}
 	})
 
-	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
-	t.Cleanup(gw.Close)
-	toGateway := func(*http.Request) (*url.URL, error) { return url.Parse(gw.URL) }
-
-	a = &agent{
-		cfg:         config{gatewayName: "tryout-gateway"},
-		docker:      docker,
-		creating:    map[string]bool{creating: true},
-		destroying:  map[string]bool{},
-		gatewayHTTP: &http.Client{Transport: &http.Transport{Proxy: toGateway}},
-		metrics:     newAgentMetrics(),
-	}
+	a = New(Config{GatewayName: "tryout-gateway"}, docker, nil, &fakeGateway{})
+	a.creating[creating] = true
 	a.reconcile(context.Background())
 
 	mu.Lock()
 	defer mu.Unlock()
-	if want := []string{namePrefix + missing + "<-tryout-gateway"}; !slices.Equal(connected, want) {
+	if want := []string{session.Name(missing) + "<-tryout-gateway"}; !slices.Equal(connected, want) {
 		t.Errorf("connected %v, want %v", connected, want)
 	}
 }
@@ -104,8 +93,8 @@ func TestReconcileReapsStuckCreatedContainers(t *testing.T) {
 
 	future := fmt.Sprint(time.Now().Add(time.Hour).Unix())
 	created := func(id string, age time.Duration) map[string]any {
-		labels := map[string]string{labelSession: id, labelExpires: future, labelPort: "7681"}
-		labels[labelCreated] = fmt.Sprint(time.Now().Add(-age).Unix())
+		labels := map[string]string{session.LabelSession: id, session.LabelExpires: future, session.LabelPort: "7681"}
+		labels[session.LabelCreated] = fmt.Sprint(time.Now().Add(-age).Unix())
 		return map[string]any{"Id": id, "State": "created", "Labels": labels}
 	}
 
@@ -135,23 +124,13 @@ func TestReconcileReapsStuckCreatedContainers(t *testing.T) {
 		}
 	})
 
-	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
-	t.Cleanup(gw.Close)
-	toGateway := func(*http.Request) (*url.URL, error) { return url.Parse(gw.URL) }
-
-	a := &agent{
-		cfg:         config{gatewayName: "tryout-gateway"},
-		docker:      docker,
-		creating:    map[string]bool{creating: true},
-		destroying:  map[string]bool{},
-		gatewayHTTP: &http.Client{Transport: &http.Transport{Proxy: toGateway}},
-		metrics:     newAgentMetrics(),
-	}
+	a := New(Config{GatewayName: "tryout-gateway"}, docker, nil, &fakeGateway{})
+	a.creating[creating] = true
 	a.reconcile(context.Background())
 
 	mu.Lock()
 	defer mu.Unlock()
-	if want := []string{namePrefix + stuck}; !slices.Equal(removed, want) {
+	if want := []string{session.Name(stuck)}; !slices.Equal(removed, want) {
 		t.Errorf("removed %v, want %v", removed, want)
 	}
 }
@@ -162,8 +141,8 @@ func TestShouldReap(t *testing.T) {
 	now := time.Unix(1_000_000, 0)
 	container := func(state string, age, expiresIn time.Duration) dockerapi.ContainerSummary {
 		return dockerapi.ContainerSummary{State: state, Labels: map[string]string{
-			labelCreated: fmt.Sprint(now.Add(-age).Unix()),
-			labelExpires: fmt.Sprint(now.Add(expiresIn).Unix()),
+			session.LabelCreated: fmt.Sprint(now.Add(-age).Unix()),
+			session.LabelExpires: fmt.Sprint(now.Add(expiresIn).Unix()),
 		}}
 	}
 
@@ -179,7 +158,7 @@ func TestShouldReap(t *testing.T) {
 		{"exited", container("exited", time.Minute, time.Hour), "dead"},
 		{"expired", container("running", time.Hour, -time.Second), "expired"},
 		{"created before the label existed", dockerapi.ContainerSummary{State: "created", Labels: map[string]string{
-			labelExpires: fmt.Sprint(now.Add(time.Hour).Unix()),
+			session.LabelExpires: fmt.Sprint(now.Add(time.Hour).Unix()),
 		}}, "stuck"},
 	}
 	for _, c := range cases {

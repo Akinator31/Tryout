@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Akinator31/Tryout/apps/node/internal/logging"
+	"github.com/Akinator31/Tryout/apps/node/internal/session"
 	"github.com/Akinator31/Tryout/apps/node/internal/version"
 )
 
@@ -20,9 +21,9 @@ const (
 	createTimeout = 10 * time.Minute
 )
 
-// apiHandler is the agent's private API, called by the control plane only
-// (the mutual TLS handshake authenticates it, see serverTLS).
-func (a *agent) apiHandler() *http.ServeMux {
+// Handler is the agent's private API, for the control plane only: serve it
+// over mutual TLS, whose handshake is its only authentication.
+func (a *Agent) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", a.handleHealthz)
 	mux.HandleFunc("GET /metrics", a.handleMetrics)
@@ -36,7 +37,7 @@ func (a *agent) apiHandler() *http.ServeMux {
 // created as reserveSlot does. The node is healthy when its
 // Docker daemon answers: otherwise it answers 503, since it could neither
 // start nor list sessions.
-func (a *agent) handleHealthz(w http.ResponseWriter, r *http.Request) {
+func (a *Agent) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	n, err := a.countSessions(r.Context())
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "error": "docker: " + err.Error()})
@@ -46,25 +47,25 @@ func (a *agent) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":              true,
 		"version":         version.Version,
-		"profile":         a.cfg.profile,
+		"profile":         a.policy.Profile,
 		"arch":            a.arch,
-		"default_runtime": a.cfg.defaultRuntime,
-		"runtimes":        sortedKeys(a.runtimes),
+		"default_runtime": a.policy.DefaultRuntime,
+		"runtimes":        sortedKeys(a.policy.Runtimes),
 		"sessions":        n + a.creatingCount(),
-		"max_sessions":    a.cfg.maxSessions,
+		"max_sessions":    a.cfg.MaxSessions,
 	})
 }
 
 // handleCreateSession validates the request (400 when invalid) and creates
 // the session (409 when that fails, such as a full node).
-func (a *agent) handleCreateSession(w http.ResponseWriter, r *http.Request) {
+func (a *Agent) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxSessionRequestBytes))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 
-	req, err := a.parseSessionReq(body)
+	req, err := session.Parse(body, a.policy)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -86,9 +87,9 @@ func (a *agent) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 
 // handleDeleteSession destroys a session and pushes the new route table.
 // Deleting an unknown session succeeds: the control plane may retry.
-func (a *agent) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+func (a *Agent) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if !sessionIDRe.MatchString(id) {
+	if !session.ValidID(id) {
 		http.Error(w, "bad id", http.StatusBadRequest)
 		return
 	}
@@ -99,8 +100,8 @@ func (a *agent) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleListSessions lists the session containers with their project and state.
-func (a *agent) handleListSessions(w http.ResponseWriter, r *http.Request) {
-	cs, err := a.docker.ContainerList(r.Context(), labelSession)
+func (a *Agent) handleListSessions(w http.ResponseWriter, r *http.Request) {
+	cs, err := a.docker.ContainerList(r.Context(), session.LabelSession)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -109,8 +110,8 @@ func (a *agent) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	out := []map[string]string{}
 	for _, c := range cs {
 		out = append(out, map[string]string{
-			"id":      c.Labels[labelSession],
-			"project": c.Labels[labelProject],
+			"id":      c.Labels[session.LabelSession],
+			"project": c.Labels[session.LabelProject],
 			"state":   c.State,
 		})
 	}

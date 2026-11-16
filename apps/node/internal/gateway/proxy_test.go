@@ -1,4 +1,4 @@
-package main
+package gateway
 
 import (
 	"net/http"
@@ -8,7 +8,7 @@ import (
 // TestHardenRewritesSecurityHeaders checks that the headers a session could
 // use against the visitor or the embedding page are removed or replaced.
 func TestHardenRewritesSecurityHeaders(t *testing.T) {
-	g := &gateway{frameAncestors: "https://portfolio.example"}
+	g := New("", "https://portfolio.example")
 	h := http.Header{}
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("Service-Worker-Allowed", "/")

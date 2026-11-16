@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -28,8 +30,8 @@ func TestServerTLSIsRequired(t *testing.T) {
 	}
 }
 
-// TestAPIOverMutualTLS checks that the API is served over mutual TLS only:
-// no client certificate, no request. An expired certificate is refused at
+// TestAPIOverMutualTLS checks that the listener's configuration requires
+// mutual TLS: no client certificate, no request. An expired certificate is refused at
 // startup.
 func TestAPIOverMutualTLS(t *testing.T) {
 	dir := t.TempDir()
@@ -50,9 +52,8 @@ func TestAPIOverMutualTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := testAgent("dev", false)
-	a.docker = fakeDockerClient(t, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("[]")) })
-	ts := httptest.NewUnstartedServer(a.apiHandler())
+	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	ts := httptest.NewUnstartedServer(ok)
 	ts.TLS = cfg
 	ts.Config.ErrorLog = log.New(io.Discard, "", 0)
 	ts.StartTLS()
@@ -77,4 +78,15 @@ func TestAPIOverMutualTLS(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status %d", resp.StatusCode)
 	}
+}
+
+// writeTestFile writes b to dir/name and returns its path.
+func writeTestFile(t *testing.T, dir, name string, b []byte) string {
+	t.Helper()
+
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
 }
