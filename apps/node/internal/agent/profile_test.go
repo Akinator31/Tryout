@@ -17,16 +17,30 @@ func fakeDocker(t *testing.T, runtimes ...string) *dockerapi.Client {
 	return fakeDockerAt(t, "1.48", runtimes...)
 }
 
-// fakeDockerAt is fakeDocker for a daemon whose API is apiVersion. Like a
-// real daemon, it refuses requests for a newer API than its own.
+// fakeDockerAt is fakeDocker for a daemon whose API is apiVersion.
 func fakeDockerAt(t *testing.T, apiVersion string, runtimes ...string) *dockerapi.Client {
-	t.Helper()
+	return fakeDockerInfo(t, apiVersion, fakeInfo(runtimes...))
+}
 
+// fakeInfo is the GET /info answer of a daemon with the given runtimes, cgroup
+// v2 and every resource limit supported.
+func fakeInfo(runtimes ...string) map[string]any {
 	rts := map[string]any{}
 	for _, r := range runtimes {
 		rts[r] = map[string]any{"path": r}
 	}
-	info := map[string]any{"Architecture": "x86_64", "Runtimes": rts, "CgroupVersion": "2"}
+	return map[string]any{
+		"Architecture": "x86_64", "Runtimes": rts, "CgroupVersion": "2",
+		"MemoryLimit": true, "SwapLimit": true, "CpuCfsQuota": true, "PidsLimit": true,
+	}
+}
+
+// fakeDockerInfo returns a client for a daemon whose API is apiVersion and
+// whose GET /info answers info. Like a real daemon, it refuses requests for a
+// newer API than its own.
+func fakeDockerInfo(t *testing.T, apiVersion string, info map[string]any) *dockerapi.Client {
+	t.Helper()
+
 	version := map[string]any{"Version": "test", "ApiVersion": apiVersion}
 
 	return fakeDockerClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -101,6 +115,36 @@ func TestCheckProfileDefaultRuntime(t *testing.T) {
 			t.Errorf("%s: want start, got %v", name, err)
 		case c.wantErr != "" && (err == nil || !strings.Contains(err.Error(), c.wantErr)):
 			t.Errorf("%s: want error containing %q, got %v", name, c.wantErr, err)
+		}
+	}
+}
+
+// TestCheckProfileResourceLimits checks that, outside dev, the agent refuses a
+// daemon that would ignore a session's memory, CPU or pids limit, as a
+// rootless daemon does when its cgroup controllers are not delegated.
+func TestCheckProfileResourceLimits(t *testing.T) {
+	controllers := map[string]string{"MemoryLimit": "memory", "CpuCfsQuota": "cpu", "PidsLimit": "pids"}
+
+	for missing, controller := range controllers {
+		for _, profile := range []string{"strict", "single-host"} {
+			info := fakeInfo("runc", "runsc")
+			info[missing] = false
+			if profile == "single-host" {
+				info["SecurityOptions"] = []string{"name=rootless"}
+			}
+			a := New(Config{Profile: profile, DefaultRuntime: "runsc"}, fakeDockerInfo(t, "1.48", info), nil, &fakeGateway{})
+
+			err := a.CheckProfile(context.Background())
+			if err == nil || !strings.Contains(err.Error(), "ignores the "+controller+" limit") {
+				t.Errorf("profile %s, %s false: want a refusal for %s, got %v", profile, missing, controller, err)
+			}
+		}
+
+		info := fakeInfo("runc", "runsc")
+		info[missing] = false
+		a := New(Config{Profile: "dev", DefaultRuntime: "runsc"}, fakeDockerInfo(t, "1.48", info), nil, &fakeGateway{})
+		if err := a.CheckProfile(context.Background()); err != nil {
+			t.Errorf("profile dev, %s false: %v", missing, err)
 		}
 	}
 }

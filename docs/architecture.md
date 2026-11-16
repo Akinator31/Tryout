@@ -154,11 +154,13 @@ What it does:
   certificate from the deployment's private CA, made with `tryout-certs`
   ([Certificates](certificates.md)).
 - The only component that talks to Docker, through a configurable endpoint (`DOCKER_HOST`).
-- Checks at startup that the node **profile** is met (gVisor, rootless, cgroup v2) and that the
-  daemon is Docker Engine 28 or later, pulls its **ttyd image** (`TTYD_IMAGE`), and refuses to
+- Checks at startup that the node **profile** is met (gVisor, rootless, cgroup v2), that the
+  daemon applies memory, CPU and pids limits (outside `dev`) and that it is Docker Engine 28 or
+  later, pulls its **ttyd image** (`TTYD_IMAGE`), and refuses to
   start otherwise.
 - For each session:
-  1. creates an `--internal` network;
+  1. creates an `--internal` network whose bridge has no address (gateway mode `isolated`), so
+     the session cannot reach what listens on the host either;
   2. creates the hardened container; a terminal runs the image's program in the agent's ttyd,
      mounted read-only from the ttyd image (see [Terminals served by the agent](#terminals-served-by-the-agent));
   3. attaches the gateway to the network;

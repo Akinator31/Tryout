@@ -16,8 +16,12 @@ import (
 //
 //   - dev: anything goes, with a loud warning;
 //   - strict: gVisor (runsc) installed, unless ALLOW_RUNC=true;
-//   - single-host: a dedicated rootless daemon, cgroup v2 (otherwise rootless
-//     resource limits are silently ignored) and gVisor, unless ALLOW_RUNC=true.
+//   - single-host: a dedicated rootless daemon, cgroup v2 (the only version
+//     on which a rootless daemon can limit resources) and gVisor, unless
+//     ALLOW_RUNC=true.
+//
+// Outside dev, it also refuses a daemon that ignores memory, CPU or pids
+// limits (see checkResourceLimits).
 //
 // It first refuses a daemon older than the API the agent speaks (see
 // checkDockerVersion). It also records the daemon's architecture and
@@ -41,6 +45,9 @@ func (a *Agent) CheckProfile(ctx context.Context) error {
 	slog.Info("docker", "arch", a.arch, "runtimes", sortedKeys(a.policy.Runtimes), "rootless", rootless, "cgroup", info.CgroupVersion)
 
 	if err := a.checkProfileRequirements(info, rootless); err != nil {
+		return err
+	}
+	if err := a.checkResourceLimits(info); err != nil {
 		return err
 	}
 	if a.policy.AllowRunc && a.policy.Profile != "dev" {
@@ -82,7 +89,7 @@ func (a *Agent) checkProfileRequirements(info *dockerapi.Info, rootless bool) er
 			return errors.New("profile single-host: DOCKER_HOST must point to a dedicated ROOTLESS daemon, never the main root socket")
 		}
 		if info.CgroupVersion != "2" {
-			return errors.New("profile single-host: cgroup v2 required (otherwise rootless resource limits are silently ignored)")
+			return errors.New("profile single-host: cgroup v2 required (a rootless daemon cannot limit resources on cgroup v1)")
 		}
 		if !hasRunsc && !a.policy.AllowRunc {
 			return errors.New("profile single-host: runsc (gVisor) required; ALLOW_RUNC=true is a documented, weaker opt-out")
@@ -90,6 +97,35 @@ func (a *Agent) checkProfileRequirements(info *dockerapi.Info, rootless bool) er
 
 	default:
 		return fmt.Errorf("unknown NODE_PROFILE %q", a.policy.Profile)
+	}
+	return nil
+}
+
+// checkResourceLimits refuses, outside dev, a daemon that would silently
+// ignore a session's memory, CPU or pids limit: a rootless daemon does when
+// its cgroup controllers are not delegated, and so does a kernel built or
+// booted without them. A missing swap limit only warns: memory stays capped,
+// but a session may also use swap.
+func (a *Agent) checkResourceLimits(info *dockerapi.Info) error {
+	missing := []string{}
+	if !info.MemoryLimit {
+		missing = append(missing, "memory")
+	}
+	if !info.CPUCfsQuota {
+		missing = append(missing, "cpu")
+	}
+	if !info.PidsLimit {
+		missing = append(missing, "pids")
+	}
+
+	if len(missing) > 0 {
+		if a.policy.Profile != "dev" {
+			return fmt.Errorf("profile %s: the daemon ignores the %s limit of containers; enable (rootless: delegate) the cgroup controllers", a.policy.Profile, strings.Join(missing, ", "))
+		}
+		slog.Warn("the daemon ignores some resource limits", "missing", missing)
+	}
+	if !info.SwapLimit {
+		slog.Warn("the daemon cannot limit swap: sessions may use swap beyond their memory limit")
 	}
 	return nil
 }

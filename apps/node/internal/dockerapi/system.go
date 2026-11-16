@@ -14,10 +14,17 @@ type Info struct {
 	Runtimes        map[string]any
 	DefaultRuntime  string
 	CgroupVersion   string
+
+	// Whether the daemon applies each resource limit the agent sets: a
+	// rootless daemon ignores those whose cgroup controller is not delegated.
+	MemoryLimit bool
+	SwapLimit   bool
+	CPUCfsQuota bool `json:"CpuCfsQuota"`
+	PidsLimit   bool
 }
 
 // Info describes the daemon: architecture, runtimes, rootless mode, cgroup
-// version.
+// version, supported resource limits.
 func (c *Client) Info(ctx context.Context) (*Info, error) {
 	var i Info
 	return &i, c.do(ctx, http.MethodGet, "/info", nil, &i)
