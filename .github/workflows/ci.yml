@@ -427,8 +427,9 @@ jobs:
           as_user=(sudo -u "$NODE_USER" env HOME="/home/$NODE_USER" XDG_CONFIG_HOME="/home/$NODE_USER/.config"
             XDG_RUNTIME_DIR="/run/user/$NODE_UID")
           (cd /tmp && "${as_user[@]}" dockerd-rootless-setuptool.sh install)
-          (cd /tmp && "${as_user[@]}" docker --context rootless info) | tee info.txt
-          grep -q "name=rootless" info.txt
+          (cd /tmp && "${as_user[@]}" docker --context rootless info)
+          (cd /tmp && "${as_user[@]}" docker --context rootless info --format '{{.SecurityOptions}}') \
+            | grep -q name=rootless
       - name: Load the egress filter
         run: |
           IFS=: read -r _ start count < <(grep "^$NODE_USER:" /etc/subuid)
