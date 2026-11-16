@@ -3,7 +3,7 @@
 # to production: runs it the way the agent runs a session, then probes it the way the control
 # plane does, through its base path, until it answers below 400.
 #
-# The constraints mirror the agent's (apps/node/cmd/agent: hardening.go, session.go): an
+# The constraints mirror the agent's (apps/node/internal/session: hardening.go, env.go): an
 # internal network with no egress, no capabilities (desktop: the six its init needs),
 # no-new-privileges, the kind's resource limits, and its environment with the same precedence
 # (kind defaults < project variables < the agent's own). Terminals also get a read-only root

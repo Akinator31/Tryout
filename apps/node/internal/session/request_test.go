@@ -1,17 +1,41 @@
-package main
+package session
 
 import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/Akinator31/Tryout/apps/node/internal/spec"
 )
+
+// testPolicy returns the policy of a node with runc and runsc installed.
+func testPolicy(profile string, allowRunc bool) Policy {
+	return Policy{
+		Profile:        profile,
+		AllowRunc:      allowRunc,
+		DefaultRuntime: "runsc",
+		Runtimes:       map[string]bool{"runc": true, "runsc": true},
+		MaxAge:         3600e9,
+	}
+}
+
+// validReq returns a minimal valid request of the given kind.
+func validReq(kind Kind) Request {
+	return Request{ID: strings.Repeat("a", 26), Project: "p", Image: "img", Kind: kind, Port: 3000}
+}
+
+// envMap returns the session's container environment as a map.
+func envMap(r Request) map[string]string {
+	m := map[string]string{}
+	for _, kv := range containerEnv(r) {
+		k, v, _ := strings.Cut(kv, "=")
+		m[k] = v
+	}
+	return m
+}
 
 // TestValidateAppliesDefaults checks the default runtime, limits and lifetime.
 func TestValidateAppliesDefaults(t *testing.T) {
-	r := validReq("desktop")
-	if err := r.validate(testAgent("strict", false)); err != nil {
+	r := validReq(Desktop)
+	if err := r.validate(testPolicy("strict", false)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -25,39 +49,39 @@ func TestValidateAppliesDefaults(t *testing.T) {
 // daemon gives its other runtimes (Docker lists runc as
 // io.containerd.runc.v2 too).
 func TestValidateRuntimePolicy(t *testing.T) {
-	r := validReq("terminal")
+	r := validReq(Terminal)
 	r.Runtime = "runc"
-	if err := r.validate(testAgent("strict", false)); err == nil {
+	if err := r.validate(testPolicy("strict", false)); err == nil {
 		t.Error("runc must be refused by profile strict without ALLOW_RUNC")
 	}
 
 	r.Runtime = "runc"
-	if err := r.validate(testAgent("strict", true)); err != nil {
+	if err := r.validate(testPolicy("strict", true)); err != nil {
 		t.Errorf("runc must be allowed with ALLOW_RUNC: %v", err)
 	}
 
 	for _, profile := range []string{"strict", "single-host"} {
 		for _, rt := range []string{"runc", "io.containerd.runc.v2", "kata"} {
-			a := testAgent(profile, false)
-			a.runtimes[rt] = true
-			r := validReq("terminal")
+			p := testPolicy(profile, false)
+			p.Runtimes[rt] = true
+			r := validReq(Terminal)
 			r.Runtime = rt
 
-			if err := r.validate(a); err == nil {
+			if err := r.validate(p); err == nil {
 				t.Errorf("profile %s must refuse runtime %s without ALLOW_RUNC", profile, rt)
 			}
 
-			a.cfg.allowRunc = true
-			if err := r.validate(a); err != nil {
+			p.AllowRunc = true
+			if err := r.validate(p); err != nil {
 				t.Errorf("profile %s must allow runtime %s with ALLOW_RUNC: %v", profile, rt, err)
 			}
 		}
 	}
 
-	r = validReq("terminal")
+	r = validReq(Terminal)
 	r.Runtime = "io.containerd.runc.v2"
-	dev := testAgent("dev", false)
-	dev.runtimes["io.containerd.runc.v2"] = true
+	dev := testPolicy("dev", false)
+	dev.Runtimes["io.containerd.runc.v2"] = true
 	if err := r.validate(dev); err != nil {
 		t.Errorf("profile dev allows any installed runtime: %v", err)
 	}
@@ -66,27 +90,27 @@ func TestValidateRuntimePolicy(t *testing.T) {
 // TestValidateRejectsBadRequests checks the fields the hardening depends on
 // and the reserved environment variables.
 func TestValidateRejectsBadRequests(t *testing.T) {
-	for _, bad := range []func(*sessionReq){
-		func(r *sessionReq) { r.ID = "../etc" },
-		func(r *sessionReq) { r.Kind = "vm" },
-		func(r *sessionReq) { r.Port = 0 },
-		func(r *sessionReq) { r.Env = map[string]string{"SUBFOLDER": "/"} },
-		func(r *sessionReq) { r.Env = map[string]string{"SELKIES_FILE_TRANSFERS": "upload,download"} },
-		func(r *sessionReq) { r.Env = map[string]string{"TRYOUT_BASE_PATH": "/"} },
+	for _, bad := range []func(*Request){
+		func(r *Request) { r.ID = "../etc" },
+		func(r *Request) { r.Kind = "vm" },
+		func(r *Request) { r.Port = 0 },
+		func(r *Request) { r.Env = map[string]string{"SUBFOLDER": "/"} },
+		func(r *Request) { r.Env = map[string]string{"SELKIES_FILE_TRANSFERS": "upload,download"} },
+		func(r *Request) { r.Env = map[string]string{"TRYOUT_BASE_PATH": "/"} },
 	} {
-		r := validReq("desktop")
+		r := validReq(Desktop)
 		bad(&r)
 
-		if err := r.validate(testAgent("dev", false)); err == nil {
+		if err := r.validate(testPolicy("dev", false)); err == nil {
 			t.Errorf("expected rejection for %+v", r)
 		}
 	}
 }
 
-// TestSessionEnvPrecedence checks the merge order: kind defaults, then
+// TestContainerEnvPrecedence checks the merge order: kind defaults, then
 // project env, then locked env.
-func TestSessionEnvPrecedence(t *testing.T) {
-	r := validReq("desktop")
+func TestContainerEnvPrecedence(t *testing.T) {
+	r := validReq(Desktop)
 	r.Env = map[string]string{"SELKIES_MANUAL_WIDTH": "1920", "APP_MODE": "demo"}
 	m := envMap(r)
 
@@ -100,7 +124,7 @@ func TestSessionEnvPrecedence(t *testing.T) {
 		t.Errorf("locked env missing: %v", m)
 	}
 
-	m = envMap(validReq("terminal"))
+	m = envMap(validReq(Terminal))
 	if m["HOME"] != "/tmp" || m["TRYOUT_BASE_PATH"] != "/s/"+strings.Repeat("a", 26) {
 		t.Errorf("terminal env: %v", m)
 	}
@@ -109,13 +133,13 @@ func TestSessionEnvPrecedence(t *testing.T) {
 	}
 }
 
-// TestParseSessionReqUsesSchema checks that the body goes through the shared
-// JSON Schema (an unknown field is refused) before the node policy.
-func TestParseSessionReqUsesSchema(t *testing.T) {
-	a := testAgent("dev", false)
+// TestParseUsesSchema checks that the body goes through the shared JSON
+// Schema (an unknown field is refused) before the node policy.
+func TestParseUsesSchema(t *testing.T) {
+	p := testPolicy("dev", false)
 	ok := `{"id":"` + strings.Repeat("a", 26) + `","project":"p","image":"img","kind":"terminal","port":7681,"max_age_s":60}`
 
-	r, err := a.parseSessionReq([]byte(ok))
+	r, err := Parse([]byte(ok), p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +148,7 @@ func TestParseSessionReqUsesSchema(t *testing.T) {
 	}
 
 	unknown := strings.Replace(ok, `"port":7681`, `"port":7681,"privileged":true`, 1)
-	if _, err := a.parseSessionReq([]byte(unknown)); err == nil || !strings.Contains(err.Error(), "/privileged") {
+	if _, err := Parse([]byte(unknown), p); err == nil || !strings.Contains(err.Error(), "/privileged") {
 		t.Errorf("unknown field must be rejected by the schema: %v", err)
 	}
 }
@@ -133,14 +157,14 @@ func TestParseSessionReqUsesSchema(t *testing.T) {
 // names are exactly what the agent locks, or the control plane would accept
 // a configuration the agent then refuses (or the reverse).
 func TestSchemaReservedEnvMatchesLockedEnv(t *testing.T) {
-	names, prefixes := spec.ReservedEnv()
+	names, prefixes := schemaReservedEnv()
 	if !slices.Equal(prefixes, []string{"TRYOUT_"}) {
 		t.Errorf("reserved prefixes: %v", prefixes)
 	}
 
 	want := map[string]bool{}
-	for _, kind := range []sessionKind{kindTerminal, kindDesktop} {
-		for k := range lockedEnv(sessionReq{Kind: kind}) {
+	for _, kind := range []Kind{Terminal, Desktop} {
+		for k := range lockedEnv(Request{Kind: kind}) {
 			if !strings.HasPrefix(k, "TRYOUT_") {
 				want[k] = true
 			}

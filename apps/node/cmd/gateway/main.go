@@ -3,12 +3,8 @@
 // Public:  /s/<session-id>/...  -> session container (HTTP + WebSocket)
 // Admin:   PUT /routes on a unix socket (bearer token, agent only)
 //
-// The session id is a 130-bit random capability carried in every request,
-// so no cookies are needed (third-party cookies are blocked in iframes).
-//
-// Files of this package: main.go (wiring), routes.go (the route table, the
-// public and admin handlers), proxy.go (the per-session reverse proxy and
-// the response hardening).
+// This file reads the environment and serves the two listeners; the gateway
+// itself is package internal/gateway.
 package main
 
 import (
@@ -19,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Akinator31/Tryout/apps/node/internal/gateway"
 	"github.com/Akinator31/Tryout/apps/node/internal/logging"
 	"github.com/Akinator31/Tryout/apps/node/internal/version"
 )
@@ -26,14 +23,12 @@ import (
 func main() {
 	slog.SetDefault(logging.New(os.Stdout))
 
-	g := &gateway{
-		token:          os.Getenv("GATEWAY_TOKEN"),
-		frameAncestors: env("FRAME_ANCESTORS", "'self'"),
-		routes:         map[string]entry{},
-	}
-	if g.token == "" {
+	token := os.Getenv("GATEWAY_TOKEN")
+	if token == "" {
 		fatal("GATEWAY_TOKEN required")
 	}
+	frameAncestors := env("FRAME_ANCESTORS", "'self'")
+	g := gateway.New(token, frameAncestors)
 
 	adminPath := strings.TrimPrefix(env("ADMIN_SOCKET", "unix:///run/tryout/gateway.sock"), "unix://")
 	ln, err := listenAdminSocket(adminPath)
@@ -44,13 +39,13 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              env("PUBLIC_LISTEN", ":8080"),
-		Handler:           http.HandlerFunc(g.public),
+		Handler:           g.Public(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 		ErrorLog:          logging.HTTPErrorLog(slog.Default()),
 		// no Read/WriteTimeout: WebSocket streams live for the whole session
 	}
-	slog.Info("gateway listening", "public", srv.Addr, "version", version.Version, "frame_ancestors", g.frameAncestors)
+	slog.Info("gateway listening", "public", srv.Addr, "version", version.Version, "frame_ancestors", frameAncestors)
 	fatal("public server", "err", srv.ListenAndServe())
 }
 
@@ -71,8 +66,8 @@ func listenAdminSocket(path string) (net.Listener, error) {
 }
 
 // serveAdmin serves the admin API on ln; the gateway exits if it stops.
-func serveAdmin(g *gateway, ln net.Listener) {
-	srv := &http.Server{Handler: g.admin(), ReadHeaderTimeout: 10 * time.Second}
+func serveAdmin(g *gateway.Gateway, ln net.Listener) {
+	srv := &http.Server{Handler: g.Admin(), ReadHeaderTimeout: 10 * time.Second}
 	fatal("admin server", "err", srv.Serve(ln))
 }
 

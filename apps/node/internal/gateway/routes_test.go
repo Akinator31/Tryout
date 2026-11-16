@@ -1,4 +1,4 @@
-package main
+package gateway
 
 import (
 	"io"
@@ -6,15 +6,17 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/Akinator31/Tryout/apps/node/internal/routes"
 )
 
 // newTestGateway returns a gateway with a single session routed to upstream.
-func newTestGateway(t *testing.T, upstream *httptest.Server, strip bool) (*gateway, string) {
+func newTestGateway(t *testing.T, upstream *httptest.Server, strip bool) (*Gateway, string) {
 	t.Helper()
 
-	g := &gateway{token: "secret", frameAncestors: "https://portfolio.example", routes: map[string]entry{}}
+	g := New("secret", "https://portfolio.example")
 	id := strings.Repeat("a", 26)
-	p, err := g.newProxy(route{ID: id, Target: upstream.URL, StripPrefix: strip})
+	p, err := g.newProxy(routes.Route{ID: id, Target: upstream.URL, StripPrefix: strip})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +84,7 @@ func TestPublicRejectsUnknownAndMalformed(t *testing.T) {
 // TestAdminRequiresToken checks that PUT /routes needs the bearer token and
 // applies the route table.
 func TestAdminRequiresToken(t *testing.T) {
-	g := &gateway{token: "secret", routes: map[string]entry{}}
+	g := New("secret", "")
 	body := `[{"id":"` + strings.Repeat("c", 26) + `","target":"http://x:1"}]`
 
 	for token, want := range map[string]int{"": 401, "wrong": 401, "secret": 204} {
@@ -90,7 +92,7 @@ func TestAdminRequiresToken(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+token)
 		rec := httptest.NewRecorder()
 
-		g.admin().ServeHTTP(rec, req)
+		g.Admin().ServeHTTP(rec, req)
 
 		if rec.Code != want {
 			t.Errorf("token %q: got %d want %d", token, rec.Code, want)
@@ -99,5 +101,11 @@ func TestAdminRequiresToken(t *testing.T) {
 
 	if len(g.routes) != 1 {
 		t.Errorf("route table not applied: %d entries", len(g.routes))
+	}
+
+	rec := httptest.NewRecorder()
+	New("", "").Admin().ServeHTTP(rec, httptest.NewRequest("PUT", "/routes", strings.NewReader(body)))
+	if rec.Code != 401 {
+		t.Errorf("a gateway without a token must refuse every table, got %d", rec.Code)
 	}
 }

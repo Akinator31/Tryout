@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 src=schema/tryout.schema.json
 copies=(
-  apps/node/internal/spec/tryout.schema.json
+  apps/node/internal/session/tryout.schema.json
   apps/control-plane/src/config/tryout.schema.json
   docs/schema/v1/tryout.schema.json
 )

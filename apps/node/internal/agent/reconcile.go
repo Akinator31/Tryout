@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/Akinator31/Tryout/apps/node/internal/dockerapi"
 	"github.com/Akinator31/Tryout/apps/node/internal/logging"
+	"github.com/Akinator31/Tryout/apps/node/internal/session"
 )
 
 // reconcileInterval is the period of the reconcile loop.
@@ -17,8 +18,8 @@ const reconcileInterval = 10 * time.Second
 // create in progress, before the reconcile loop reaps it.
 const stuckCreatedAfter = time.Minute
 
-// reconcileForever runs the reconcile loop for the agent's whole life.
-func (a *agent) reconcileForever(ctx context.Context) {
+// ReconcileForever runs the reconcile loop for the agent's whole life.
+func (a *Agent) ReconcileForever(ctx context.Context) {
 	for {
 		a.reconcile(ctx)
 		time.Sleep(reconcileInterval)
@@ -30,10 +31,10 @@ func (a *agent) reconcileForever(ctx context.Context) {
 // and stuck sessions (see shouldReap), removes orphan networks, attaches a recreated gateway again
 // to running sessions and pushes the route table. Sessions being created or
 // removed through the API are left alone.
-func (a *agent) reconcile(ctx context.Context) {
+func (a *Agent) reconcile(ctx context.Context) {
 	busy := a.busyIDs()
 
-	cs, err := a.docker.ContainerList(ctx, labelSession)
+	cs, err := a.docker.ContainerList(ctx, session.LabelSession)
 	if err != nil {
 		slog.Warn("reconcile list", "err", err)
 		return
@@ -47,12 +48,12 @@ func (a *agent) reconcile(ctx context.Context) {
 
 // reapSessions destroys the sessions shouldReap selects. It returns the ids
 // of the sessions still alive (busy ones included) and of those running.
-func (a *agent) reapSessions(ctx context.Context, cs []dockerapi.ContainerSummary, busy map[string]bool) (live map[string]bool, running []string) {
+func (a *Agent) reapSessions(ctx context.Context, cs []dockerapi.ContainerSummary, busy map[string]bool) (live map[string]bool, running []string) {
 	now := time.Now()
 	live = map[string]bool{}
 
 	for _, c := range cs {
-		id := c.Labels[labelSession]
+		id := c.Labels[session.LabelSession]
 		if busy[id] {
 			live[id] = true
 			continue
@@ -85,8 +86,8 @@ func (a *agent) reapSessions(ctx context.Context, cs []dockerapi.ContainerSummar
 // would hold a slot until it expires. The age, read from the agent's own
 // label, also protects a create that starts after the pass's busy snapshot.
 func shouldReap(c dockerapi.ContainerSummary, now time.Time) string {
-	created, _ := strconv.ParseInt(c.Labels[labelCreated], 10, 64)
-	expires, _ := strconv.ParseInt(c.Labels[labelExpires], 10, 64)
+	created, _ := strconv.ParseInt(c.Labels[session.LabelCreated], 10, 64)
+	expires, _ := strconv.ParseInt(c.Labels[session.LabelExpires], 10, 64)
 
 	switch {
 	case expires < now.Unix():
@@ -102,14 +103,14 @@ func shouldReap(c dockerapi.ContainerSummary, now time.Time) string {
 // removeOrphanNetworks removes the session networks left without a live
 // session container, such as after a crash between network and container
 // creation.
-func (a *agent) removeOrphanNetworks(ctx context.Context, live, busy map[string]bool) {
-	nets, err := a.docker.NetworkList(ctx, labelSession)
+func (a *Agent) removeOrphanNetworks(ctx context.Context, live, busy map[string]bool) {
+	nets, err := a.docker.NetworkList(ctx, session.LabelSession)
 	if err != nil {
 		return
 	}
 
 	for _, n := range nets {
-		if id := n.Labels[labelSession]; !live[id] && !busy[id] {
+		if id := n.Labels[session.LabelSession]; !live[id] && !busy[id] {
 			slog.Info("removing orphan network", "id", logging.ID(id))
 			a.destroy(ctx, id)
 		}
@@ -122,19 +123,19 @@ func (a *agent) removeOrphanNetworks(ctx context.Context, live, busy map[string]
 // connected it to, which would leave running sessions unreachable.
 //
 // Ids come from labels, not from the agent, so an invalid one is skipped.
-func (a *agent) reattachGateway(ctx context.Context, running []string) {
-	gw, err := a.docker.ContainerInspect(ctx, a.cfg.gatewayName)
+func (a *Agent) reattachGateway(ctx context.Context, running []string) {
+	gw, err := a.docker.ContainerInspect(ctx, a.gatewayName)
 	if err != nil {
-		slog.Warn("inspect gateway", "name", a.cfg.gatewayName, "err", err)
+		slog.Warn("inspect gateway", "name", a.gatewayName, "err", err)
 		return
 	}
 
 	for _, id := range running {
-		name := namePrefix + id
+		name := session.Name(id)
 		if _, ok := gw.NetworkSettings.Networks[name]; ok {
 			continue
 		}
-		if !sessionIDRe.MatchString(id) {
+		if !session.ValidID(id) {
 			slog.Warn("reattach gateway: invalid session label", "id", logging.ID(id))
 			continue
 		}
@@ -147,7 +148,7 @@ func (a *agent) reattachGateway(ctx context.Context, running []string) {
 // removed through the API. The check and the connect happen under the lock
 // remove takes, so a reattachment never lands between destroy's disconnect
 // and its network removal.
-func (a *agent) connectGatewayUnlessBusy(ctx context.Context, id, name string) {
+func (a *Agent) connectGatewayUnlessBusy(ctx context.Context, id, name string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -155,7 +156,7 @@ func (a *agent) connectGatewayUnlessBusy(ctx context.Context, id, name string) {
 		return
 	}
 
-	if err := a.docker.NetworkConnect(ctx, name, a.cfg.gatewayName); err != nil {
+	if err := a.docker.NetworkConnect(ctx, name, a.gatewayName); err != nil {
 		slog.Warn("reattach gateway", "id", logging.ID(id), "err", err)
 		return
 	}

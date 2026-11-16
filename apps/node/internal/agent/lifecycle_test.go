@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"context"
@@ -20,7 +20,8 @@ func TestEnsureImageSendsRegistryAuth(t *testing.T) {
 	for ref, wantUser := range map[string]string{"ghcr.io/owner/app:edge": "bot", "quay.io/other/app:1": ""} {
 		t.Run(ref, func(t *testing.T) {
 			pulls := &fakePulls{}
-			a := &agent{docker: fakeDockerClient(t, pulls.serve), arch: "amd64", registry: store}
+			a := New(Config{}, fakeDockerClient(t, pulls.serve), store, &fakeGateway{})
+			a.arch = "amd64"
 
 			if err := a.ensureImage(context.Background(), ref); err != nil {
 				t.Fatalf("%s: %v", ref, err)

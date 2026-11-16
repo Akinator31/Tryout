@@ -148,7 +148,7 @@ What it does:
 - Weighs about 6 KB of script and style (gzip) and 60 KB of fonts; CI fails the build above
   25 KB and 100 KB.
 
-### Agent — `apps/node/cmd/agent`
+### Agent — `apps/node/internal/agent`, `internal/session`
 
 - Serves its private API over **mutual TLS 1.3** only: the control plane presents a client
   certificate from the deployment's private CA, made with `tryout-certs`
@@ -177,7 +177,7 @@ What it does:
   503 when its Docker daemon does not answer) and Prometheus metrics on `/metrics`, both on the
   same mutual TLS API: the node opens no other port.
 
-### Gateway — `apps/node/cmd/gateway`
+### Gateway — `apps/node/internal/gateway`
 
 - HTTP and WebSocket reverse proxy: `/s/<id>/…` → the session's container.
 - **Has no Docker socket**: if it is compromised, the attacker does not control Docker.
@@ -420,10 +420,22 @@ apps/control-plane/   control plane (TypeScript, Node ≥ 24, Postgres via node-
 apps/embed/           embed page (TypeScript, no UI framework, built by Vite)
 apps/admin/           admin interface (React, Chakra UI, built by Vite)
 packages/tokens/      design tokens and bundled IBM Plex fonts, shared by the UIs
-apps/node/            agent + gateway (Go), one binary each, one image
+apps/node/            agent + gateway + certificate tool (Go), one binary each, one image
 deploy/               dev compose file and its configuration; node/ and control-plane/: production examples
 schema/               JSON Schema of the configuration and the agent API, shared fixtures
 examples/             sample project images
 scripts/              end-to-end tests, node feasibility script
 docs/                 this documentation (Zensical)
 ```
+
+The Go module in `apps/node` keeps its commands thin: `cmd/agent`, `cmd/gateway` and `cmd/certs`
+read their environment or flags and wire the packages of `internal/`:
+
+| Package | Holds |
+|---|---|
+| `session` | The node's security policy, with no Docker calls: a session request checked against the schema and the node profile, then turned into the hardened container, its environment and its labels |
+| `agent` | Everything that talks to Docker: the profile check, the session lifecycle, the reconcile loop, the private API and its metrics |
+| `gateway` | The public reverse proxy, its route table and the response hardening |
+| `routes` | The contract between the agent and the gateway: the route table and its push over the unix socket |
+| `dockerapi` | The minimal Docker Engine API client |
+| `pki`, `registryauth`, `logging`, `metrics`, `version` | Certificates, registry credentials, JSON logs, Prometheus text format, build version |

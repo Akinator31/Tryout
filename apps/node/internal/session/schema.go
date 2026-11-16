@@ -1,11 +1,4 @@
-// Package spec validates agent API requests against the Tryout JSON Schema.
-//
-// tryout.schema.json is a copy of schema/tryout.schema.json at the
-// repository root (go:embed cannot reach outside the module); keep it in sync
-// with scripts/sync-schema.sh. The control plane validates its configuration
-// against the same file, so a project accepted there has the shape the agent
-// expects here.
-package spec
+package session
 
 import (
 	"bytes"
@@ -25,7 +18,11 @@ import (
 // printer renders the library's error messages in English.
 var printer = message.NewPrinter(language.English)
 
-// schemaJSON is the embedded copy of schema/tryout.schema.json.
+// schemaJSON is the embedded copy of schema/tryout.schema.json at the
+// repository root (go:embed cannot reach outside the module); keep it in sync
+// with scripts/sync-schema.sh. The control plane validates its configuration
+// against the same file, so a project accepted there has the shape the agent
+// expects here.
 //
 //go:embed tryout.schema.json
 var schemaJSON []byte
@@ -52,10 +49,10 @@ func mustCompile(ref string) *jsonschema.Schema {
 	return s
 }
 
-// ValidateSessionRequest checks the raw JSON body of POST /v1/sessions.
+// validateSchema checks the raw JSON body of POST /v1/sessions.
 // Unknown fields are rejected: a field this agent does not know might be a
 // setting it would otherwise silently ignore.
-func ValidateSessionRequest(body []byte) error {
+func validateSchema(body []byte) error {
 	inst, err := jsonschema.UnmarshalJSON(bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("invalid JSON: %w", err)
@@ -152,9 +149,10 @@ func (c *errorCollector) messages() []string {
 	return out
 }
 
-// ReservedEnv returns the literal names and prefixes of $defs/reserved_env,
-// so that the agent can check them against the environment it locks.
-func ReservedEnv() (names []string, prefixes []string) {
+// schemaReservedEnv returns the literal names and prefixes of
+// $defs/reserved_env, so that the tests can check them against the
+// environment the agent locks.
+func schemaReservedEnv() (names []string, prefixes []string) {
 	var doc struct {
 		Defs struct {
 			Reserved struct {

@@ -7,10 +7,14 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Akinator31/Tryout/apps/node/internal/agent"
+	"github.com/Akinator31/Tryout/apps/node/internal/dockerapi"
 	"github.com/Akinator31/Tryout/apps/node/internal/pki"
 )
 
@@ -50,9 +54,15 @@ func TestAPIOverMutualTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := testAgent("dev", false)
-	a.docker = fakeDockerClient(t, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("[]")) })
-	ts := httptest.NewUnstartedServer(a.apiHandler())
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("[]")) }))
+	defer daemon.Close()
+	docker, err := dockerapi.New("tcp://" + daemon.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := agent.New(agent.Config{Profile: "dev"}, docker, nil, nil)
+
+	ts := httptest.NewUnstartedServer(a.Handler())
 	ts.TLS = cfg
 	ts.Config.ErrorLog = log.New(io.Discard, "", 0)
 	ts.StartTLS()
@@ -77,4 +87,15 @@ func TestAPIOverMutualTLS(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status %d", resp.StatusCode)
 	}
+}
+
+// writeTestFile writes b to dir/name and returns its path.
+func writeTestFile(t *testing.T, dir, name string, b []byte) string {
+	t.Helper()
+
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
 }

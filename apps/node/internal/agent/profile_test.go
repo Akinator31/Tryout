@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"context"
@@ -57,11 +57,8 @@ func TestCheckProfileDefaultRuntime(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		a := &agent{
-			cfg:    config{profile: c.profile, defaultRuntime: c.def, allowRunc: c.allowRunc},
-			docker: fakeDocker(t, c.installed...),
-		}
-		err := a.checkProfile(context.Background())
+		a := New(Config{Profile: c.profile, DefaultRuntime: c.def, AllowRunc: c.allowRunc}, fakeDocker(t, c.installed...), nil, &fakeGateway{})
+		err := a.CheckProfile(context.Background())
 
 		name := fmt.Sprintf("profile %s, DEFAULT_RUNTIME %s, ALLOW_RUNC %v, runtimes %v", c.profile, c.def, c.allowRunc, c.installed)
 		switch {

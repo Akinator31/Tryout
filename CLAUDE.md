@@ -80,7 +80,9 @@ apps/embed/           embed page: framework-free TypeScript, Vite build served b
 apps/admin/           admin UI: React + Chakra v3 (theme from packages/tokens), Vite build served on admin_listen
                       under /admin/ (control plane src/admin/ui.ts, per-answer CSP nonce for Emotion)
 packages/tokens/      design tokens (in step with the Figma variables) + IBM Plex subsets (scripts/subset-fonts.sh)
-apps/node/            Go: cmd/agent, cmd/gateway, cmd/certs, internal/{dockerapi,pki,spec}; one image
+apps/node/            Go, one image: thin cmd/{agent,gateway,certs}; internal/session (security policy:
+                      request -> hardened container, pure), agent (Docker side), gateway, routes
+                      (agent<->gateway contract), dockerapi, pki, registryauth, logging, metrics
 deploy/               compose.dev.yaml, tryout.dev.yaml, .env.example (dev); node/, control-plane/ (production
                       examples from published images, docs/deployment.md)
 schema/               tryout.schema.json (source of truth) + testdata/ fixtures shared by TS and Go

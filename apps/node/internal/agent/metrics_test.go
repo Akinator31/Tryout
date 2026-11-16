@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"encoding/json"
@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Akinator31/Tryout/apps/node/internal/session"
 )
 
 // sessionsDocker returns a fake Docker client listing one session container
@@ -24,16 +26,16 @@ func sessionsDocker(t *testing.T, sessions ...string) http.HandlerFunc {
 		out := []any{}
 		for i, s := range sessions {
 			project, state, _ := strings.Cut(s, "/")
-			out = append(out, map[string]any{"Id": fmt.Sprint(i), "State": state, "Labels": map[string]string{labelSession: fmt.Sprint(i), labelProject: project}})
+			out = append(out, map[string]any{"Id": fmt.Sprint(i), "State": state, "Labels": map[string]string{session.LabelSession: fmt.Sprint(i), session.LabelProject: project}})
 		}
 		_ = json.NewEncoder(w).Encode(out)
 	}
 }
 
 // serveAPI sends a GET to the agent's API and returns the recorded response.
-func serveAPI(a *agent, path string) *httptest.ResponseRecorder {
+func serveAPI(a *Agent, path string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	a.apiHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	a.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 	return rec
 }
 
@@ -42,7 +44,7 @@ func serveAPI(a *agent, path string) *httptest.ResponseRecorder {
 func TestHealthz(t *testing.T) {
 	a := testAgent("strict", false)
 	a.arch = "arm64"
-	a.cfg.maxSessions = 4
+	a.maxSessions = 4
 	a.docker = fakeDockerClient(t, sessionsDocker(t, "hello/running", "hello/created"))
 
 	rec := serveAPI(a, "/healthz")
@@ -73,7 +75,7 @@ func TestHealthz(t *testing.T) {
 func TestMetrics(t *testing.T) {
 	a := testAgent("dev", false)
 	a.arch = "amd64"
-	a.cfg.maxSessions = 10
+	a.maxSessions = 10
 	a.docker = fakeDockerClient(t, sessionsDocker(t, "b/running", "a/running", "b/running", "a/created"))
 
 	a.metrics.observeStart("a", 3*time.Second, nil)
