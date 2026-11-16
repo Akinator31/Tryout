@@ -130,6 +130,8 @@ Done. Checked on the dev stack from an empty database, in a browser:
 | KVM virtual machine node (`strict`) for desktop sessions | | |
 | Docker endpoint over SSH or TLS | `unix://` or `tcp://` only | |
 | Subdomain routing in the gateway | Path routing only | Needs wildcard DNS and TLS; see [Public exposure](exposure.md) |
+| Readiness probe that waits for the desktop backend | A probe that only waits for the web server | Under gVisor, Selkies answers its WebSocket about a minute after nginx, and the visitor sees "WebSocket disconnected" until then |
+| Minimal desktop example project | No desktop example image | An image with only what its program needs, checked by `scripts/check-image.sh` in CI like `cli-hello` |
 
 ## Done
 
