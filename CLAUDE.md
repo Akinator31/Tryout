@@ -47,6 +47,8 @@ Key facts that are easy to forget:
   - `dev`: anything goes, local only;
   - `strict`: dedicated machine or VM, gVisor required;
   - `single-host`: shared machine, which requires a dedicated rootless daemon, cgroup v2 and gVisor.
+    gVisor does not run rootless yet (google/gvisor#12575), so `docs/single-host.md` uses runc
+    with `ALLOW_RUNC=true`, plus an nftables egress filter on the daemon's user and subuids.
   
   The agent refuses to start when a profile is not met. Outside `dev`, the runtime rule is an
   allowlist: only the runtime named `runsc`, as `DEFAULT_RUNTIME` and per session, because Docker
@@ -89,7 +91,8 @@ apps/node/            Go, one image: thin cmd/{agent,gateway,certs}; internal/se
                       request -> hardened container, pure), agent (Docker side), gateway, routes
                       (agent<->gateway contract), dockerapi, pki, registryauth, logging, metrics
 deploy/               compose.dev.yaml, tryout.dev.yaml, .env.example (dev); node/, control-plane/ (production
-                      examples from published images, docs/deployment.md)
+                      examples from published images, docs/deployment.md; node/single-host/: nft egress
+                      filter, its unit, cgroup delegation, docs/single-host.md)
 schema/               tryout.schema.json (source of truth) + testdata/ fixtures shared by TS and Go
 examples/cli-hello/   sample terminal project (its program only; the agent's ttyd serves it)
 scripts/              e2e/ (cli, metrics, admin, queue, sse, mtls, limits, reattach .ts; deploy.sh),
@@ -139,7 +142,9 @@ vault with the original stack study (in French) and its sources.
 
   - M5 Hosting options, in progress: Go code split into thin `cmd/*` and `internal/` packages;
     terminals served by the agent's ttyd (`apps/node/ttyd`, `internal/session/ttyd.go`); both
-    released as `v0.3.0`.
+    released as `v0.3.0`. Then isolated session bridges and the refusal of ignored resource
+    limits; the single-host guide (`docs/single-host.md`, `deploy/node/single-host/`, CI job
+    `e2e-single-host` running `NODE_USER=tryout scripts/e2e/deploy.sh`).
 
   Next: the rest of M5 (`docs/roadmap.md`).
 - CI publishes `tryout-ttyd` (first), `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
@@ -199,6 +204,7 @@ node scripts/e2e/cli.ts && node scripts/e2e/metrics.ts && node scripts/e2e/admin
 docker compose -f deploy/compose.dev.yaml down -v
 # Production layout (deploy/node + deploy/control-plane); defaults to strict + gVisor.
 # Docker Desktop: NODE_PROFILE=dev HOST_ADDR=host.docker.internal BIND_ADDR=127.0.0.1 CHOWN_CMD=: DOCKER_GID=0
+# Single-host: NODE_USER=tryout, a user set up as in docs/single-host.md (needs sudo; CI only)
 scripts/e2e/deploy.sh
 ```
 

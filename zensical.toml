@@ -17,6 +17,7 @@ nav = [
   ] },
   { "Guides" = [
     "deployment.md",
+    "single-host.md",
     "configuration.md",
     "project-images.md",
     "packaging.md",

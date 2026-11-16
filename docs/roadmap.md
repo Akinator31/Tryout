@@ -126,8 +126,8 @@ Done. Checked on the dev stack from an empty database, in a browser:
 
 | Item | Replaces | Notes |
 |---|---|---|
-| Step-by-step `single-host` guide: dedicated rootless daemon and `DOCKER-USER` firewall | | |
 | KVM virtual machine node (`strict`) for desktop sessions | | |
+| gVisor in `single-host` | runc with `ALLOW_RUNC=true` | Waits for gVisor to run under a rootless daemon ([google/gvisor#12575](https://github.com/google/gvisor/issues/12575)) |
 | Docker endpoint over SSH or TLS | `unix://` or `tcp://` only | |
 | Subdomain routing in the gateway | Path routing only | Needs wildcard DNS and TLS; see [Public exposure](exposure.md) |
 | Readiness probe that waits for the desktop backend | A probe that only waits for the web server | Under gVisor, Selkies answers its WebSocket about a minute after nginx, and the visitor sees "WebSocket disconnected" until then |
@@ -235,3 +235,12 @@ Done. Checked on the dev stack from an empty database, in a browser:
   image that each node release pins: project images hold their program alone; a terminal with a
   `port` keeps serving its own page, so v0.2 configurations work unchanged. Nodes need Docker Engine 28. See
   [Architecture](architecture.md#terminals-served-by-the-agent). Released as `v0.3.0`.
+- **M5:** session networks get a bridge with no address (gateway mode `isolated`), so a
+  session cannot reach host services listening on all addresses; outside `dev`, the agent
+  refuses a daemon that ignores memory, CPU or pids limits. See
+  [Security](security.md#protections-in-place).
+- **M5:** step-by-step `single-host` guide: a dedicated user's rootless daemon next to the root
+  one, cgroup delegation, and an nftables egress filter for that user and its subordinate uids.
+  Sessions use runc until gVisor runs rootless
+  ([google/gvisor#12575](https://github.com/google/gvisor/issues/12575)). CI follows the guide
+  and runs the end-to-end tests against it. See [Single-host node](single-host.md).

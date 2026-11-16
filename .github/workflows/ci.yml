@@ -153,7 +153,7 @@ jobs:
     # so each release pins the ttyd its terminals run.
     name: Publish tryout-ttyd (amd64 + arm64)
     if: github.event_name == 'push'
-    needs: [node, control-plane, embed, admin, shellcheck, e2e, e2e-deploy]
+    needs: [node, control-plane, embed, admin, shellcheck, e2e, e2e-deploy, e2e-single-host]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -219,7 +219,7 @@ jobs:
     # See docs/published-images.md.
     name: Publish ${{ matrix.name }} (amd64 + arm64)
     if: github.event_name == 'push'
-    needs: [node, control-plane, embed, admin, shellcheck, e2e, e2e-deploy, publish-ttyd]
+    needs: [node, control-plane, embed, admin, shellcheck, e2e, e2e-deploy, e2e-single-host, publish-ttyd]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -378,5 +378,68 @@ jobs:
           sudo /usr/local/bin/runsc install
           sudo systemctl restart docker
           docker info --format '{{json .Runtimes}}' | grep -q runsc
+      - name: Deploy and test
+        run: scripts/e2e/deploy.sh
+
+  e2e-single-host:
+    # docs/single-host.md on a fresh runner: a dedicated user's rootless daemon next to the
+    # root one, its cgroup controllers delegated, the egress filter loaded, then the
+    # production layout with the node on that daemon (profile single-host, runc).
+    name: End-to-end (production layout, single-host + rootless)
+    runs-on: ubuntu-latest
+    needs: [node, control-plane]
+    env:
+      NODE_USER: tryout
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Install the rootless extras
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q docker-ce-rootless-extras uidmap slirp4netns dbus-user-session
+      - name: Create the user, delegate its cgroup controllers, enable lingering
+        run: |
+          sudo adduser --disabled-password --comment "" "$NODE_USER"
+          grep "^$NODE_USER:" /etc/subuid /etc/subgid
+          uid=$(id -u "$NODE_USER")
+          sudo install -D -m 644 deploy/node/single-host/delegate.conf \
+            "/etc/systemd/system/user@$uid.service.d/delegate.conf"
+          sudo systemctl daemon-reload
+          sudo loginctl enable-linger "$NODE_USER"
+          until [ -S "/run/user/$uid/bus" ]; do sleep 1; done
+      - name: Install the rootless daemon
+        run: |
+          uid=$(id -u "$NODE_USER")
+          sudo -u "$NODE_USER" -H env XDG_RUNTIME_DIR="/run/user/$uid" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+            dockerd-rootless-setuptool.sh install
+          sudo -u "$NODE_USER" -H docker --context rootless info | tee info.txt
+          grep -q "name=rootless" info.txt
+      - name: Load the egress filter
+        run: |
+          uid=$(id -u "$NODE_USER")
+          IFS=: read -r _ start count < <(grep "^$NODE_USER:" /etc/subuid)
+          sudo install -d /etc/tryout
+          sed "s|^define tryout_uids = .*|define tryout_uids = { $uid, $start-$((start + count - 1)) }|" \
+            deploy/node/single-host/tryout-egress.nft | sudo tee /etc/tryout/tryout-egress.nft >/dev/null
+          sudo install -m 644 deploy/node/single-host/tryout-egress.service /etc/systemd/system/
+          sudo systemctl enable --now tryout-egress.service
+          sudo nft list table inet tryout_egress
+      - name: Check the egress filter
+        run: |
+          addr=$(hostname -I | awk '{print $1}')
+          python3 -m http.server 8999 --bind "$addr" >/dev/null 2>&1 &
+          server=$!
+          until curl -fs "http://$addr:8999/" >/dev/null; do sleep 1; done
+          # The user and its subordinate uids reach neither the host nor private ranges...
+          if sudo -u "$NODE_USER" curl -fsS -m 5 "http://$addr:8999/"; then exit 1; fi
+          IFS=: read -r _ start _ < <(grep "^$NODE_USER:" /etc/subuid)
+          if sudo setpriv --reuid="$((start + 1000))" --regid="$((start + 1000))" --clear-groups \
+            curl -fsS -m 5 "http://$addr:8999/"; then exit 1; fi
+          # ...but resolve names and reach the Internet.
+          sudo -u "$NODE_USER" curl -fsS -m 10 -o /dev/null https://ghcr.io/
+          kill "$server"
       - name: Deploy and test
         run: scripts/e2e/deploy.sh

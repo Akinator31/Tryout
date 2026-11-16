@@ -1,0 +1,78 @@
+#!/usr/sbin/nft -f
+# Egress filter for a single-host Tryout node (docs/single-host.md).
+#
+# Every packet the rootless Docker daemon, its containers and its network helpers send to the
+# host's network leaves from a process of the dedicated user or of its subordinate uids. This
+# table lets them reach the public Internet (image pulls) and nothing else: no private or
+# special-purpose range, no address of the host itself. DNS is redirected to a public
+# resolver, since the host's own resolver is often on the LAN or in a metadata range.
+#
+# It is a table of its own: it leaves the host's other rules (the root daemon, UFW...) alone.
+# Loading the file again replaces it. Fill in the three definitions below.
+
+# The dedicated user's uid (id -u tryout) and its subordinate uids (grep ^tryout: /etc/subuid
+# gives start:count; the range is start to start+count-1).
+define tryout_uids = { 1001, 165536-231071 }
+
+# Public resolvers the daemon's DNS queries are sent to.
+define dns4 = 9.9.9.9
+define dns6 = 2620:fe::fe
+
+table inet tryout_egress
+delete table inet tryout_egress
+
+table inet tryout_egress {
+	set denied4 {
+		type ipv4_addr
+		flags interval
+		elements = {
+			0.0.0.0/8,          # "this network"
+			10.0.0.0/8,         # private
+			100.64.0.0/10,      # carrier-grade NAT, also used by VPNs
+			127.0.0.0/8,        # loopback
+			169.254.0.0/16,     # link-local, cloud metadata (169.254.169.254)
+			172.16.0.0/12,      # private, Docker's default bridges
+			192.0.0.0/24,       # IETF protocol assignments
+			192.168.0.0/16,     # private
+			198.18.0.0/15,      # benchmarking
+			224.0.0.0/3,        # multicast, reserved, broadcast
+		}
+	}
+
+	set denied6 {
+		type ipv6_addr
+		flags interval
+		elements = {
+			::/127,             # unspecified, loopback
+			::ffff:0:0/96,      # IPv4-mapped
+			64:ff9b:1::/48,     # local-use NAT64
+			fc00::/7,           # unique local
+			fe80::/10,          # link-local
+			fec0::/10,          # site-local (deprecated)
+			ff00::/8,           # multicast
+		}
+	}
+
+	# DNS goes to a public resolver, whatever /etc/resolv.conf names, except a resolver on
+	# the host's loopback (systemd-resolved's 127.0.0.53), which a redirection cannot reach.
+	chain dns {
+		type nat hook output priority dstnat; policy accept;
+		meta skuid $tryout_uids ip daddr != 127.0.0.0/8 meta l4proto { udp, tcp } th dport 53 dnat ip to $dns4
+		meta skuid $tryout_uids ip6 daddr != ::1 meta l4proto { udp, tcp } th dport 53 dnat ip6 to $dns6
+	}
+
+	chain output {
+		type filter hook output priority filter; policy accept;
+		meta skuid != $tryout_uids accept
+
+		# Answers on connections the node accepted: the agent and the gateway's published ports.
+		ct state established,related accept
+
+		# The host's loopback DNS stub, which then asks its upstream as another user.
+		ip daddr 127.0.0.53 meta l4proto { udp, tcp } th dport 53 accept
+
+		fib daddr type local counter reject
+		ip daddr @denied4 counter reject
+		ip6 daddr @denied6 counter reject
+	}
+}

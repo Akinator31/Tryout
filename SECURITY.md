@@ -100,16 +100,30 @@ not a code fork.
 
 ### `single-host`: machine shared with other services
 
-- **Assumes**: the machine also runs important services.
+- **Assumes**: the machine also runs important services, and keeps no secret in files every
+  user can read.
 - **The agent requires**:
   - a **dedicated rootless Docker daemon**, never the main root socket;
   - **cgroup v2**, otherwise resource limits are silently ignored in rootless mode;
   - **gVisor**, unless `ALLOW_RUNC=true`, a documented weaker opt-out. Without it, the agent
     accepts no runtime but `runsc`, for the default runtime and for each session.
-- **If a session escapes**, the attacker must get through gVisor, then exploit a kernel flaw to
-  get past the unprivileged user of the rootless daemon.
-- **Residual risk**: a flaw in the shared kernel. With `ALLOW_RUNC=true`, a single kernel flaw
-  is enough.
+- **Today, runc**: gVisor does not run under a rootless daemon
+  ([google/gvisor#12575](https://github.com/google/gvisor/issues/12575)), so the single-host
+  guide (`docs/single-host.md`) sets `ALLOW_RUNC=true`. The agent keeps requiring `runsc`
+  without it, so that gVisor can take over once it runs rootless.
+- **The guide adds**: a dedicated user with no `sudo` and no access to the root daemon, which
+  owns the rootless daemon, the agent, the gateway and the sessions; and an nftables table
+  that lets that user and its subordinate uids reach the public Internet only, never the
+  host's own addresses, private ranges or cloud metadata, with DNS sent to a public resolver
+  (`deploy/node/single-host/tryout-egress.nft`).
+- **If a session escapes** its container (a runc or kernel flaw), it runs on the host as one of
+  the user's subordinate uids, or as the user itself. It can read what every user can read; as
+  the user, it also controls the rootless daemon, so every session, the node's certificate and
+  its registry token. The egress filter keeps it off the host's services, the LAN and the
+  metadata endpoints. Reaching root takes a second, local privilege escalation flaw.
+- **Residual risk**: with runc, a single kernel flaw is enough to leave the container. For a
+  host whose other services are valuable, run sessions in a virtual machine node in the
+  `strict` profile instead.
 
 ### `dev`: local development
 
@@ -140,7 +154,8 @@ published on an address you choose.
   visitor can serve any page from their session: on a shared domain, they could phish in your
   name or set cookies on the parent domain.
 - **Isolate the node's network**: it must not be able to open connections to your LAN or your
-  infrastructure. Docker bypasses UFW, so filter in the `DOCKER-USER` chain.
+  infrastructure. Docker bypasses UFW, so filter in the `DOCKER-USER` chain. A single-host
+  node has no bridge on the host: the guide's nftables table filters its user instead.
 - **Never mount the main daemon's socket into the agent** in `single-host`. Holding that socket
   is equivalent to root on the host.
 - **Keep the kernel, Docker, runc (≥ 1.2.8 or 1.3.3) and gVisor up to date.** Several past
