@@ -70,7 +70,8 @@ func TestReconcileReattachesGateway(t *testing.T) {
 		}
 	})
 
-	a = New(Config{GatewayName: "tryout-gateway"}, docker, nil, &fakeGateway{})
+	gw := &fakeGateway{}
+	a = New(Config{GatewayName: "tryout-gateway"}, docker, nil, gw)
 	a.creating[creating] = true
 	a.reconcile(context.Background())
 
@@ -78,6 +79,20 @@ func TestReconcileReattachesGateway(t *testing.T) {
 	defer mu.Unlock()
 	if want := []string{session.Name(missing) + "<-tryout-gateway"}; !slices.Equal(connected, want) {
 		t.Errorf("connected %v, want %v", connected, want)
+	}
+
+	if len(gw.tables) != 1 {
+		t.Fatalf("pushed %d route tables, want 1", len(gw.tables))
+	}
+	var routed []string
+	for _, r := range gw.tables[0] {
+		routed = append(routed, r.ID)
+		if r.Target != "http://"+session.Name(r.ID)+":7681" {
+			t.Errorf("route %s targets %s", r.ID, r.Target)
+		}
+	}
+	if want := []string{attached, missing, creating, removing}; !slices.Equal(routed, want) {
+		t.Errorf("routed %v, want the running sessions %v", routed, want)
 	}
 }
 

@@ -24,7 +24,7 @@ import (
 func (a *Agent) CheckProfile(ctx context.Context) error {
 	info, err := a.docker.Info(ctx)
 	if err != nil {
-		return fmt.Errorf("docker unreachable at %s: %w", a.cfg.DockerHost, err)
+		return fmt.Errorf("docker unreachable at %s: %w", a.dockerHost, err)
 	}
 
 	a.arch = normArch(info.Architecture)

@@ -102,4 +102,10 @@ func TestAdminRequiresToken(t *testing.T) {
 	if len(g.routes) != 1 {
 		t.Errorf("route table not applied: %d entries", len(g.routes))
 	}
+
+	rec := httptest.NewRecorder()
+	New("", "").Admin().ServeHTTP(rec, httptest.NewRequest("PUT", "/routes", strings.NewReader(body)))
+	if rec.Code != 401 {
+		t.Errorf("a gateway without a token must refuse every table, got %d", rec.Code)
+	}
 }

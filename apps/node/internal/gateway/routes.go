@@ -130,8 +130,13 @@ func (g *Gateway) handlePutRoutes(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// authorized compares the bearer token in constant time.
+// authorized compares the bearer token in constant time. A gateway without a
+// token refuses every request: an empty token would otherwise match an
+// absent header.
 func (g *Gateway) authorized(r *http.Request) bool {
+	if g.token == "" {
+		return false
+	}
 	got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	return subtle.ConstantTimeCompare([]byte(got), []byte(g.token)) == 1
 }

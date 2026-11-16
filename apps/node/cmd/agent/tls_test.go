@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Akinator31/Tryout/apps/node/internal/agent"
+	"github.com/Akinator31/Tryout/apps/node/internal/dockerapi"
 	"github.com/Akinator31/Tryout/apps/node/internal/pki"
 )
 
@@ -30,8 +32,8 @@ func TestServerTLSIsRequired(t *testing.T) {
 	}
 }
 
-// TestAPIOverMutualTLS checks that the listener's configuration requires
-// mutual TLS: no client certificate, no request. An expired certificate is refused at
+// TestAPIOverMutualTLS checks that the API is served over mutual TLS only:
+// no client certificate, no request. An expired certificate is refused at
 // startup.
 func TestAPIOverMutualTLS(t *testing.T) {
 	dir := t.TempDir()
@@ -52,8 +54,15 @@ func TestAPIOverMutualTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
-	ts := httptest.NewUnstartedServer(ok)
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("[]")) }))
+	defer daemon.Close()
+	docker, err := dockerapi.New("tcp://" + daemon.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := agent.New(agent.Config{Profile: "dev"}, docker, nil, nil)
+
+	ts := httptest.NewUnstartedServer(a.Handler())
 	ts.TLS = cfg
 	ts.Config.ErrorLog = log.New(io.Discard, "", 0)
 	ts.StartTLS()

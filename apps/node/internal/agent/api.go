@@ -52,7 +52,7 @@ func (a *Agent) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		"default_runtime": a.policy.DefaultRuntime,
 		"runtimes":        sortedKeys(a.policy.Runtimes),
 		"sessions":        n + a.creatingCount(),
-		"max_sessions":    a.cfg.MaxSessions,
+		"max_sessions":    a.maxSessions,
 	})
 }
 

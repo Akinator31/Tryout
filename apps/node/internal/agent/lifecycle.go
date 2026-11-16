@@ -60,7 +60,7 @@ func (a *Agent) reserveSlot(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if n+len(a.creating) >= a.cfg.MaxSessions {
+	if n+len(a.creating) >= a.maxSessions {
 		return errNodeFull
 	}
 
@@ -118,7 +118,7 @@ func (a *Agent) startSessionContainer(ctx context.Context, r session.Request, na
 	if _, err := a.docker.ContainerCreate(ctx, name, session.Spec(r, name, time.Now())); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
-	if err := a.docker.NetworkConnect(ctx, name, a.cfg.GatewayName); err != nil {
+	if err := a.docker.NetworkConnect(ctx, name, a.gatewayName); err != nil {
 		return fmt.Errorf("attach gateway: %w", err)
 	}
 	if err := a.docker.ContainerStart(ctx, name); err != nil {
@@ -148,7 +148,7 @@ func (a *Agent) destroy(ctx context.Context, id string) bool {
 		slog.Warn("remove container", "id", logging.ID(id), "err", err)
 		removed = false
 	}
-	if err := a.docker.NetworkDisconnect(ctx, name, a.cfg.GatewayName); err != nil && !dockerapi.IsNotFound(err) {
+	if err := a.docker.NetworkDisconnect(ctx, name, a.gatewayName); err != nil && !dockerapi.IsNotFound(err) {
 		slog.Debug("disconnect gateway", "id", logging.ID(id), "err", err)
 	}
 	if err := a.docker.NetworkRemove(ctx, name); err != nil && !dockerapi.IsNotFound(err) {

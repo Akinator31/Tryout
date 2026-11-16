@@ -49,13 +49,15 @@ type RouteTable interface {
 // sessions; the agent itself only remembers the sessions it is creating or
 // removing right now, so that the reconcile loop leaves them alone.
 type Agent struct {
-	cfg      Config
-	policy   session.Policy // completed by CheckProfile
-	arch     string         // normalised daemon architecture, set by CheckProfile
-	docker   *dockerapi.Client
-	registry *registryauth.Store // nil: anonymous pulls
-	gateway  RouteTable
-	metrics  *agentMetrics
+	dockerHost  string
+	gatewayName string
+	maxSessions int
+	policy      session.Policy // the rest of Config, completed by CheckProfile
+	arch        string         // normalised daemon architecture, set by CheckProfile
+	docker      *dockerapi.Client
+	registry    *registryauth.Store // nil: anonymous pulls
+	gateway     RouteTable
+	metrics     *agentMetrics
 
 	mu         sync.Mutex
 	creating   map[string]bool // ids being created: reconciler must not touch them
@@ -65,7 +67,9 @@ type Agent struct {
 // New wires an agent. CheckProfile must succeed before it serves requests.
 func New(cfg Config, docker *dockerapi.Client, registry *registryauth.Store, gateway RouteTable) *Agent {
 	return &Agent{
-		cfg: cfg,
+		dockerHost:  cfg.DockerHost,
+		gatewayName: cfg.GatewayName,
+		maxSessions: cfg.MaxSessions,
 		policy: session.Policy{
 			Profile:        cfg.Profile,
 			AllowRunc:      cfg.AllowRunc,

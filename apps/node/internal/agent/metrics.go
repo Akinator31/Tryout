@@ -123,6 +123,6 @@ func (a *Agent) maxSessionsGauge() metrics.Gauge {
 	return metrics.Gauge{
 		Name:    "tryout_node_sessions_max",
 		Help:    "Most sessions the node runs at once (MAX_SESSIONS).",
-		Samples: []metrics.Sample{{Value: float64(a.cfg.MaxSessions)}},
+		Samples: []metrics.Sample{{Value: float64(a.maxSessions)}},
 	}
 }

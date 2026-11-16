@@ -1,13 +1,5 @@
 package session
 
-// The JSON Schema check of the session requests.
-//
-// tryout.schema.json is a copy of schema/tryout.schema.json at the
-// repository root (go:embed cannot reach outside the module); keep it in sync
-// with scripts/sync-schema.sh. The control plane validates its configuration
-// against the same file, so a project accepted there has the shape the agent
-// expects here.
-
 import (
 	"bytes"
 	_ "embed"
@@ -26,7 +18,11 @@ import (
 // printer renders the library's error messages in English.
 var printer = message.NewPrinter(language.English)
 
-// schemaJSON is the embedded copy of schema/tryout.schema.json.
+// schemaJSON is the embedded copy of schema/tryout.schema.json at the
+// repository root (go:embed cannot reach outside the module); keep it in sync
+// with scripts/sync-schema.sh. The control plane validates its configuration
+// against the same file, so a project accepted there has the shape the agent
+// expects here.
 //
 //go:embed tryout.schema.json
 var schemaJSON []byte

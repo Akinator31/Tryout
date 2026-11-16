@@ -124,9 +124,9 @@ func (a *Agent) removeOrphanNetworks(ctx context.Context, live, busy map[string]
 //
 // Ids come from labels, not from the agent, so an invalid one is skipped.
 func (a *Agent) reattachGateway(ctx context.Context, running []string) {
-	gw, err := a.docker.ContainerInspect(ctx, a.cfg.GatewayName)
+	gw, err := a.docker.ContainerInspect(ctx, a.gatewayName)
 	if err != nil {
-		slog.Warn("inspect gateway", "name", a.cfg.GatewayName, "err", err)
+		slog.Warn("inspect gateway", "name", a.gatewayName, "err", err)
 		return
 	}
 
@@ -156,7 +156,7 @@ func (a *Agent) connectGatewayUnlessBusy(ctx context.Context, id, name string) {
 		return
 	}
 
-	if err := a.docker.NetworkConnect(ctx, name, a.cfg.GatewayName); err != nil {
+	if err := a.docker.NetworkConnect(ctx, name, a.gatewayName); err != nil {
 		slog.Warn("reattach gateway", "id", logging.ID(id), "err", err)
 		return
 	}

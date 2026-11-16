@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"time"
@@ -60,6 +61,8 @@ func (c *Client) Put(ctx context.Context, table []Route) error {
 	if err != nil {
 		return err
 	}
+	// Drained, so that the connection can be reused.
+	_, _ = io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {

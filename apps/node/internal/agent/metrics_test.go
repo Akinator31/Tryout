@@ -44,7 +44,7 @@ func serveAPI(a *Agent, path string) *httptest.ResponseRecorder {
 func TestHealthz(t *testing.T) {
 	a := testAgent("strict", false)
 	a.arch = "arm64"
-	a.cfg.MaxSessions = 4
+	a.maxSessions = 4
 	a.docker = fakeDockerClient(t, sessionsDocker(t, "hello/running", "hello/created"))
 
 	rec := serveAPI(a, "/healthz")
@@ -75,7 +75,7 @@ func TestHealthz(t *testing.T) {
 func TestMetrics(t *testing.T) {
 	a := testAgent("dev", false)
 	a.arch = "amd64"
-	a.cfg.MaxSessions = 10
+	a.maxSessions = 10
 	a.docker = fakeDockerClient(t, sessionsDocker(t, "b/running", "a/running", "b/running", "a/created"))
 
 	a.metrics.observeStart("a", 3*time.Second, nil)
