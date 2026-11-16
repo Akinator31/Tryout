@@ -123,22 +123,25 @@ func TestCheckProfileDefaultRuntime(t *testing.T) {
 // daemon that would ignore a session's memory, CPU or pids limit, as a
 // rootless daemon does when its cgroup controllers are not delegated.
 func TestCheckProfileResourceLimits(t *testing.T) {
-	for _, missing := range []string{"MemoryLimit", "CpuCfsQuota", "PidsLimit"} {
-		info := fakeInfo("runc", "runsc")
-		info[missing] = false
+	controllers := map[string]string{"MemoryLimit": "memory", "CpuCfsQuota": "cpu", "PidsLimit": "pids"}
 
+	for missing, controller := range controllers {
 		for _, profile := range []string{"strict", "single-host"} {
+			info := fakeInfo("runc", "runsc")
+			info[missing] = false
 			if profile == "single-host" {
 				info["SecurityOptions"] = []string{"name=rootless"}
 			}
 			a := New(Config{Profile: profile, DefaultRuntime: "runsc"}, fakeDockerInfo(t, "1.48", info), nil, &fakeGateway{})
 
 			err := a.CheckProfile(context.Background())
-			if err == nil || !strings.Contains(err.Error(), "limit") {
-				t.Errorf("profile %s, %s false: want a refusal, got %v", profile, missing, err)
+			if err == nil || !strings.Contains(err.Error(), "ignores the "+controller+" limit") {
+				t.Errorf("profile %s, %s false: want a refusal for %s, got %v", profile, missing, controller, err)
 			}
 		}
 
+		info := fakeInfo("runc", "runsc")
+		info[missing] = false
 		a := New(Config{Profile: "dev", DefaultRuntime: "runsc"}, fakeDockerInfo(t, "1.48", info), nil, &fakeGateway{})
 		if err := a.CheckProfile(context.Background()); err != nil {
 			t.Errorf("profile dev, %s false: %v", missing, err)

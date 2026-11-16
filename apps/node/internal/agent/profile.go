@@ -16,8 +16,12 @@ import (
 //
 //   - dev: anything goes, with a loud warning;
 //   - strict: gVisor (runsc) installed, unless ALLOW_RUNC=true;
-//   - single-host: a dedicated rootless daemon, cgroup v2 (otherwise rootless
-//     resource limits are silently ignored) and gVisor, unless ALLOW_RUNC=true.
+//   - single-host: a dedicated rootless daemon, cgroup v2 (the only version
+//     on which a rootless daemon can limit resources) and gVisor, unless
+//     ALLOW_RUNC=true.
+//
+// Outside dev, it also refuses a daemon that ignores memory, CPU or pids
+// limits (see checkResourceLimits).
 //
 // It first refuses a daemon older than the API the agent speaks (see
 // checkDockerVersion). It also records the daemon's architecture and
@@ -85,7 +89,7 @@ func (a *Agent) checkProfileRequirements(info *dockerapi.Info, rootless bool) er
 			return errors.New("profile single-host: DOCKER_HOST must point to a dedicated ROOTLESS daemon, never the main root socket")
 		}
 		if info.CgroupVersion != "2" {
-			return errors.New("profile single-host: cgroup v2 required (otherwise rootless resource limits are silently ignored)")
+			return errors.New("profile single-host: cgroup v2 required (a rootless daemon cannot limit resources on cgroup v1)")
 		}
 		if !hasRunsc && !a.policy.AllowRunc {
 			return errors.New("profile single-host: runsc (gVisor) required; ALLOW_RUNC=true is a documented, weaker opt-out")
