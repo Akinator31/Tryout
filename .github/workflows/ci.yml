@@ -407,6 +407,10 @@ jobs:
           sudo apt-get install -y -q "docker-ce-rootless-extras=$version" uidmap slirp4netns dbus-user-session
       - name: Create the user, delegate its cgroup controllers, enable lingering
         run: |
+          # The runner image sets its own user's XDG directories for every login in
+          # /etc/environment, the user's systemd manager included.
+          grep '^XDG_' /etc/environment || true
+          sudo sed -i '/^XDG_/d' /etc/environment
           sudo adduser --disabled-password --comment "" "$NODE_USER"
           grep "^$NODE_USER:" /etc/subuid /etc/subgid
           uid=$(id -u "$NODE_USER")
