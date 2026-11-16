@@ -90,3 +90,36 @@ func (f *fakePulls) registryAuth() string {
 
 	return f.gotAuth
 }
+
+// TestCreateSessionNetworkIsolated checks that a session network is internal
+// and gives the bridge no address, in IPv4 and IPv6: a session can then reach
+// nothing that listens in the daemon's network namespace, not even through
+// the bridge's own address.
+func TestCreateSessionNetworkIsolated(t *testing.T) {
+	var got map[string]any
+	docker := fakeDockerClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/networks/create") {
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Error(err)
+		}
+		_, _ = w.Write([]byte(`{"Id":"n1"}`))
+	})
+	a := New(Config{}, docker, nil, &fakeGateway{})
+
+	if err := a.createSessionNetwork(context.Background(), "id", "tryout-id"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got["Internal"] != true {
+		t.Errorf("Internal = %v, want true", got["Internal"])
+	}
+	opts, _ := got["Options"].(map[string]any)
+	for _, key := range []string{"com.docker.network.bridge.gateway_mode_ipv4", "com.docker.network.bridge.gateway_mode_ipv6"} {
+		if opts[key] != "isolated" {
+			t.Errorf("%s = %v, want isolated", key, opts[key])
+		}
+	}
+}

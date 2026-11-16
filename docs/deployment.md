@@ -97,7 +97,10 @@ docker compose up -d
 docker compose logs agent      # "agent listening (mutual TLS)" with profile strict
 ```
 
-The agent refuses to start when the profile is not met, with the reason in its log.
+The agent refuses to start when the profile is not met, with the reason in its log. Outside
+`dev`, that includes a daemon that ignores memory, CPU or pids limits (`docker info` then
+prints warnings such as `No memory limit support`): enable the missing cgroup controller in
+the kernel.
 
 ### Private project images
 

@@ -43,6 +43,9 @@ func (a *Agent) CheckProfile(ctx context.Context) error {
 	if err := a.checkProfileRequirements(info, rootless); err != nil {
 		return err
 	}
+	if err := a.checkResourceLimits(info); err != nil {
+		return err
+	}
 	if a.policy.AllowRunc && a.policy.Profile != "dev" {
 		slog.Warn("ALLOW_RUNC=true: sessions may use runtimes other than gVisor, such as runc on the host kernel")
 	}
@@ -90,6 +93,35 @@ func (a *Agent) checkProfileRequirements(info *dockerapi.Info, rootless bool) er
 
 	default:
 		return fmt.Errorf("unknown NODE_PROFILE %q", a.policy.Profile)
+	}
+	return nil
+}
+
+// checkResourceLimits refuses, outside dev, a daemon that would silently
+// ignore a session's memory, CPU or pids limit: a rootless daemon does when
+// its cgroup controllers are not delegated, and so does a kernel built or
+// booted without them. A missing swap limit only warns: memory stays capped,
+// but a session may also use swap.
+func (a *Agent) checkResourceLimits(info *dockerapi.Info) error {
+	missing := []string{}
+	if !info.MemoryLimit {
+		missing = append(missing, "memory")
+	}
+	if !info.CPUCfsQuota {
+		missing = append(missing, "cpu")
+	}
+	if !info.PidsLimit {
+		missing = append(missing, "pids")
+	}
+
+	if len(missing) > 0 {
+		if a.policy.Profile != "dev" {
+			return fmt.Errorf("profile %s: the daemon ignores the %s limit of containers; enable (rootless: delegate) the cgroup controllers", a.policy.Profile, strings.Join(missing, ", "))
+		}
+		slog.Warn("the daemon ignores some resource limits", "missing", missing)
+	}
+	if !info.SwapLimit {
+		slog.Warn("the daemon cannot limit swap: sessions may use swap beyond their memory limit")
 	}
 	return nil
 }

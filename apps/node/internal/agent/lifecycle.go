@@ -111,14 +111,21 @@ func (a *Agent) ensureImage(ctx context.Context, ref string) (*dockerapi.ImageIn
 }
 
 // createSessionNetwork creates the session's own network. It is --internal:
-// the session has no egress, and only the gateway joins it.
+// the session has no egress, and only the gateway joins it. Its bridge has no
+// address (gateway mode isolated, Docker 28): an internal network still lets
+// containers reach the bridge's address, so whatever listens on the host, or
+// in a rootless daemon's namespace, on 0.0.0.0.
 func (a *Agent) createSessionNetwork(ctx context.Context, id, name string) error {
 	_, err := a.docker.NetworkCreate(ctx, dockerapi.NetworkCreate{
 		Name:     name,
 		Driver:   "bridge",
 		Internal: true,
 		Labels:   map[string]string{session.LabelSession: id},
-		Options:  map[string]string{"com.docker.network.bridge.enable_icc": "true"},
+		Options: map[string]string{
+			"com.docker.network.bridge.enable_icc":        "true",
+			"com.docker.network.bridge.gateway_mode_ipv4": "isolated",
+			"com.docker.network.bridge.gateway_mode_ipv6": "isolated",
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("network: %w", err)
