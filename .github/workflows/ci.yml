@@ -416,7 +416,7 @@ jobs:
           sudo systemctl daemon-reload
           sudo loginctl enable-linger "$NODE_USER"
           timeout 30 sh -c "until systemctl is-active -q user@$uid.service; do sleep 1; done"
-          ls -la "/run/user/$uid"
+          sudo ls -la "/run/user/$uid"
       - name: Install the rootless daemon
         run: |
           sudo -u "$NODE_USER" -H env XDG_RUNTIME_DIR="/run/user/$NODE_UID" \
