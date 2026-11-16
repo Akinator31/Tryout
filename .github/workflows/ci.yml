@@ -415,11 +415,11 @@ jobs:
             "/etc/systemd/system/user@$uid.service.d/delegate.conf"
           sudo systemctl daemon-reload
           sudo loginctl enable-linger "$NODE_USER"
-          timeout 30 sh -c "until [ -S /run/user/$uid/bus ]; do sleep 1; done"
+          timeout 30 sh -c "until systemctl is-active -q user@$uid.service; do sleep 1; done"
+          ls -la "/run/user/$uid"
       - name: Install the rootless daemon
         run: |
           sudo -u "$NODE_USER" -H env XDG_RUNTIME_DIR="/run/user/$NODE_UID" \
-            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$NODE_UID/bus" \
             dockerd-rootless-setuptool.sh install
           sudo -u "$NODE_USER" -H docker --context rootless info | tee info.txt
           grep -q "name=rootless" info.txt
