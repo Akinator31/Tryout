@@ -23,7 +23,7 @@ func TestEnsureImageSendsRegistryAuth(t *testing.T) {
 			a := New(Config{}, fakeDockerClient(t, pulls.serve), store, &fakeGateway{})
 			a.arch = "amd64"
 
-			if err := a.ensureImage(context.Background(), ref); err != nil {
+			if _, err := a.ensureImage(context.Background(), ref); err != nil {
 				t.Fatalf("%s: %v", ref, err)
 			}
 

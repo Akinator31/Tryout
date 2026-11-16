@@ -40,7 +40,12 @@ export interface NodeConfig {
 export interface Workload {
   image: string;
   kind: Kind;
-  port: number;
+  /** Terminals only: "agent" (the default) runs the image's command in the agent's ttyd. */
+  ttyd?: "agent" | "image";
+  /** With the agent's ttyd: the program it runs, instead of the image's entrypoint and command. */
+  command?: string[];
+  /** Absent for a terminal with the agent's ttyd. */
+  port?: number;
   runtime?: string;
   strip_prefix?: boolean;
   limits?: { memory_mb?: number; cpus?: number; pids?: number };

@@ -14,12 +14,18 @@ func testPolicy(profile string, allowRunc bool) Policy {
 		DefaultRuntime: "runsc",
 		Runtimes:       map[string]bool{"runc": true, "runsc": true},
 		MaxAge:         3600e9,
+		TTYDImage:      "ttyd@sha256:0123",
 	}
 }
 
-// validReq returns a minimal valid request of the given kind.
+// validReq returns a minimal valid request of the given kind: a desktop on
+// port 3000, a terminal in the agent's ttyd.
 func validReq(kind Kind) Request {
-	return Request{ID: strings.Repeat("a", 26), Project: "p", Image: "img", Kind: kind, Port: 3000}
+	r := Request{ID: strings.Repeat("a", 26), Project: "p", Image: "img", Kind: kind}
+	if kind == Desktop {
+		r.Port = 3000
+	}
+	return r
 }
 
 // envMap returns the session's container environment as a map.
@@ -55,6 +61,7 @@ func TestValidateRuntimePolicy(t *testing.T) {
 		t.Error("runc must be refused by profile strict without ALLOW_RUNC")
 	}
 
+	r = validReq(Terminal)
 	r.Runtime = "runc"
 	if err := r.validate(testPolicy("strict", true)); err != nil {
 		t.Errorf("runc must be allowed with ALLOW_RUNC: %v", err)
@@ -72,6 +79,8 @@ func TestValidateRuntimePolicy(t *testing.T) {
 			}
 
 			p.AllowRunc = true
+			r = validReq(Terminal)
+			r.Runtime = rt
 			if err := r.validate(p); err != nil {
 				t.Errorf("profile %s must allow runtime %s with ALLOW_RUNC: %v", profile, rt, err)
 			}
@@ -137,7 +146,7 @@ func TestContainerEnvPrecedence(t *testing.T) {
 // Schema (an unknown field is refused) before the node policy.
 func TestParseUsesSchema(t *testing.T) {
 	p := testPolicy("dev", false)
-	ok := `{"id":"` + strings.Repeat("a", 26) + `","project":"p","image":"img","kind":"terminal","port":7681,"max_age_s":60}`
+	ok := `{"id":"` + strings.Repeat("a", 26) + `","project":"p","image":"img","kind":"terminal","max_age_s":60}`
 
 	r, err := Parse([]byte(ok), p)
 	if err != nil {
@@ -147,7 +156,7 @@ func TestParseUsesSchema(t *testing.T) {
 		t.Errorf("policy defaults not applied: %+v", r)
 	}
 
-	unknown := strings.Replace(ok, `"port":7681`, `"port":7681,"privileged":true`, 1)
+	unknown := strings.Replace(ok, `"max_age_s":60`, `"max_age_s":60,"privileged":true`, 1)
 	if _, err := Parse([]byte(unknown), p); err == nil || !strings.Contains(err.Error(), "/privileged") {
 		t.Errorf("unknown field must be rejected by the schema: %v", err)
 	}

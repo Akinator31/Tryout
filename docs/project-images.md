@@ -6,15 +6,18 @@ and `scripts/check-image.sh` checks an image against the contract before it goes
 
 ## Common contract
 
-- It listens over **HTTP** on the port declared in the configuration (`port`).
-- It serves its UI **under the path `$TRYOUT_BASE_PATH`** (e.g. `/s/abc…`), or the project
-  declares `strip_prefix: true`.
 - It **needs no network**: sessions have no outbound access.
 - It exists for the **node's architecture** (amd64 or arm64). Otherwise the agent refuses the
   session with an explicit message. Building multi-architecture images is the image author's
   responsibility (`docker buildx build --platform linux/amd64,linux/arm64`).
 
 Variables provided by the agent: `TRYOUT_SESSION_ID`, `TRYOUT_BASE_PATH`.
+
+An image that **serves its own page** (a desktop, or a terminal with `ttyd: image`) also:
+
+- listens over **HTTP** on the port declared in the configuration (`port`), on every interface;
+- serves its UI **under the path `$TRYOUT_BASE_PATH`** (e.g. `/s/abc…`), or the project
+  declares `strip_prefix: true`.
 
 ## Private images
 
@@ -55,13 +58,25 @@ give the agent a credentials file with `REGISTRY_AUTH_FILE`, mounted read-only:
 
 - The root filesystem is **read-only**. Only `/tmp` is writable, and `HOME=/tmp`.
 - No capabilities and `no-new-privileges`: use a non-root user.
-- ttyd serves the terminal. A complete example lives in `examples/cli-hello`:
+- **Tryout serves the terminal.** The agent mounts its web terminal, ttyd, read-only at
+  `/opt/tryout` and runs the image's program in it: its `ENTRYPOINT` and `CMD`, or the project's
+  `command`. The image needs no web server and declares no port; it keeps its own user, working
+  directory and environment. A complete example lives in `examples/cli-hello`:
 
-```sh
-exec ttyd -W -m 1 -p 7681 -b "$TRYOUT_BASE_PATH" bash -l
+```dockerfile
+FROM debian:trixie-slim
+RUN useradd -u 1000 -m -s /bin/bash visitor
+COPY hello.sh /usr/local/bin/hello
+USER 1000:1000
+CMD ["bash", "-c", "hello; exec bash -l"]
 ```
 
-`-W` makes the terminal writable, `-m 1` allows one client, and `-b` sets the base path.
+- An image with neither `ENTRYPOINT` nor `CMD`, and no `command`, is refused when the session
+  starts. Anything the image has at `/opt/tryout` is hidden by the mount.
+- The agent fixes ttyd's options: one visitor at a time, writable, the session's base path, the
+  Tryout colours and font. A project cannot change them.
+- With `ttyd: image`, the image serves its own page instead, on its `port`: the terminal
+  hardening stays, the common contract above applies.
 
 ## Graphical project (`kind: desktop`)
 

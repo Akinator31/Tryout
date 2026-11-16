@@ -47,7 +47,6 @@ projects:
     node: cli
     image: ghcr.io/me/my-cli@sha256:…
     kind: terminal
-    port: 7681
     max_sessions: 5
     max_age: 15m
 ```
@@ -255,11 +254,13 @@ the embed page poll instead, which keeps its place in line.
 | `node` | Node that runs the project. |
 | `image` | Docker image, preferably pinned by digest. Must exist for the node's architecture. |
 | `kind` | `terminal` or `desktop`. Selects the hardening profile (see [Security](security.md)). |
-| `port` | HTTP port of the container (ttyd: 7681; LinuxServer images: 3000). |
+| `ttyd` | Terminals only, default `agent`: the agent runs the image's program in its own web terminal, ttyd, so the image needs no web server (see [Project images](project-images.md#command-line-project-kind-terminal)). `image`: the image serves its own page on `port`. |
+| `command` | Optional, with the agent's ttyd only: the program ttyd runs, as a list (`[python3, -q]`). Defaults to the image's `ENTRYPOINT` and `CMD`. |
+| `port` | HTTP port of an image that serves its own page: a desktop (LinuxServer images: 3000) or a terminal with `ttyd: image`. Not allowed with the agent's ttyd. |
 | `max_sessions` | Concurrent sessions for this project. Later visitors wait in the queue. |
 | `max_age` | Maximum session age: `90s`, `15m`, `1h30m`, at most `24h`. The agent also enforces its own cap (`SESSION_MAX_AGE_CAP`). |
 | `runtime` | Optional: `runsc`, `runc`… Defaults to the node's runtime. Outside the `dev` profile, the agent refuses any runtime but `runsc` unless it runs with `ALLOW_RUNC=true`. |
-| `strip_prefix` | Optional: strip `/s/<id>` before forwarding, for an application that cannot serve under a base path. |
+| `strip_prefix` | Optional, for an image that serves its own page: strip `/s/<id>` before forwarding, for an application that cannot serve under a base path. |
 | `limits` | Optional: `memory_mb`, `cpus`, `pids`. Defaults: 256 MB / 0.5 CPU / 128 PIDs for terminals, 2 GB / 1.5 CPU / 1024 PIDs for desktops. |
 | `env` | Optional: project environment variables, as strings (quote numbers: `WIDTH: "1920"`). Reserved variables are rejected: `TRYOUT_*`, `SUBFOLDER`, `PUID`, `PGID`, `HOME`, and the Selkies security settings. |
 
@@ -312,7 +313,8 @@ With `admin_listen` set, the control plane serves the admin interface on that li
 - **Projects**: every project with its kind, node, sessions out of its cap, queue and state
   (ready, running, full, paused, node offline, or not applied yet), under a line that sums up
   the slots, the queues, the paused projects and the nodes down; with no project, the first
-  steps. *New project* and *Edit settings* open a form (identity, image and port, node and
+  steps. *New project* and *Edit settings* open a form (identity, image and how it is served:
+  Tryout's terminal and its command, or the image's own port; node and
   runtime, capacity, resources, environment) that the browser checks as it is typed, warns when
   a node's projects would ask for more sessions than its cap, and shows the project as YAML.
   A project's page shows its load, live sessions and settings, with *Pause project* (or
@@ -406,7 +408,7 @@ publication, rollback, logo upload and stop is logged with the account name.
 
 | Variable | Default | Role |
 |---|---|---|
-| `DOCKER_HOST` | `unix:///var/run/docker.sock` | Daemon for sessions (`unix://` or `tcp://`). In `single-host`, the socket of the dedicated **rootless** daemon. |
+| `DOCKER_HOST` | `unix:///var/run/docker.sock` | Daemon for sessions (`unix://` or `tcp://`), Docker Engine 28 or later: the agent refuses to start on an older one. In `single-host`, the socket of the dedicated **rootless** daemon. |
 | `NODE_PROFILE` | `dev` | `dev`, `strict` or `single-host` (see [Security](security.md)). |
 | `DEFAULT_RUNTIME` | `runsc` | Runtime used when the project does not set one. In `strict` and `single-host`, the agent refuses to start with anything but `runsc` unless `ALLOW_RUNC=true`. |
 | `ALLOW_RUNC` | `false` | Allows runtimes other than `runsc` (`runc`, `io.containerd.runc.v2`…) in `strict` and `single-host`. A documented, weaker opt-out. |
@@ -420,6 +422,7 @@ publication, rollback, logo upload and stop is logged with the account name.
 | `REGISTRY_AUTH_FILE` | — | Optional. Path of a Docker `config.json` with static `auths` entries, used to pull private project images. See [Project images](project-images.md#private-images). |
 | `MAX_SESSIONS` | `10` | Node-side safety cap. |
 | `SESSION_MAX_AGE_CAP` | `2h` | Maximum age enforced whatever is requested. |
+| `TTYD_IMAGE` | the release's | The web terminal mounted into terminal sessions: an image holding a static `/ttyd`. Published node images default to the `tryout-ttyd` image of their release, pinned by digest; a local build has no default. The agent pulls it at startup and refuses to start when it is missing or built for another architecture. Outside `dev`, a reference without a digest is a warning. |
 
 ## Gateway
 

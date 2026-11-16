@@ -154,11 +154,13 @@ What it does:
   certificate from the deployment's private CA, made with `tryout-certs`
   ([Certificates](certificates.md)).
 - The only component that talks to Docker, through a configurable endpoint (`DOCKER_HOST`).
-- Checks at startup that the node **profile** is met (gVisor, rootless, cgroup v2), and refuses
-  to start otherwise.
+- Checks at startup that the node **profile** is met (gVisor, rootless, cgroup v2) and that the
+  daemon is Docker Engine 28 or later, pulls its **ttyd image** (`TTYD_IMAGE`), and refuses to
+  start otherwise.
 - For each session:
   1. creates an `--internal` network;
-  2. creates the hardened container;
+  2. creates the hardened container; a terminal runs the image's program in the agent's ttyd,
+     mounted read-only from the ttyd image (see [Terminals served by the agent](#terminals-served-by-the-agent));
   3. attaches the gateway to the network;
   4. starts the container;
   5. pushes the route table to the gateway.
@@ -203,6 +205,29 @@ What it does:
    everything.
 
 ## Why it works this way
+
+### Terminals served by the agent
+
+The agent serves terminal sessions with its own web terminal, ttyd, rather than each project
+image shipping one. Packaging a command-line tool then takes its program alone, and every terminal
+runs the ttyd version, options and theme of its node's release.
+
+- **A Docker image mount.** ttyd comes from an image holding one static binary (`tryout-ttyd`,
+  built in `apps/node/ttyd`). The agent mounts it read-only at `/opt/tryout` in the session
+  (`Mounts` of type `image`, Engine API 1.48, Docker Engine 28): the daemon pulls it for its own
+  architecture, it works under gVisor and rootless daemons, and on a remote daemon, since nothing
+  has to exist on the host. A bind mount from the host would not, and a volume filled by a helper
+  container would add a lifecycle to manage.
+- **Pinned by the release.** CI publishes `tryout-ttyd` before `tryout-node` and builds its digest
+  into the agent as the default `TTYD_IMAGE`, so a node release always runs the ttyd it was
+  tested with. The agent pulls it at startup, so no visitor waits for it.
+- **The image's program.** ttyd runs the image's `ENTRYPOINT` and `CMD`, as `docker run` would,
+  or the project's `command`, after its own options and `--`. The container keeps the image's
+  user, working directory and environment. ttyd's options are locked: writable, one client, the
+  session's base path, Tryout's colours and font.
+- **An image that serves its own page** declares `ttyd: image` and a `port`, and runs unchanged,
+  like a desktop image. The schema refuses `port` and `strip_prefix` with the agent's ttyd, and
+  `command` without it, rather than ignore them.
 
 ### A thin orchestrator
 

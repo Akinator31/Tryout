@@ -129,7 +129,6 @@ Done. Checked on the dev stack from an empty database, in a browser:
 | Step-by-step `single-host` guide: dedicated rootless daemon and `DOCKER-USER` firewall | | |
 | KVM virtual machine node (`strict`) for desktop sessions | | |
 | Docker endpoint over SSH or TLS | `unix://` or `tcp://` only | |
-| ttyd mounted read-only by the agent | ttyd baked into each image | Project images no longer ship ttyd |
 | Subdomain routing in the gateway | Path routing only | Needs wildcard DNS and TLS; see [Public exposure](exposure.md) |
 
 ## Done
@@ -230,3 +229,7 @@ Done. Checked on the dev stack from an empty database, in a browser:
   real embed address on demand and shows the iframe snippet to paste; `admin_preview: false`
   turns the preview off. See [Admin interface](configuration.md#admin-interface).
 - **M4** closed and released as `v0.2.0`, see [above](#m4-operate).
+- **M5:** terminals served by the agent's own ttyd, mounted read-only from the `tryout-ttyd`
+  image that each node release pins: project images hold their program alone; `ttyd: image`
+  keeps an image that serves its own page. Nodes need Docker Engine 28. See
+  [Architecture](architecture.md#terminals-served-by-the-agent).

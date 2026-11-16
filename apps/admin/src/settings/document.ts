@@ -35,7 +35,12 @@ export interface ProjectSettings {
   max_age: string;
   image: string;
   kind: "terminal" | "desktop";
-  port: number;
+  /** Terminals only; absent means "agent", the agent's ttyd. */
+  ttyd?: "agent" | "image";
+  /** With the agent's ttyd: the program it runs. */
+  command?: string[];
+  /** Absent for a terminal with the agent's ttyd. */
+  port?: number;
   runtime?: string;
   strip_prefix?: boolean;
   limits?: { memory_mb?: number; cpus?: number; pids?: number };

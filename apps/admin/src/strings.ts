@@ -78,7 +78,7 @@ export const strings = {
     open: (name: string) => `Open project ${name}`,
     empty: {
       title: "Add your first project",
-      body: "Point Tryout at a container image: a command-line tool behind ttyd, or a desktop app on a LinuxServer Selkies image. Each visitor gets a fresh, isolated container.",
+      body: "Point Tryout at a container image: a command-line tool, which Tryout serves in a web terminal, or a desktop app on a LinuxServer Selkies image. Each visitor gets a fresh, isolated container.",
       guide: "Read the packaging guide",
       steps: [
         { title: "Add a node", body: "An agent and a gateway, reached over mutual TLS." },
@@ -90,7 +90,8 @@ export const strings = {
 
   project: {
     breadcrumb: "Projects",
-    subtitle: (image: string, node: string, port: number) => `Image ${image} on node ${node}, port ${port}`,
+    subtitle: (image: string, node: string, port: number | undefined) =>
+      port === undefined ? `Image ${image} on node ${node}, in Tryout's terminal` : `Image ${image} on node ${node}, port ${port}`,
     pause: "Pause project",
     resume: "Resume",
     edit: "Edit settings",
@@ -175,6 +176,7 @@ export const strings = {
       titleText: "At most 40 characters, on one line.",
       image: "No spaces.",
       port: "A port from 1 to 65535.",
+      command: "Close the quote.",
       noNode: "Add a node first.",
       unknownNode: "This node is not in the settings.",
       runtime: "Letters, digits, dot, dash and underscore.",
@@ -195,7 +197,7 @@ export const strings = {
       titleHelp: (name: string) => `Shown to visitors. Defaults to ${name || "the name"}.`,
       kind: "Kind",
       kinds: {
-        terminal: { label: "Terminal", body: "A command-line program in a web terminal (ttyd)." },
+        terminal: { label: "Terminal", body: "A command-line program in a web terminal." },
         desktop: { label: "Desktop", body: "A graphical app streamed by Selkies at 720p." },
       },
       defaults: (memory: number, cpus: number, pids: number) => `Defaults to ${memory} MB, ${cpus} CPU and ${pids} processes.`,
@@ -203,13 +205,19 @@ export const strings = {
     },
     image: {
       title: "Container image",
-      description: "What a visitor's container runs. The image must serve HTTP under /s/<id>/ (see Packaging a project).",
+      description: "What a visitor's container runs (see Packaging a project).",
       image: "Image",
+      server: "Web terminal",
+      ownServer: "The image serves its own page",
+      serverHelp: "Off: Tryout runs the image's program in its own terminal, so the image needs no web server.",
+      command: "Command",
+      commandPlaceholder: "The image's entrypoint and command",
+      commandHelp: 'Arguments separated by spaces; quote one that holds a space, as in bash -c "hello; bash".',
       imageHelp: "Pin by digest. The image must exist for the node's architecture.",
       imagePlaceholder: "ghcr.io/me/my-cli@sha256:…",
       portUnit: "TCP",
       port: "HTTP port",
-      portHelp: "ttyd uses 7681, LinuxServer images 3000.",
+      portHelp: "Where the image serves HTTP under /s/<id>/. LinuxServer images use 3000.",
       basePath: "Base path",
       strip: "Strip /s/<id> before forwarding",
       stripHelp: "Only for an app that cannot serve under a base path. Prefer SUBFOLDER or the app's own base URL.",

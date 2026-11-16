@@ -29,6 +29,7 @@ import {
   overbooking,
   projectForm,
   projectFromForm,
+  servesOwnPage,
   type FormProblems,
   type ProjectForm,
 } from "../projects.ts";
@@ -125,7 +126,51 @@ function Note({ icon, children }: { icon: ReactNode; children: string }) {
   );
 }
 
-/** Image, port and base path. */
+/** A labelled switch with its help. */
+function SwitchField(props: { label: string; text: string; help: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  const { label, text, help, checked, onChange } = props;
+
+  return (
+    <Field.Root>
+      <Field.Label textStyle="label-sm">{label}</Field.Label>
+      <Switch.Root checked={checked} onCheckedChange={(e) => onChange(e.checked)} colorPalette="brand" h="10">
+        <Switch.HiddenInput />
+        <Switch.Control />
+        <Switch.Label textStyle="text-sm">{text}</Switch.Label>
+      </Switch.Root>
+      <Field.HelperText textStyle="text-xs" color="fg.subtle">
+        {help}
+      </Field.HelperText>
+    </Field.Root>
+  );
+}
+
+/** The port and base path of an image that serves its own page. */
+function PortFields({ form, set, shown }: SectionProps) {
+  const I = F.image;
+
+  return (
+    <Grid templateColumns="200px 1fr" gap="4" alignItems="start">
+      <FormField
+        label={I.port}
+        required
+        mono
+        unit={I.portUnit}
+        value={form.port}
+        onChange={(v) => set("port", v)}
+        error={shown.port}
+        help={I.portHelp}
+      />
+      <SwitchField label={I.basePath} text={I.strip} help={I.stripHelp} checked={form.stripPrefix} onChange={(v) => set("stripPrefix", v)} />
+    </Grid>
+  );
+}
+
+/**
+ * Image, and how its page is served: for a terminal, Tryout's web terminal
+ * and its command, unless the image serves its own page; then, as for a
+ * desktop, the port and base path.
+ */
 function ImageSection({ form, set, shown }: SectionProps) {
   const I = F.image;
 
@@ -142,29 +187,22 @@ function ImageSection({ form, set, shown }: SectionProps) {
           help={I.imageHelp}
           placeholder={I.imagePlaceholder}
         />
-        <Grid templateColumns="200px 1fr" gap="4" alignItems="start">
+        {form.kind === "terminal" && (
+          <SwitchField label={I.server} text={I.ownServer} help={I.serverHelp} checked={form.ownServer} onChange={(v) => set("ownServer", v)} />
+        )}
+        {servesOwnPage(form) ? (
+          <PortFields form={form} set={set} shown={shown} />
+        ) : (
           <FormField
-            label={I.port}
-            required
+            label={I.command}
             mono
-            unit={I.portUnit}
-            value={form.port}
-            onChange={(v) => set("port", v)}
-            error={shown.port}
-            help={I.portHelp}
+            value={form.command}
+            onChange={(v) => set("command", v)}
+            error={shown.command}
+            help={I.commandHelp}
+            placeholder={I.commandPlaceholder}
           />
-          <Field.Root>
-            <Field.Label textStyle="label-sm">{I.basePath}</Field.Label>
-            <Switch.Root checked={form.stripPrefix} onCheckedChange={(e) => set("stripPrefix", e.checked)} colorPalette="brand" h="10">
-              <Switch.HiddenInput />
-              <Switch.Control />
-              <Switch.Label textStyle="text-sm">{I.strip}</Switch.Label>
-            </Switch.Root>
-            <Field.HelperText textStyle="text-xs" color="fg.subtle">
-              {I.stripHelp}
-            </Field.HelperText>
-          </Field.Root>
-        </Grid>
+        )}
         <Note icon={<KeyRound size={14} aria-hidden />}>{I.registry}</Note>
       </Stack>
     </Section>

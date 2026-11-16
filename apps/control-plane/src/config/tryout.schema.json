@@ -252,7 +252,23 @@
     "workload": {
       "description": "What runs in a session container. Shared by the configuration and the agent API.",
       "type": "object",
-      "required": ["image", "kind", "port"],
+      "required": ["image", "kind"],
+      "allOf": [
+        {
+          "description": "A terminal with the agent's ttyd (the default) has no port and no strip_prefix: ttyd listens where the agent says and serves under the base path. Any other workload serves its own page on port, and runs the image as it is.",
+          "if": {
+            "properties": { "kind": { "const": "terminal" }, "ttyd": { "const": "agent" } },
+            "required": ["kind"]
+          },
+          "then": { "properties": { "port": { "not": {} }, "strip_prefix": { "not": {} } } },
+          "else": { "required": ["port"], "properties": { "command": { "not": {} } } }
+        },
+        {
+          "description": "ttyd is a terminal setting.",
+          "if": { "properties": { "kind": { "const": "desktop" } }, "required": ["kind"] },
+          "then": { "properties": { "ttyd": { "not": {} } } }
+        }
+      ],
       "properties": {
         "image": {
           "description": "Docker image, preferably pinned by digest.",
@@ -263,8 +279,20 @@
           "description": "Selects the hardening profile.",
           "enum": ["terminal", "desktop"]
         },
+        "ttyd": {
+          "description": "Terminal only. agent (default): the agent mounts its own ttyd and runs the image's command in it, so the image needs no web server. image: the image serves its own page on port.",
+          "enum": ["agent", "image"],
+          "default": "agent"
+        },
+        "command": {
+          "description": "Terminal with the agent's ttyd only: the program ttyd runs, as an argument list. Defaults to the image's entrypoint and command.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": { "type": "string", "pattern": "^[^\\x00]*$" }
+        },
         "port": {
-          "description": "HTTP port of the container.",
+          "description": "HTTP port of the container. Required, except for a terminal with the agent's ttyd, where it is not allowed.",
           "type": "integer",
           "minimum": 1,
           "maximum": 65535
@@ -275,7 +303,7 @@
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
         },
         "strip_prefix": {
-          "description": "Strip /s/<id> before forwarding, for an application that cannot serve under a base path.",
+          "description": "Strip /s/<id> before forwarding, for an application that cannot serve under a base path. Not allowed for a terminal with the agent's ttyd.",
           "type": "boolean"
         },
         "limits": {

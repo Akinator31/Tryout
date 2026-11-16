@@ -14,6 +14,10 @@ type ImageInspect struct {
 	ID           string `json:"Id"`
 	Architecture string
 	Os           string
+	Config       struct {
+		Entrypoint []string
+		Cmd        []string
+	}
 }
 
 // ImageInspect describes a local image; a missing one is IsNotFound.

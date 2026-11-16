@@ -10,6 +10,8 @@
 # Environment:
 #   TRYOUT_NODE_IMAGE, TRYOUT_CONTROL_PLANE_IMAGE, TRYOUT_VERSION
 #                   images to test (default: build them locally as tryout-*:e2e)
+#   TTYD_IMAGE      ttyd image the agent mounts (default: the agent's own when
+#                   TRYOUT_VERSION is set, else apps/node/ttyd built as tryout-ttyd:e2e)
 #   PROJECT_IMAGE   sample project image (default: build examples/cli-hello)
 #   NODE_PROFILE    default strict (requires gVisor); dev on a machine without it
 #   HOST_ADDR       address of this machine as the containers reach it; also the agent
@@ -35,6 +37,10 @@ if [ -z "${TRYOUT_VERSION:-}" ]; then
   docker build -q -t tryout-node:e2e "$root/apps/node" >/dev/null
   docker build -q -t tryout-control-plane:e2e -f "$root/apps/control-plane/Dockerfile" "$root" >/dev/null
   export TRYOUT_NODE_IMAGE=tryout-node TRYOUT_CONTROL_PLANE_IMAGE=tryout-control-plane TRYOUT_VERSION=e2e
+  if [ -z "${TTYD_IMAGE:-}" ]; then
+    docker build -q -t tryout-ttyd:e2e "$root/apps/node/ttyd" >/dev/null
+    export TTYD_IMAGE=tryout-ttyd:e2e
+  fi
 fi
 node_image="${TRYOUT_NODE_IMAGE:-ghcr.io/akinator31/tryout-node}:$TRYOUT_VERSION"
 cp_image="${TRYOUT_CONTROL_PLANE_IMAGE:-ghcr.io/akinator31/tryout-control-plane}:$TRYOUT_VERSION"
@@ -107,6 +113,7 @@ start_node() {
     -e "s|^AGENT_PUBLISH=.*|AGENT_PUBLISH=$bind_addr:7000|" \
     -e "s|^GATEWAY_PUBLISH=.*|GATEWAY_PUBLISH=$bind_addr:8080|" \
     -e "s|^FRAME_ANCESTORS=.*|FRAME_ANCESTORS=http://$bind_addr:3000|"
+  if [ -n "${TTYD_IMAGE:-}" ]; then echo "TTYD_IMAGE=$TTYD_IMAGE" >>"$work/node/.env"; fi
   compose node up -d --quiet-pull
 }
 
@@ -131,7 +138,6 @@ projects:
     node: cli
     image: $project_image
     kind: terminal
-    port: 7681
     max_sessions: 2
     max_age: 10m
 EOF

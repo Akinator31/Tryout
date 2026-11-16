@@ -35,17 +35,26 @@ func Name(id string) string {
 var desktopCapabilities = []string{"CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "FOWNER", "KILL"}
 
 // Spec is the container of a parsed request, on the session network named
-// network, created at now. This is where the hardening lives. It is NOT
-// configurable by the control plane on purpose: only the image, the kind,
-// the limits and the project environment come from outside.
-func Spec(r Request, network string, now time.Time) dockerapi.ContainerCreate {
-	return dockerapi.ContainerCreate{
+// network, created at now. img is what the agent read from the request's
+// image; a terminal with the agent's ttyd runs its program, and fails when
+// it has none. This is where the hardening lives. It is NOT configurable by
+// the control plane on purpose: only the image, the kind, the program, the
+// limits and the project environment come from outside.
+func Spec(r Request, img Image, network string, now time.Time) (dockerapi.ContainerCreate, error) {
+	c := dockerapi.ContainerCreate{
 		Image:      r.Image,
 		Env:        containerEnv(r),
 		Hostname:   "tryout",
 		Labels:     labels(r, now),
 		HostConfig: hostConfig(r, network),
 	}
+
+	if r.TTYD == TTYDAgent {
+		if err := withTTYD(&c, r, img); err != nil {
+			return c, err
+		}
+	}
+	return c, nil
 }
 
 // hostConfig is the hardening common to every session (no capabilities, no

@@ -9,7 +9,8 @@
 // Files of this package, by responsibility:
 //
 //	agent.go      the agent and its in-flight session bookkeeping
-//	profile.go    startup checks: node profile and runtime policy
+//	profile.go    startup checks: Docker version, node profile, runtime policy
+//	ttyd.go       startup: the ttyd image mounted into terminals
 //	lifecycle.go  create, destroy and remove a session
 //	reconcile.go  the reconcile loop and gateway reattachment
 //	routes.go     the route table pushed to the gateway
@@ -37,6 +38,7 @@ type Config struct {
 	GatewayName    string        // GATEWAY_CONTAINER
 	MaxSessions    int           // MAX_SESSIONS
 	MaxAge         time.Duration // SESSION_MAX_AGE_CAP
+	TTYDImage      string        // TTYD_IMAGE: the ttyd mounted into terminals
 }
 
 // RouteTable is where the agent pushes the route table: the gateway's admin
@@ -75,6 +77,7 @@ func New(cfg Config, docker *dockerapi.Client, registry *registryauth.Store, gat
 			AllowRunc:      cfg.AllowRunc,
 			DefaultRuntime: cfg.DefaultRuntime,
 			MaxAge:         cfg.MaxAge,
+			TTYDImage:      cfg.TTYDImage,
 		},
 		docker:     docker,
 		registry:   registry,

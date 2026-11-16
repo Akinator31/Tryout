@@ -6,11 +6,13 @@ FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 ARG TARGETOS TARGETARCH
 # Release version reported by /healthz, /metrics and the logs; CI passes the image tag.
 ARG VERSION=dev
+# The agent's default TTYD_IMAGE: CI passes the tryout-ttyd image it just published, by digest.
+ARG TTYD_IMAGE=
 WORKDIR /src
 COPY go.mod ./
 COPY . .
 RUN export CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
- LDFLAGS="-s -w -X github.com/Akinator31/Tryout/apps/node/internal/version.Version=$VERSION" \
+ LDFLAGS="-s -w -X github.com/Akinator31/Tryout/apps/node/internal/version.Version=$VERSION -X github.com/Akinator31/Tryout/apps/node/internal/version.TTYDImage=$TTYD_IMAGE" \
  && go build -trimpath -ldflags="$LDFLAGS" -o /out/tryout-agent ./cmd/agent \
  && go build -trimpath -ldflags="$LDFLAGS" -o /out/tryout-gateway ./cmd/gateway \
  && go build -trimpath -ldflags="$LDFLAGS" -o /out/tryout-certs ./cmd/certs \

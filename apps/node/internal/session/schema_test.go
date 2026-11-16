@@ -55,7 +55,7 @@ func TestSessionRequestFixtures(t *testing.T) {
 
 // TestErrorNamesThePath checks that an error names the failing field.
 func TestErrorNamesThePath(t *testing.T) {
-	err := validateSchema([]byte(`{"id":"abcdefghijklmnopqrstuvwxyz","project":"p","image":"x","kind":"terminal","port":7681,"max_age_s":60,"limits":{"cpus":0}}`))
+	err := validateSchema([]byte(`{"id":"abcdefghijklmnopqrstuvwxyz","project":"p","image":"x","kind":"terminal","ttyd":"image","port":7681,"max_age_s":60,"limits":{"cpus":0}}`))
 	if err == nil || !strings.Contains(err.Error(), "/limits/cpus") {
 		t.Fatalf("got %v", err)
 	}
@@ -69,14 +69,16 @@ func TestInvalidJSON(t *testing.T) {
 }
 
 // TestUnknownFieldReportedBesideOtherErrors checks that an unknown field is
-// reported with the other errors, and that a failing known field is not
-// also reported as unknown.
+// reported with the other errors, and that neither the failing field nor its
+// valid siblings are also reported as unknown.
 func TestUnknownFieldReportedBesideOtherErrors(t *testing.T) {
-	err := validateSchema([]byte(`{"id":"abcdefghijklmnopqrstuvwxyz","project":"p","image":"x","kind":"terminal","port":0,"max_age_s":60,"privileged":true}`))
+	err := validateSchema([]byte(`{"id":"abcdefghijklmnopqrstuvwxyz","project":"p","image":"x","kind":"terminal","ttyd":"image","port":0,"max_age_s":60,"privileged":true}`))
 	if err == nil || !strings.Contains(err.Error(), "/privileged: unknown field") || !strings.Contains(err.Error(), "/port:") {
 		t.Fatalf("got %v", err)
 	}
-	if strings.Contains(err.Error(), "/port: unknown field") {
-		t.Fatalf("failing field also reported as unknown: %v", err)
+	for _, field := range []string{"/port", "/image", "/kind"} {
+		if strings.Contains(err.Error(), field+": unknown field") {
+			t.Fatalf("%s reported as unknown: %v", field, err)
+		}
 	}
 }

@@ -46,6 +46,7 @@ projects:
     port: 7681
     max_sessions: 2
     max_age: 15m
+    ttyd: image
 agent_tls:
   ca: ca.crt
   cert: cp.crt
@@ -282,6 +283,26 @@ test("reserved environment variables are refused", () => {
   ]);
 });
 
+test("a terminal runs in the agent's ttyd by default: no port, an optional command", () => {
+  const agentTtyd = base.replace("    port: 7681\n", "").replace("    ttyd: image\n", "");
+  const cfg = parseConfig(agentTtyd.replace("max_age: 15m", "max_age: 15m\n    command: [python3, -q]"), opts).config;
+  assert.equal(cfg.projects.cli.port, undefined);
+  assert.deepEqual(cfg.projects.cli.command, ["python3", "-q"]);
+
+  assert.deepEqual(problems(base.replace("    ttyd: image\n", "")), ["/projects/cli/port (line 14): not allowed here"]);
+  assert.deepEqual(problems(agentTtyd.replace("max_age: 15m", "max_age: 15m\n    strip_prefix: true")), [
+    "/projects/cli/strip_prefix (line 16): not allowed here",
+  ]);
+});
+
+test("a terminal that serves its own page needs a port and runs the image as it is", () => {
+  assert.deepEqual(problems(base.replace("    port: 7681\n", "")), ["/projects/cli (line 11): must have required property 'port'"]);
+  assert.deepEqual(problems(base.replace("ttyd: image", "ttyd: image\n    command: [sh]")), [
+    "/projects/cli/command (line 18): not allowed here",
+  ]);
+  assert.deepEqual(problems(base.replace("kind: terminal", "kind: desktop")), ["/projects/cli/ttyd (line 17): not allowed here"]);
+});
+
 test("all problems are reported at once, across every pass", () => {
   const threeMistakes = base
     .replace("port: 7681", "port: 0")
@@ -373,16 +394,16 @@ test("agent_tls paths are relative to the configuration file and loaded as PEM",
 test("unreadable or invalid agent_tls files are reported with their path", () => {
   const p = problems(base.replace("cert: cp.crt", "cert: nope.crt").replace("ca: ca.crt", "ca: cp.key"));
   assert.equal(p.length, 2, p.join("\n"));
-  assert.ok(p.includes(`/agent_tls/cert (line 19): cannot read ${join(pki.dir, "nope.crt")}: ENOENT`), p.join("\n"));
-  assert.ok(p.includes("/agent_tls/ca (line 18): not a PEM certificate"), p.join("\n"));
+  assert.ok(p.includes(`/agent_tls/cert (line 20): cannot read ${join(pki.dir, "nope.crt")}: ENOENT`), p.join("\n"));
+  assert.ok(p.includes("/agent_tls/ca (line 19): not a PEM certificate"), p.join("\n"));
 });
 
 test("agent_tls: the certificate must be a client certificate matching its key, and the CA a CA", () => {
   assert.deepEqual(problems(base.replace("cert: cp.crt", "cert: srv.crt")), [
-    "/agent_tls/cert (line 19): the certificate does not allow client authentication (extended key usage clientAuth)",
-    "/agent_tls/key (line 20): the key does not match agent_tls.cert",
+    "/agent_tls/cert (line 20): the certificate does not allow client authentication (extended key usage clientAuth)",
+    "/agent_tls/key (line 21): the key does not match agent_tls.cert",
   ]);
-  assert.deepEqual(problems(base.replace("ca: ca.crt", "ca: cp.crt")), ["/agent_tls/ca (line 18): not a CA certificate"]);
+  assert.deepEqual(problems(base.replace("ca: ca.crt", "ca: cp.crt")), ["/agent_tls/ca (line 19): not a CA certificate"]);
 });
 
 test("agent_tls: expiry is an error, its approach a warning", () => {
@@ -396,7 +417,7 @@ test("agent_tls: expiry is an error, its approach a warning", () => {
 
   const p = problems(base, env, expired);
   assert.equal(p.length, 2, p.join("\n"));
-  assert.match(p[0], /^\/agent_tls\/ca \(line 18\): the certificate expired on /);
+  assert.match(p[0], /^\/agent_tls\/ca \(line 19\): the certificate expired on /);
 });
 
 test("server_name must be a DNS name", () => {
@@ -441,7 +462,7 @@ test("theme.accent derives the brand tokens", () => {
 test("theme.accent must be #rrggbb and readable on the card", () => {
   assert.match(problems(themed("  accent: blue\n"))[0], /^\/theme\/accent \(line \d+\): must match pattern/);
   assert.deepEqual(problems(themed('  accent: "#5a2d82"\n')), [
-    "/theme/accent (line 22): contrast 1.9:1 on the card (#141414) is below 3:1; choose a lighter colour",
+    "/theme/accent (line 23): contrast 1.9:1 on the card (#141414) is below 3:1; choose a lighter colour",
   ]);
 });
 
@@ -460,10 +481,10 @@ test("theme.logo: missing, oversized, not an image, or without alt text", () => 
   const page = logoFile("page.svg", "<html><script>alert(1)</script></html>");
   const big = logoFile("big.png", Buffer.concat([PNG, Buffer.alloc(64 * 1024)]));
 
-  assert.match(problems(themed("  logo: { file: nope.svg, alt: Me }\n"))[0], /^\/theme\/logo\/file \(line 22\): cannot read .*nope\.svg$/);
+  assert.match(problems(themed("  logo: { file: nope.svg, alt: Me }\n"))[0], /^\/theme\/logo\/file \(line 23\): cannot read .*nope\.svg$/);
   assert.match(problems(themed(`  logo: { file: ${page}, alt: Me }\n`))[0], /page\.svg is not an SVG, PNG or WebP image$/);
   assert.match(problems(themed(`  logo: { file: ${big}, alt: Me }\n`))[0], /big\.png is larger than 64 KB$/);
-  assert.match(problems(themed(`  logo: { file: ${page} }\n`))[0], /^\/theme\/logo \(line 22\): must have required property 'alt'$/);
+  assert.match(problems(themed(`  logo: { file: ${page} }\n`))[0], /^\/theme\/logo \(line 23\): must have required property 'alt'$/);
 });
 
 // ---------- settings: seeding the database, stored revisions ----------
@@ -540,7 +561,7 @@ test("a stored document names its logo by an asset it was given", () => {
   assert.deepEqual(documentProblems({ theme: { logo: { asset: sha256, alt: "Me" } } }), [
     "/theme/logo/asset: unknown asset: upload the logo first",
   ]);
-  assert.match(problems(themed(`  logo: { asset: ${sha256}, alt: Me }\n`))[0], /^\/theme\/logo \(line 22\): needs file/);
+  assert.match(problems(themed(`  logo: { asset: ${sha256}, alt: Me }\n`))[0], /^\/theme\/logo \(line 23\): needs file/);
 });
 
 test("projects are enabled unless paused", () => {

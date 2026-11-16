@@ -35,7 +35,7 @@ other services, needs a dedicated rootless daemon and has its own guide on the
 
 | Machine | Needs |
 |---|---|
-| Node | Linux, amd64 or arm64; Docker Engine with Compose v2; [gVisor](https://gvisor.dev/docs/user_guide/install/) registered in Docker as `runsc` |
+| Node | Linux, amd64 or arm64; Docker Engine 28 or later with Compose v2 (the agent mounts its web terminal as an image); [gVisor](https://gvisor.dev/docs/user_guide/install/) registered in Docker as `runsc` |
 | Control plane | Docker Engine with Compose v2 |
 | Your machine | Docker, to run `tryout-certs` |
 | Network | the control plane reaches each agent's port 7000 over a private network, a VPN or a tunnel; your proxy reaches the control plane's port 3000 and each gateway's port 8080 |
@@ -347,6 +347,12 @@ docker compose run --rm control-plane node apps/control-plane/src/cli.ts import 
 
 The import ignores the bootstrap keys. Run it from the directory of the running stack, or with
 its project name (`-p`), so that it reaches the same PostgreSQL.
+
+From `v0.2`, `v0.3` serves terminals with the agent's own ttyd, and needs Docker Engine 28 or
+later on the nodes. A terminal project whose image runs its own ttyd (images built from the
+`v0.2` guide or from `cli-hello` before `v0.3`) must declare `ttyd: image` before the upgrade, or
+be rebuilt without ttyd: the agent would otherwise start a second ttyd on the same port. Its
+`port` stays. See [Packaging a project](packaging.md#a-command-line-project).
 
 Running sessions survive a node upgrade, with a short interruption. A recreated gateway is no
 longer attached to the session networks: the agent attaches it again and pushes its routes on

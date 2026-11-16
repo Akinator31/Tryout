@@ -15,26 +15,33 @@ import (
 // errNodeFull refuses a session when the node runs MAX_SESSIONS already.
 var errNodeFull = errors.New("node full")
 
-// create starts a session: it pulls the image if needed, creates the
-// session's --internal network and its hardened container, attaches the
-// gateway to the network, starts the container and pushes the new route
-// table. A failure after the network exists removes everything it made.
+// create starts a session: it pulls the image if needed, builds the
+// hardened container from it, creates the session's --internal network and
+// the container, attaches the gateway to the network, starts the container
+// and pushes the new route table. A failure after the network exists
+// removes everything it made.
 func (a *Agent) create(ctx context.Context, r session.Request) error {
 	if err := a.reserveSlot(ctx, r.ID); err != nil {
 		return err
 	}
 	defer a.finishCreating(r.ID)
 
-	if err := a.ensureImage(ctx, r.Image); err != nil {
+	img, err := a.ensureImage(ctx, r.Image)
+	if err != nil {
 		return err
 	}
 
 	name := session.Name(r.ID)
+	spec, err := session.Spec(r, session.Image{Entrypoint: img.Config.Entrypoint, Cmd: img.Config.Cmd}, name, time.Now())
+	if err != nil {
+		return err
+	}
+
 	if err := a.createSessionNetwork(ctx, r.ID, name); err != nil {
 		return err
 	}
 
-	if err := a.startSessionContainer(ctx, r, name); err != nil {
+	if err := a.startSessionContainer(ctx, name, spec); err != nil {
 		a.destroy(context.WithoutCancel(ctx), r.ID)
 		return err
 	}
@@ -75,25 +82,25 @@ func (a *Agent) countSessions(ctx context.Context) (int, error) {
 }
 
 // ensureImage pulls ref when it is missing, with the credentials of its
-// registry if any, and refuses an image built for another
-// architecture than the node's.
-func (a *Agent) ensureImage(ctx context.Context, ref string) error {
+// registry if any, refuses an image built for another architecture than the
+// node's, and describes the image.
+func (a *Agent) ensureImage(ctx context.Context, ref string) (*dockerapi.ImageInspect, error) {
 	img, err := a.docker.ImageInspect(ctx, ref)
 	if dockerapi.IsNotFound(err) {
 		slog.Info("pulling image", "ref", ref)
 		if err := a.docker.ImagePull(ctx, ref, a.registry.HeaderFor(ref)); err != nil {
-			return err
+			return nil, err
 		}
 		img, err = a.docker.ImageInspect(ctx, ref)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if normArch(img.Architecture) != a.arch {
-		return fmt.Errorf("image %s is %s but this node is %s (build a multi-arch image or assign the project to another node)", ref, img.Architecture, a.arch)
+		return nil, fmt.Errorf("image %s is %s but this node is %s (build a multi-arch image or assign the project to another node)", ref, img.Architecture, a.arch)
 	}
-	return nil
+	return img, nil
 }
 
 // createSessionNetwork creates the session's own network. It is --internal:
@@ -114,8 +121,8 @@ func (a *Agent) createSessionNetwork(ctx context.Context, id, name string) error
 
 // startSessionContainer creates the hardened container on the session
 // network, attaches the gateway to that network, then starts the container.
-func (a *Agent) startSessionContainer(ctx context.Context, r session.Request, name string) error {
-	if _, err := a.docker.ContainerCreate(ctx, name, session.Spec(r, name, time.Now())); err != nil {
+func (a *Agent) startSessionContainer(ctx context.Context, name string, spec dockerapi.ContainerCreate) error {
+	if _, err := a.docker.ContainerCreate(ctx, name, spec); err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
 	if err := a.docker.NetworkConnect(ctx, name, a.gatewayName); err != nil {

@@ -1,1 +1,1 @@
-{"id":"abcdefghijklmnopqrstuvwxyz","project":"p","image":"x","kind":"terminal","port":7681,"max_age_s":60,"limits":{"memory_mb":256,"swap_mb":1}}
+{"id":"abcdefghijklmnopqrstuvwxyz","project":"p","image":"x","kind":"terminal","ttyd":"image","port":7681,"max_age_s":60,"limits":{"memory_mb":256,"swap_mb":1}}

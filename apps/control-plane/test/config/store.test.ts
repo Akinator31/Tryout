@@ -19,7 +19,7 @@ import { eventually, fakeClock, fakeRuntime, freshDb } from "../support/support.
 const PNG = Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(32)]);
 
 const node = (max = 2) => ({ agent_url: "https://n1.example:7000", public_url: "https://n1.example/s/{session}/", max_sessions: max });
-const project = { node: "n1", image: "ghcr.io/me/cli:1", kind: "terminal", port: 7681, max_sessions: 1, max_age: "15m" };
+const project = { node: "n1", image: "ghcr.io/me/cli:1", kind: "terminal", max_sessions: 1, max_age: "15m" };
 
 /** Settings with one node and one project; `extra` replaces top-level sections. */
 const settings = (extra: SettingsDocument = {}): SettingsDocument => ({ nodes: { n1: node() }, projects: { cli: project }, ...extra });

@@ -45,7 +45,6 @@ projects:
     node: local
     image: tryout-example/cli-hello:dev
     kind: terminal
-    port: 7681
     max_sessions: 2
     max_age: 10m
   webtop:

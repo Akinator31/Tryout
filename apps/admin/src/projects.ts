@@ -14,7 +14,7 @@ export const KIND_DEFAULTS: Record<Kind, { memory_mb: number; cpus: number; pids
   desktop: { memory_mb: 2048, cpus: 1.5, pids: 1024 },
 };
 
-/** The port each kind usually serves: ttyd's, and LinuxServer images'. */
+/** The port each kind usually serves when the image serves its own page: ttyd's, and LinuxServer images'. */
 export const KIND_PORTS: Record<Kind, number> = { terminal: 7681, desktop: 3000 };
 
 /** A project or node name (schema $defs/name). */
@@ -126,6 +126,10 @@ export interface ProjectForm {
   title: string;
   kind: Kind;
   image: string;
+  /** A terminal whose image serves its own page (ttyd: image) instead of running in the agent's ttyd. */
+  ownServer: boolean;
+  /** The program the agent's ttyd runs, as typed; empty for the image's own. */
+  command: string;
   port: string;
   stripPrefix: boolean;
   node: string;
@@ -146,6 +150,8 @@ export function newProjectForm(node = ""): ProjectForm {
     title: "",
     kind: "terminal",
     image: "",
+    ownServer: false,
+    command: "",
     port: String(KIND_PORTS.terminal),
     stripPrefix: false,
     node,
@@ -168,7 +174,9 @@ export function projectForm(name: string, p: ProjectSettings): ProjectForm {
     title: p.title ?? "",
     kind: p.kind,
     image: p.image,
-    port: String(p.port),
+    ownServer: p.ttyd === "image",
+    command: formatCommand(p.command ?? []),
+    port: String(p.port ?? KIND_PORTS[p.kind]),
     stripPrefix: p.strip_prefix ?? false,
     node: p.node,
     runtime: p.runtime ?? "",
@@ -179,6 +187,48 @@ export function projectForm(name: string, p: ProjectSettings): ProjectForm {
     pids: text(p.limits?.pids),
     env: Object.entries(p.env ?? {}).map(([k, v]) => ({ name: k, value: v })),
   };
+}
+
+/** Whether the project serves its own page on a port: a desktop, or a terminal with ttyd: image. */
+export const servesOwnPage = (form: Pick<ProjectForm, "kind" | "ownServer">) => form.kind === "desktop" || form.ownServer;
+
+/**
+ * The arguments of a command typed on one line, split on spaces; an argument
+ * with spaces is quoted, with " or '. Undefined when a quote is not closed.
+ */
+export function parseCommand(text: string): string[] | undefined {
+  const args: string[] = [];
+  let arg: string | undefined;
+  let quote: string | undefined;
+
+  for (const c of text) {
+    if (quote) {
+      if (c === quote) quote = undefined;
+      else arg += c;
+    } else if (c === '"' || c === "'") {
+      quote = c;
+      arg ??= "";
+    } else if (/\s/.test(c)) {
+      if (arg !== undefined) args.push(arg);
+      arg = undefined;
+    } else {
+      arg = (arg ?? "") + c;
+    }
+  }
+
+  if (quote) return undefined;
+  if (arg !== undefined) args.push(arg);
+  return args;
+}
+
+/** A command on one line, quoting the arguments parseCommand would otherwise split. */
+export function formatCommand(args: string[]): string {
+  return args
+    .map((a) => {
+      if (a !== "" && !/[\s"']/.test(a)) return a;
+      return a.includes('"') ? `'${a}'` : `"${a}"`;
+    })
+    .join(" ");
 }
 
 /** A positive decimal number such as 0.5 or 2, or undefined. */
@@ -229,8 +279,12 @@ function checkWorkload(form: ProjectForm, { taken, nodes, isNew }: FormContext, 
   if (!form.image.trim()) problems.image = P.required;
   else if (/\s/.test(form.image)) problems.image = P.image;
 
-  const port = parseWhole(form.port);
-  if (port === undefined || port < 1 || port > 65535) problems.port = P.port;
+  if (servesOwnPage(form)) {
+    const port = parseWhole(form.port);
+    if (port === undefined || port < 1 || port > 65535) problems.port = P.port;
+  } else if (parseCommand(form.command) === undefined) {
+    problems.command = P.command;
+  }
 
   if (!form.node) problems.node = nodes.length ? P.required : P.noNode;
   else if (!nodes.includes(form.node)) problems.node = P.unknownNode;
@@ -303,6 +357,8 @@ export function projectFromForm(form: ProjectForm, previous?: ProjectSettings): 
     pids: form.pids ? parseWhole(form.pids) : undefined,
   };
   const env = Object.fromEntries(form.env.map((v) => [v.name, v.value]));
+  const ownPage = servesOwnPage(form);
+  const command = ownPage ? [] : parseCommand(form.command)!;
 
   return {
     title: form.title.trim() || undefined,
@@ -310,9 +366,11 @@ export function projectFromForm(form: ProjectForm, previous?: ProjectSettings): 
     node: form.node,
     image: form.image.trim(),
     kind: form.kind,
-    port: parseWhole(form.port)!,
+    ttyd: form.kind === "terminal" && form.ownServer ? "image" : undefined,
+    command: command.length ? command : undefined,
+    port: ownPage ? parseWhole(form.port)! : undefined,
     runtime: form.runtime || undefined,
-    strip_prefix: form.stripPrefix || undefined,
+    strip_prefix: (ownPage && form.stripPrefix) || undefined,
     max_sessions: parseWhole(form.maxSessions)!,
     max_age: form.maxAge.trim(),
     limits,
