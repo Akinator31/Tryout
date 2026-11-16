@@ -65,7 +65,8 @@ fi
 # NODE_USER's rootless daemon, run as that user (as_node_user).
 node_docker_cmd=(docker)
 if [ -n "$node_user" ]; then
-  as_node_user=(sudo -u "$node_user" env HOME="$node_home" XDG_RUNTIME_DIR="/run/user/$node_uid")
+  as_node_user=(sudo -u "$node_user" env HOME="$node_home" XDG_CONFIG_HOME="$node_home/.config"
+    XDG_RUNTIME_DIR="/run/user/$node_uid")
   node_docker_cmd=("${as_node_user[@]}" DOCKER_HOST="unix:///run/user/$node_uid/docker.sock" docker)
 fi
 node_docker() { "${node_docker_cmd[@]}" "$@"; }
