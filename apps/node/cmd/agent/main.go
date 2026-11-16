@@ -51,6 +51,9 @@ func main() {
 	if err := a.CheckProfile(ctx); err != nil {
 		fatal("refusing to start", "err", err)
 	}
+	if err := a.PrepareTTYD(ctx); err != nil {
+		fatal("refusing to start", "err", err)
+	}
 
 	go a.ReconcileForever(ctx)
 	go warnExpiryForever(certs)

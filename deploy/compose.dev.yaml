@@ -24,10 +24,19 @@ services:
     depends_on:
       pki-ca: { condition: service_completed_successfully }
 
+  # One-shot: builds the ttyd image the agent mounts into terminal sessions
+  # (TTYD_IMAGE below) and checks that its binary runs.
+  ttyd:
+    build: ../apps/node/ttyd
+    image: tryout/ttyd:dev
+    entrypoint: ["/ttyd", "--version"]
+    network_mode: none
+
   agent:
     build: ../apps/node
     command: ["tryout-agent"]
     environment:
+      TTYD_IMAGE: ${TTYD_IMAGE:-tryout/ttyd:dev}
       DOCKER_HOST: unix:///var/run/docker.sock
       NODE_PROFILE: ${NODE_PROFILE:-dev}
       DEFAULT_RUNTIME: ${DEFAULT_RUNTIME:-runsc}
@@ -49,6 +58,7 @@ services:
     ports: ["127.0.0.1:7000:7000"]
     depends_on:
       pki-node: { condition: service_completed_successfully }
+      ttyd: { condition: service_completed_successfully }
     # Socket access: Docker Desktop exposes it root:root, a native daemon uses the
     # docker group. dev only; a real node runs the agent as the rootless user.
     user: "${AGENT_USER:-0}"

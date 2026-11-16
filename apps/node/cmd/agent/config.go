@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Akinator31/Tryout/apps/node/internal/agent"
+	"github.com/Akinator31/Tryout/apps/node/internal/version"
 )
 
 // config is the process's configuration, read once from the environment:
@@ -37,6 +38,7 @@ func loadConfig() config {
 			GatewayName:    env("GATEWAY_CONTAINER", "tryout-gateway"),
 			MaxSessions:    maxSessions,
 			MaxAge:         maxAge,
+			TTYDImage:      env("TTYD_IMAGE", version.TTYDImage),
 		},
 		listen:           env("AGENT_LISTEN", ":7000"),
 		tlsCert:          os.Getenv("AGENT_TLS_CERT"),

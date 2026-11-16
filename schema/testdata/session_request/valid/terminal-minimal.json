@@ -1,1 +1,1 @@
-{"id":"abcdefghijklmnopqrstuvwxyz","project":"cli-hello","image":"ghcr.io/me/cli@sha256:0123","kind":"terminal","port":7681,"max_age_s":660}
+{"id":"abcdefghijklmnopqrstuvwxyz","project":"cli-hello","image":"ghcr.io/me/cli@sha256:0123","kind":"terminal","max_age_s":660}

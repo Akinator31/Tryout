@@ -34,6 +34,7 @@ services:
       REGISTRY_AUTH_FILE: ${REGISTRY_AUTH_FILE:-}
       MAX_SESSIONS: ${MAX_SESSIONS:-10}
       SESSION_MAX_AGE_CAP: ${SESSION_MAX_AGE_CAP:-2h}
+      TTYD_IMAGE: ${TTYD_IMAGE:-}   # empty: the release's own, pinned by digest
     volumes:
       # The daemon that runs sessions; the gateway must run on the same daemon.
       - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock

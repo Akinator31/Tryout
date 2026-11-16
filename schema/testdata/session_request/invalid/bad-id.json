@@ -1,1 +1,1 @@
-{"id":"ABC","project":"p","image":"x","kind":"terminal","port":7681,"max_age_s":60}
+{"id":"ABC","project":"p","image":"x","kind":"terminal","ttyd":"image","port":7681,"max_age_s":60}

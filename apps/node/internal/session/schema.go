@@ -30,6 +30,40 @@ var schemaJSON []byte
 // sessionRequest is the compiled schema of the POST /v1/sessions body.
 var sessionRequest = mustCompile("#/$defs/session_request")
 
+// declaredNames holds every property name the schema declares, anywhere.
+var declaredNames = propertyNames(schemaJSON)
+
+// propertyNames collects the keys of every "properties" object in a JSON
+// Schema document.
+func propertyNames(doc []byte) map[string]bool {
+	var root any
+	if err := json.Unmarshal(doc, &root); err != nil {
+		panic(err)
+	}
+
+	names := map[string]bool{}
+	var walk func(v any)
+	walk = func(v any) {
+		switch v := v.(type) {
+		case map[string]any:
+			if props, ok := v["properties"].(map[string]any); ok {
+				for k := range props {
+					names[k] = true
+				}
+			}
+			for _, child := range v {
+				walk(child)
+			}
+		case []any:
+			for _, child := range v {
+				walk(child)
+			}
+		}
+	}
+	walk(root)
+	return names
+}
+
 // mustCompile compiles the schema at ref in the embedded document. It panics
 // at startup on an invalid schema, which the tests would catch first.
 func mustCompile(ref string) *jsonschema.Schema {
@@ -68,9 +102,9 @@ func validateSchema(body []byte) error {
 }
 
 // describe flattens the error tree into "path: message" lines, leaves only.
-// A field that fails its own schema is also reported by
-// unevaluatedProperties as a "false schema"; that duplicate is dropped, and a
-// false schema on a field with no other error is reported as unknown.
+// unevaluatedProperties reports a "false schema" for fields of a failing
+// subschema; those duplicates are dropped (see spurious), and the other false
+// schemas are reported as unknown fields.
 func describe(ve *jsonschema.ValidationError) string {
 	var c errorCollector
 	c.walk(ve, "", "")
@@ -135,18 +169,33 @@ func (c *errorCollector) addLeaf(e *jsonschema.ValidationError, path, name strin
 }
 
 // messages returns the real errors, then an "unknown field" error for each
-// false-schema path that has no real error at or below it.
+// false-schema path that is not a side effect of a real error (see spurious).
 func (c *errorCollector) messages() []string {
 	out := c.errs
 	for _, u := range c.unknown {
-		hasError := slices.ContainsFunc(c.errPaths, func(p string) bool {
-			return p == u || strings.HasPrefix(p, u+"/")
-		})
-		if !hasError {
+		if !c.spurious(u) {
 			out = append(out, u+": unknown field")
 		}
 	}
 	return out
+}
+
+// spurious reports whether the unknown-field leaf at path u only repeats a
+// real error. A subschema that fails does not count its properties as
+// evaluated, so unevaluatedProperties then flags the failing field and its
+// valid siblings too. The leaf is spurious when the field itself has an
+// error, or when it bears a name the schema declares and its object has a
+// real error: a field that is really unknown is still reported.
+func (c *errorCollector) spurious(u string) bool {
+	parent, name := u[:strings.LastIndex(u, "/")], u[strings.LastIndex(u, "/")+1:]
+
+	return slices.ContainsFunc(c.errPaths, func(p string) bool {
+		if p == u || strings.HasPrefix(p, u+"/") {
+			return true
+		}
+		inParent := parent == "" || p == parent || strings.HasPrefix(p, parent+"/")
+		return inParent && declaredNames[name]
+	})
 }
 
 // schemaReservedEnv returns the literal names and prefixes of

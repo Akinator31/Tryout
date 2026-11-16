@@ -7,12 +7,20 @@
 # internal network with no egress, no capabilities (desktop: the six its init needs),
 # no-new-privileges, the kind's resource limits, and its environment with the same precedence
 # (kind defaults < project variables < the agent's own). Terminals also get a read-only root
-# filesystem with a small /tmp. The agent stays the reference; this script approximates it.
-# Runs with bash 3.2 (macOS) and later.
+# filesystem with a small /tmp and, unless the image serves its own page, run in the agent's
+# ttyd: the ttyd image mounted read-only, the image's program (or the command after --) in it.
+# The agent stays the reference; this script approximates it. Runs with bash 3.2 (macOS) and
+# later.
 #
-# Usage: scripts/check-image.sh [options] <image>
+# Usage: scripts/check-image.sh [options] <image> [-- <command>...]
 #   --kind terminal|desktop   default terminal
-#   --port N                  default 7681 (terminal), 3000 (desktop)
+#   --own-server              a terminal that serves its own page (ttyd: image), on port 7681
+#                             unless --port says otherwise
+#   --port N                  the port of an image that serves its own page; on a terminal,
+#                             implies --own-server, as a port does in the configuration.
+#                             Default 3000 for a desktop
+#   --ttyd-image REF          ttyd image to mount; default $TTYD_IMAGE, else
+#                             ghcr.io/akinator31/tryout-ttyd:edge
 #   --strip-prefix            the project sets strip_prefix: true
 #   --env KEY=VALUE           project environment variable; repeatable
 #   --runtime NAME            container runtime, such as runsc (default: the daemon's default)
@@ -21,6 +29,9 @@
 set -euo pipefail
 
 kind=terminal
+own_server=false
+ttyd_image=${TTYD_IMAGE:-ghcr.io/akinator31/tryout-ttyd:edge}
+command=()
 port=
 strip_prefix=false
 runtime=
@@ -58,10 +69,11 @@ usage() {
 parse_args() {
   while [ $# -gt 0 ]; do
     case $1 in
-      --kind | --port | --env | --runtime | --timeout)
+      --kind | --port | --env | --runtime | --timeout | --ttyd-image)
         [ $# -ge 2 ] || { echo "$1 needs a value" >&2; usage; }
         case $1 in
           --kind) kind=$2 ;;
+          --ttyd-image) ttyd_image=$2 ;;
           --port) port=$2 ;;
           --env) project_env+=("$2") ;;
           --runtime) runtime=$2 ;;
@@ -70,6 +82,8 @@ parse_args() {
         shift 2
         ;;
       --strip-prefix) strip_prefix=true; shift ;;
+      --own-server) own_server=true; shift ;;
+      --) shift; command=("$@"); break ;;
       -h | --help) usage ;;
       -*) echo "unknown option $1" >&2; usage ;;
       *) image=$1; shift ;;
@@ -77,11 +91,28 @@ parse_args() {
   done
 
   [ -n "$image" ] || usage
+  if [ "$kind" = terminal ] && [ -n "$port" ]; then own_server=true; fi
   case $kind in
     terminal) port=${port:-7681}; timeout=${timeout:-30} ;;
     desktop) port=${port:-3000}; timeout=${timeout:-170} ;;
     *) echo "--kind must be terminal or desktop" >&2; exit 2 ;;
   esac
+
+  if agent_ttyd; then
+    if [ "$strip_prefix" = true ]; then
+      echo "--strip-prefix is for an image that serves its own page (--own-server or --port)" >&2
+      exit 2
+    fi
+  elif [ ${#command[@]} -gt 0 ]; then
+    echo "a command runs in the agent's ttyd: not with --own-server or a desktop" >&2
+    exit 2
+  fi
+}
+
+# agent_ttyd tells whether the session runs in the agent's ttyd: a terminal that does not
+# serve its own page.
+agent_ttyd() {
+  [ "$kind" = terminal ] && [ "$own_server" = false ]
 }
 
 # check_project_env refuses the variables the agent reserves, as the configuration does.
@@ -131,8 +162,38 @@ start_session() {
   add_kind_limits
   add_environment
 
-  docker run "${run_args[@]}" "$image" >/dev/null
+  if agent_ttyd; then
+    add_ttyd
+  else
+    run_args+=("$image")
+  fi
+
+  docker run "${run_args[@]}" >/dev/null
   echo "ok   started with the session constraints ($kind, port $port${runtime:+, runtime $runtime})"
+}
+
+# add_ttyd adds to run_args what the agent does for its ttyd: the ttyd image mounted read-only
+# at /opt/tryout, ttyd as the entrypoint with the agent's main options, then the program: the
+# command given, else the image's entrypoint and command, one argument per line of inspect
+# (empty lines skipped: inspect ends with one).
+add_ttyd() {
+  docker image inspect "$ttyd_image" >/dev/null 2>&1 || docker pull -q "$ttyd_image" >/dev/null
+
+  local program=() arg
+  if [ ${#command[@]} -gt 0 ]; then
+    program=("${command[@]}")
+  else
+    while IFS= read -r arg; do [ -z "$arg" ] || program+=("$arg"); done < <(docker image inspect -f \
+      '{{range .Config.Entrypoint}}{{println .}}{{end}}{{range .Config.Cmd}}{{println .}}{{end}}' "$image")
+  fi
+  if [ ${#program[@]} -eq 0 ] || [ -z "${program[0]}" ]; then
+    fail "the image has no entrypoint or command: set the project's command (here: after --)"
+  fi
+
+  run_args+=(--mount "type=image,source=$ttyd_image,target=/opt/tryout"
+    --entrypoint /opt/tryout/ttyd "$image"
+    --writable --max-clients 1 --port 7681 --base-path "$base_path" -- "${program[@]}")
+  echo "ok   runs in the agent's ttyd: ${program[*]}"
 }
 
 # add_kind_limits adds the kind's resource limits and filesystem to run_args.

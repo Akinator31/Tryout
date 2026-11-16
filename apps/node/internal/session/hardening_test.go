@@ -17,7 +17,11 @@ func TestSpecHardening(t *testing.T) {
 		if err := r.validate(p); err != nil {
 			t.Fatal(err)
 		}
-		hc := Spec(r, "net", time.Now()).HostConfig
+		c, err := Spec(r, Image{Cmd: []string{"bash"}}, "net", time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		hc := c.HostConfig
 
 		if !slices.Equal(hc.CapDrop, []string{"ALL"}) || hc.Privileged {
 			t.Errorf("%s: capabilities not dropped", kind)
@@ -38,7 +42,7 @@ func TestSpecHardening(t *testing.T) {
 
 	term := validReq(Terminal)
 	_ = term.validate(p)
-	if !Spec(term, "net", time.Now()).HostConfig.ReadonlyRootfs {
+	if c, _ := Spec(term, Image{Cmd: []string{"bash"}}, "net", time.Now()); !c.HostConfig.ReadonlyRootfs {
 		t.Error("terminal sessions must have a read-only rootfs")
 	}
 }
@@ -46,9 +50,10 @@ func TestSpecHardening(t *testing.T) {
 // TestSpecLabels checks the labels the agent reads back: the session, its
 // lifetime from the creation time, and its route.
 func TestSpecLabels(t *testing.T) {
-	r := validReq(Terminal)
+	r := validReq(Desktop)
 	r.MaxAgeS = 60
-	l := Spec(r, "net", time.Unix(1000, 0)).Labels
+	c, _ := Spec(r, Image{}, "net", time.Unix(1000, 0))
+	l := c.Labels
 
 	if l[LabelSession] != r.ID || l[LabelCreated] != "1000" || l[LabelExpires] != "1060" || l[LabelPort] != "3000" || l[LabelStrip] != "false" {
 		t.Errorf("labels: %v", l)

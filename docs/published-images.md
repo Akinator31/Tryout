@@ -6,6 +6,7 @@ CI publishes Tryout's images to the GitHub Container Registry (`ghcr.io`), for `
 | Image | Contents |
 |---|---|
 | `ghcr.io/<owner>/tryout-node` | `tryout-agent` and `tryout-gateway`, run as two containers (see [Production deployment](deployment.md)), and `tryout-certs`, which creates the mutual TLS certificates ([Certificates](certificates.md)) |
+| `ghcr.io/<owner>/tryout-ttyd` | the web terminal the agent mounts into terminal sessions: ttyd's static binary alone, pinned by checksum (`apps/node/ttyd`). Each `tryout-node` image defaults to the `tryout-ttyd` digest published with it |
 | `ghcr.io/<owner>/tryout-control-plane` | the control plane (Node.js) |
 | `ghcr.io/<owner>/tryout-example-cli-hello` | the sample terminal project from `examples/cli-hello`, for demos and tests |
 
@@ -29,8 +30,10 @@ in quick succession, CI may skip the queued runs in between, so not every commit
 `sha-*` tag. The end-to-end tests run on images built from the same commit, not on the pushed
 bytes, and the arm64 images are built but not run in CI.
 
-The sample image is a demo, not a base image: its tags follow the repository, not ttyd, and its
-ttyd binaries are pinned by checksum. Third-party images, such as LinuxServer desktops, are not
+`tryout-ttyd` follows the repository's tags too, not ttyd's version. CI publishes it first, then
+builds its digest into `tryout-node` as the agent's default `TTYD_IMAGE`: a node runs the ttyd of
+its own release without any setting. The sample image is a demo, not a base image. Third-party
+images, such as LinuxServer desktops, are not
 republished: pull them from their own publishers.
 
 **Pin by digest in production**, as for project images:

@@ -6,9 +6,11 @@ import { agentLine, checkNodeForm, connectionResult, downLine, newNodeForm, node
 import {
   checkProjectForm,
   durationSeconds,
+  formatCommand,
   loadBy,
   newProjectForm,
   overbooking,
+  parseCommand,
   projectForm,
   projectFromForm,
   projectsSummary,
@@ -18,7 +20,7 @@ import {
 } from "../../src/projects.ts";
 import type { ProjectSettings, SettingsDocument } from "../../src/settings/document.ts";
 
-const CLI: ProjectSettings = { node: "local", image: "tryout-example/cli-hello:dev", kind: "terminal", port: 7681, max_sessions: 2, max_age: "10m" };
+const CLI: ProjectSettings = { node: "local", image: "tryout-example/cli-hello:dev", kind: "terminal", max_sessions: 2, max_age: "10m" };
 
 const DOC: SettingsDocument = {
   nodes: {
@@ -86,7 +88,9 @@ test("a valid project form has no problem and gives the project, defaults left o
     node: "local",
     image: "ghcr.io/me/my-cli:1",
     kind: "terminal",
-    port: 7681,
+    ttyd: undefined,
+    command: undefined,
+    port: undefined,
     runtime: undefined,
     strip_prefix: undefined,
     max_sessions: 1,
@@ -101,6 +105,7 @@ test("the project form refuses what the schema and the control plane refuse", ()
     form({
       name: "my_CLI",
       image: "has space",
+      ownServer: true,
       port: "70000",
       maxSessions: "0",
       maxAge: "36h",
@@ -119,11 +124,48 @@ test("the project form refuses what the schema and the control plane refuse", ()
 });
 
 test("an existing project's form round-trips, keeping enabled", () => {
-  const project: ProjectSettings = { ...CLI, title: "CLI", enabled: false, runtime: "runsc", limits: { memory_mb: 512 }, env: { GREETING: "hi" } };
-  const edited = projectForm("cli-hello", project);
+  const roundTrip = (project: ProjectSettings) => {
+    const edited = projectForm("cli-hello", project);
+    assert.deepEqual(checkProjectForm(edited, { ...ctx, isNew: false }), {});
+    assert.deepEqual(JSON.parse(JSON.stringify(projectFromForm(edited, project))), project);
+  };
 
-  assert.deepEqual(checkProjectForm(edited, { ...ctx, isNew: false }), {});
-  assert.deepEqual(JSON.parse(JSON.stringify(projectFromForm(edited, project))), project);
+  roundTrip({ ...CLI, title: "CLI", enabled: false, runtime: "runsc", limits: { memory_mb: 512 }, env: { GREETING: "hi" } });
+  roundTrip({ ...CLI, command: ["bash", "-c", "hello; exec bash -l"], limits: {}, env: {} });
+  roundTrip({ ...CLI, ttyd: "image", port: 7681, strip_prefix: true, limits: {}, env: {} });
+  roundTrip({ ...CLI, port: 7681, limits: {}, env: {} });
+  roundTrip({ ...CLI, ttyd: "agent", limits: {}, env: {} });
+  assert.equal(projectForm("v02", { ...CLI, port: 7681 }).ownServer, true, "a terminal with a port serves its own page");
+});
+
+test("a terminal runs in Tryout's ttyd unless its image serves its own page", () => {
+  const own = projectFromForm(form({ ownServer: true, command: "python3", port: "8080", stripPrefix: true }));
+  assert.equal(own.ttyd, "image");
+  assert.equal(own.port, 8080);
+  assert.equal(own.strip_prefix, true);
+  assert.equal(own.command, undefined);
+
+  const agent = projectFromForm(form({ command: "python3 -q", port: "8080", stripPrefix: true }));
+  assert.deepEqual([agent.ttyd, agent.port, agent.strip_prefix], [undefined, undefined, undefined]);
+  assert.deepEqual(agent.command, ["python3", "-q"]);
+
+  const desktop = projectFromForm(form({ kind: "desktop", ownServer: true, port: "3000" }));
+  assert.deepEqual([desktop.ttyd, desktop.port], [undefined, 3000]);
+
+  assert.equal(checkProjectForm(form({ command: 'bash -c "unclosed' }), ctx).command, "Close the quote.");
+  assert.match(checkProjectForm(form({ command: '"" x' }), ctx).command ?? "", /cannot be empty/);
+  assert.equal(checkProjectForm(form({ port: "0" }), ctx).port, undefined, "the port is not used with Tryout's ttyd");
+});
+
+test("a command is split on spaces, with quotes for an argument that holds one", () => {
+  assert.deepEqual(parseCommand('bash -c "hello; exec bash -l"'), ["bash", "-c", "hello; exec bash -l"]);
+  assert.deepEqual(parseCommand(`  a  'b "c"' "" `), ["a", 'b "c"', ""]);
+  assert.deepEqual(parseCommand(""), []);
+  assert.equal(parseCommand("'open"), undefined);
+
+  for (const args of [["bash", "-c", "hello; exec bash -l"], ["a", 'b "c"', ""], ["it's"]]) {
+    assert.deepEqual(parseCommand(formatCommand(args)), args);
+  }
 });
 
 test("resources fall back to the kind's defaults", () => {

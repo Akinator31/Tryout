@@ -1,7 +1,7 @@
 # Packaging a project
 
 This guide turns a program into an image that Tryout can serve, step by step: a command-line
-tool behind a web terminal, then a graphical application behind a streamed desktop. It ends with
+tool in Tryout's web terminal, then a graphical application behind a streamed desktop. It ends with
 publishing the image and declaring the project. [Project images](project-images.md) is the
 reference for the contract every image follows; this page shows how to meet it.
 
@@ -28,8 +28,9 @@ persists between visitors.
 ## A command-line project
 
 The example packages `wordfreq`, a small Python tool that prints the ten most frequent words of a
-text. The same steps apply to a program in any language. The Tryout files live in a `tryout/`
-directory next to the program's sources:
+text. The same steps apply to a program in any language. Tryout serves the terminal itself: the
+agent mounts its own web terminal, [ttyd](https://github.com/tsl0922/ttyd), read-only into the
+session and runs your image's program in it. The image holds the program and nothing else.
 
 ```
 wordfreq/
@@ -37,7 +38,6 @@ wordfreq/
 ├── wordfreq/__init__.py
 ├── Dockerfile
 └── tryout/
-    ├── entrypoint.sh
     └── welcome.sh
 ```
 
@@ -46,9 +46,6 @@ wordfreq/
 ```dockerfile
 FROM python:3.13-slim
 
-# ttyd serves the terminal: a static binary, taken from its official multi-arch image.
-COPY --from=tsl0922/ttyd:1.7.7 /usr/bin/ttyd /usr/local/bin/ttyd
-
 # The visitor is a non-root user.
 RUN useradd -u 1000 -m -s /bin/bash visitor
 
@@ -56,42 +53,33 @@ RUN useradd -u 1000 -m -s /bin/bash visitor
 COPY . /opt/wordfreq
 RUN pip install --no-cache-dir /opt/wordfreq
 
+# A login shell runs the scripts of /etc/profile.d: the visitor is greeted.
 COPY tryout/welcome.sh /etc/profile.d/welcome.sh
-COPY tryout/entrypoint.sh /entrypoint.sh
 
 # The root filesystem is read-only in a session: no bytecode cache to write.
 ENV PYTHONDONTWRITEBYTECODE=1
 USER 1000:1000
-EXPOSE 7681
-ENTRYPOINT ["/entrypoint.sh"]
+
+# What the visitor gets: a shell, which survives the tool exiting.
+CMD ["bash", "-l"]
 ```
 
-- **ttyd** turns a shell into a web page. Copying it from `tsl0922/ttyd` works on any base image
-  and picks the right architecture when you build for several.
+- **The program** is the image's `ENTRYPOINT` and `CMD`, as `docker run` would start it. Here
+  it is a login shell. To run the tool alone, make it the command, such as
+  `CMD ["wordfreq", "--interactive"]`, or set the project's `command` instead (see
+  [Configuration](configuration.md#projects)). When the program exits, the page offers to
+  reconnect, which starts it again.
+- **No web server, no port.** ttyd listens on a port the agent picks and serves the session's base
+  path; it comes with the node, in the version the node release pins.
 - **The user** is not root: sessions have no capabilities, so root would gain nothing, and a
   program that expects root's privileges fails.
 - **Dependencies** are installed during the build. Anything fetched at runtime fails.
 - **Read-only filesystem**: look for what your program writes outside `/tmp` (caches, logs,
   configuration files) and point it to `/tmp`, or turn it off as `PYTHONDONTWRITEBYTECODE` does
   here.
+- **`/opt/tryout`** is where the agent mounts ttyd: anything the image has there is hidden.
 
-### The entrypoint
-
-`tryout/entrypoint.sh` starts ttyd on the project's port, under the session's base path:
-
-```sh
-#!/bin/sh
-# -W: the visitor can type; -m 1: one browser tab per session; -b: Tryout's base path.
-exec ttyd -W -m 1 -p 7681 -b "$TRYOUT_BASE_PATH" bash -l
-```
-
-- `-b "$TRYOUT_BASE_PATH"` is essential: every session is served under `/s/<id>/`, and the
-  agent sets `TRYOUT_BASE_PATH` to that path.
-- `bash -l` gives the visitor a shell, which survives the tool exiting. To run the tool alone,
-  replace `bash -l` with its command. When it exits, the page offers to reconnect, which starts
-  it again.
-
-`tryout/welcome.sh` greets the visitor, since a login shell runs the scripts of `/etc/profile.d`:
+`tryout/welcome.sh` greets the visitor:
 
 ```sh
 cat <<'MSG'
@@ -100,6 +88,11 @@ Try:  wordfreq /etc/os-release
       ls -R /usr/share/doc | wordfreq
 MSG
 ```
+
+An image that already serves its own terminal page, such as one with its own ttyd, or any web
+application with the terminal's hardening, declares its `port` instead (and `ttyd: image`, to say
+so explicitly): it then serves `/s/<id>/` itself, like a desktop image (see
+[Project images](project-images.md)).
 
 ### Check the image
 
@@ -112,17 +105,22 @@ scripts/check-image.sh wordfreq:dev
 
 ```
 ok   architecture amd64
+ok   runs in the agent's ttyd: bash -l
 ok   started with the session constraints (terminal, port 7681)
-ok   answers 200 on /s/check9db9ff0827241bd2/ after 1 s
+ok   answers 200 on /s/check9db9ff0827241bd2/ after 0 s
 OK   wordfreq:dev meets the contract for a terminal session
 ```
 
 `scripts/check-image.sh`, from the Tryout repository, runs the image the way the agent runs a
 session: internal network, no capabilities, read-only root filesystem, the kind's limits and
-variables. It then probes the base path the way the control plane does, and prints the
-container's logs when the image does not answer. Its options mirror the project's configuration:
+variables, and the program in ttyd (the published `tryout-ttyd` image, or `--ttyd-image`). It then
+probes the base path the way the control plane does, and prints the container's logs when the
+image does not answer. Its options mirror the project's configuration:
 
-- `--kind terminal|desktop`, `--port N`, `--strip-prefix`;
+- `--kind terminal|desktop`;
+- a command after `--`, as the project's `command`: `scripts/check-image.sh wordfreq:dev -- wordfreq --interactive`;
+- `--port N` (or `--own-server` on 7681) and `--strip-prefix` for an image that serves its own
+  page;
 - `--env KEY=VALUE`, repeatable, for the project's variables;
 - `--runtime runsc` to try the image under gVisor, like a production node.
 
@@ -131,8 +129,7 @@ itself:
 
 ```bash
 docker run --rm -it --read-only --tmpfs /tmp --cap-drop ALL \
-  --security-opt no-new-privileges --network none -e HOME=/tmp \
-  --entrypoint bash wordfreq:dev -l
+  --security-opt no-new-privileges --network none -e HOME=/tmp wordfreq:dev
 ```
 
 ## A graphical project
@@ -245,15 +242,14 @@ projects:
     node: cli
     image: ghcr.io/<owner>/wordfreq@sha256:…
     kind: terminal
-    port: 7681
     max_sessions: 2
     max_age: 10m
 ```
 
 The name (`wordfreq`) is the one portfolios embed, as `https://<control-plane>/embed/wordfreq`.
 Restart the control plane to load it. [Configuration](configuration.md#projects) lists every
-field: `limits` to give the project more memory or CPU, `env` for its own variables,
-`strip_prefix` for an application that cannot serve under a base path, `runtime` per project.
+field: `command` to run another program than the image's, `limits` to give the project more
+memory or CPU, `env` for its own variables, `runtime` per project.
 
 To try it end to end before production, add the project to `deploy/tryout.dev.yaml` and follow
 the [Quickstart](quickstart.md).
@@ -262,8 +258,10 @@ the [Quickstart](quickstart.md).
 
 | Symptom | Likely cause |
 |---|---|
-| `404` on `/s/<id>/` | The application serves at `/`. Pass the base path to it (ttyd: `-b "$TRYOUT_BASE_PATH"`), or declare `strip_prefix: true` and check with `--strip-prefix`. |
+| `the image has no entrypoint or command` | The image starts nothing: add a `CMD`, or set the project's `command`. |
+| The page shows, the terminal closes at once | The program exits or fails: run it with the `docker run` above. It may write outside `/tmp`, or need root. |
+| `404` on `/s/<id>/` | An image that serves its own page serves it at `/`. Pass the base path to it, or declare `strip_prefix: true` and check with `--strip-prefix`. |
 | The container exits at once | It writes outside `/tmp` (read the logs for `Read-only file system`), needs root, or needs a capability. |
-| No answer until the timeout | Wrong `port`, the application listens on `127.0.0.1` instead of every interface, or it waits for the network. |
+| No answer until the timeout | For an image that serves its own page: wrong `port`, the application listens on `127.0.0.1` instead of every interface, or it waits for the network. |
 | `image is arm64 but this machine is amd64` | Build for both architectures with `docker buildx`. |
 | Works locally, fails on a node | The node pulled another version (pin a digest), or the image is private and the node has no credentials. |

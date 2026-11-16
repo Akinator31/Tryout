@@ -9,6 +9,7 @@ import (
 // ContainerCreate is the body of POST /containers/create.
 type ContainerCreate struct {
 	Image            string
+	Entrypoint       []string          `json:",omitempty"`
 	Cmd              []string          `json:",omitempty"`
 	Env              []string          `json:",omitempty"`
 	User             string            `json:",omitempty"`
@@ -29,6 +30,7 @@ type HostConfig struct {
 	SecurityOpt     []string          `json:",omitempty"`
 	ReadonlyRootfs  bool              `json:",omitempty"`
 	Tmpfs           map[string]string `json:",omitempty"`
+	Mounts          []Mount           `json:",omitempty"`
 	Memory          int64             `json:",omitempty"`
 	MemorySwap      int64             `json:",omitempty"`
 	NanoCpus        int64             `json:",omitempty"`
@@ -39,6 +41,15 @@ type HostConfig struct {
 	Privileged      bool
 	PublishAllPorts bool
 	LogConfig       *LogConfig `json:",omitempty"`
+}
+
+// Mount is an entry of HostConfig.Mounts. The agent only uses image mounts
+// (Type "image", API 1.48): Source is an image, mounted at Target.
+type Mount struct {
+	Type     string
+	Source   string
+	Target   string
+	ReadOnly bool
 }
 
 // LogConfig selects a container's logging driver and its options.

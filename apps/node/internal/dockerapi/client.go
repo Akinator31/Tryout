@@ -20,13 +20,19 @@ import (
 	"strings"
 )
 
-// apiVersion pins the Engine API version of every request.
-const apiVersion = "v1.47"
+// MinAPIVersion is the Engine API version of every request, so the oldest
+// daemon API the client works with. 1.48 (Docker Engine 28) brings image
+// mounts, which carry the agent's ttyd.
+const MinAPIVersion = "1.48"
+
+// apiVersion is MinAPIVersion as it appears in request paths.
+const apiVersion = "v" + MinAPIVersion
 
 // Client calls the Engine API of one Docker daemon.
 type Client struct {
 	http *http.Client
-	base string
+	root string // the daemon's URL, for the unversioned endpoints
+	base string // root + "/" + apiVersion
 }
 
 // New builds a client from a DOCKER_HOST-style endpoint:
@@ -42,12 +48,17 @@ func New(endpoint string) (*Client, error) {
 
 	switch u.Scheme {
 	case "unix":
-		return &Client{http: unixSocketClient(u.Path), base: "http://docker/" + apiVersion}, nil
+		return newClient(unixSocketClient(u.Path), "http://docker"), nil
 	case "tcp", "http":
-		return &Client{http: &http.Client{}, base: "http://" + u.Host + "/" + apiVersion}, nil
+		return newClient(&http.Client{}, "http://"+u.Host), nil
 	default:
 		return nil, fmt.Errorf("unsupported docker endpoint scheme %q (use unix:// or tcp://)", u.Scheme)
 	}
+}
+
+// newClient returns a client that sends its requests to root through hc.
+func newClient(hc *http.Client, root string) *Client {
+	return &Client{http: hc, root: root, base: root + "/" + apiVersion}
 }
 
 // unixSocketClient returns an HTTP client that dials the unix socket at path
@@ -77,11 +88,17 @@ func IsNotFound(err error) bool {
 	return ok && ae.Status == http.StatusNotFound
 }
 
-// do sends a request with an optional JSON body and decodes the JSON
-// response into out, if not nil. A status of 300 or more, except 304 (Not
-// Modified, such as starting a running container), is an *APIError.
+// do sends a request to the versioned API with an optional JSON body and
+// decodes the JSON response into out, if not nil. A status of 300 or more,
+// except 304 (Not Modified, such as starting a running container), is an
+// *APIError.
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
-	req, err := c.newRequest(ctx, method, path, body)
+	return c.send(ctx, method, c.base+path, body, out)
+}
+
+// send is do for a full URL.
+func (c *Client) send(ctx context.Context, method, target string, body, out any) error {
+	req, err := c.newRequest(ctx, method, target, body)
 	if err != nil {
 		return err
 	}
@@ -102,8 +119,8 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	return nil
 }
 
-// newRequest builds a request to the versioned API, with body as JSON.
-func (c *Client) newRequest(ctx context.Context, method, path string, body any) (*http.Request, error) {
+// newRequest builds a request to target, with body as JSON.
+func (c *Client) newRequest(ctx context.Context, method, target string, body any) (*http.Request, error) {
 	var rd io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -113,7 +130,7 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body any) 
 		rd = bytes.NewReader(b)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, c.base+path, rd)
+	req, err := http.NewRequestWithContext(ctx, method, target, rd)
 	if err != nil {
 		return nil, err
 	}

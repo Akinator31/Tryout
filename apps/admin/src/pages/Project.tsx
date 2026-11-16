@@ -15,7 +15,7 @@ import { PendingActions } from "../components/PendingActions.tsx";
 import { Problem } from "../components/Problem.tsx";
 import { ProjectBadge, StateBadge, TagBadge } from "../components/StateBadge.tsx";
 import { editProjectPath, paths } from "../navigation.ts";
-import { live, loadBy, loadOf, nodesUp, projectState, resources, type Load } from "../projects.ts";
+import { formatCommand, live, loadBy, loadOf, nodesUp, projectState, resources, type Load } from "../projects.ts";
 import { useMe, useNodes, useSessions } from "../queries.ts";
 import { deepEqual, type ProjectSettings, type SettingsDocument } from "../settings/document.ts";
 import { sessionRow } from "../sessions.ts";
@@ -113,7 +113,9 @@ function settingsRows(p: ProjectSettings, defaultRuntime: string | undefined): [
     ...(p.title ? [["title", p.title] as [string, string]] : []),
     ["image", p.image],
     ["kind", p.kind],
-    ["port", String(p.port)],
+    ...(p.ttyd ? [["ttyd", p.ttyd] as [string, string]] : []),
+    ...(p.command ? [["command", formatCommand(p.command)] as [string, string]] : []),
+    ...(p.port !== undefined ? [["port", String(p.port)] as [string, string]] : []),
     ...(p.strip_prefix ? [["strip_prefix", "true"] as [string, string]] : []),
     ["max_sessions", String(p.max_sessions)],
     ["max_age", p.max_age],

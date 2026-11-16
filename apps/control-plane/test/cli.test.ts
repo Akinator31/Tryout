@@ -22,7 +22,7 @@ theme:
 nodes:
   n1: { agent_url: "https://n1.example:7000", public_url: "https://n1.example/s/{session}/", max_sessions: 2 }
 projects:
-  cli: { node: n1, image: "ghcr.io/me/cli:1", kind: terminal, port: 7681, max_sessions: 1, max_age: 15m }
+  cli: { node: n1, image: "ghcr.io/me/cli:1", kind: terminal, max_sessions: 1, max_age: 15m }
 `;
 
 test("an import publishes a file's settings, and an export gives them back with the logo", async () => {
@@ -61,7 +61,7 @@ test("an invalid file is refused with its lines, and publishes nothing", async (
   const db = await freshDb();
   const store = await createConfigStore({ db });
   const dir = mkdtempSync(join(tmpdir(), "tryout-cli-"));
-  writeFileSync(join(dir, "bad.yaml"), "projects:\n  cli: { node: n9, image: x, kind: terminal, port: 1, max_sessions: 1, max_age: 1m }\n");
+  writeFileSync(join(dir, "bad.yaml"), "projects:\n  cli: { node: n9, image: x, kind: terminal, max_sessions: 1, max_age: 1m }\n");
 
   await assert.rejects(importSettings(store, join(dir, "bad.yaml")), (e) => {
     assert.ok(e instanceof ConfigError);

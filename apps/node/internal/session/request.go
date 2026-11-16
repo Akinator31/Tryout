@@ -10,7 +10,8 @@
 //
 // Files of this package: request.go (the request and the policy), schema.go
 // (the JSON Schema check), env.go (the container environment), hardening.go
-// (the container specification and its labels).
+// (the container specification and its labels), ttyd.go (the agent's web
+// terminal).
 package session
 
 import (
@@ -61,12 +62,16 @@ type Request struct {
 	Project     string            `json:"project"`
 	Image       string            `json:"image"`
 	Kind        Kind              `json:"kind"`
+	TTYD        TTYDMode          `json:"ttyd,omitempty"`
+	Command     []string          `json:"command,omitempty"`
 	Port        int               `json:"port"`
 	Runtime     string            `json:"runtime,omitempty"`
 	MaxAgeS     int               `json:"max_age_s"`
 	StripPrefix bool              `json:"strip_prefix,omitempty"`
 	Env         map[string]string `json:"env,omitempty"`
 	Limits      Limits            `json:"limits"`
+
+	ttydImage string // Policy.TTYDImage, for a terminal with the agent's ttyd
 }
 
 // Policy is what the node allows, settled at startup from its profile and
@@ -77,6 +82,7 @@ type Policy struct {
 	DefaultRuntime string          // for requests that name none
 	Runtimes       map[string]bool // installed on the daemon
 	MaxAge         time.Duration   // SESSION_MAX_AGE_CAP
+	TTYDImage      string          // TTYD_IMAGE: mounted into terminals with the agent's ttyd
 }
 
 // RuntimeAllowed is the node profile's runtime rule. Outside dev, only gVisor
@@ -107,6 +113,9 @@ func (r *Request) validate(p Policy) error {
 	if err := r.checkShape(); err != nil {
 		return err
 	}
+	if err := r.applyTTYDMode(p.TTYDImage); err != nil {
+		return err
+	}
 	if err := r.applyRuntimePolicy(p); err != nil {
 		return err
 	}
@@ -127,8 +136,44 @@ func (r *Request) checkShape() error {
 		return errors.New("image required")
 	case r.Kind != Terminal && r.Kind != Desktop:
 		return errors.New("kind must be terminal or desktop")
-	case r.Port <= 0 || r.Port > 65535:
+	case r.Port < 0 || r.Port > 65535:
 		return errors.New("invalid port")
+	}
+	return nil
+}
+
+// applyTTYDMode settles who serves the session's page. A terminal runs in
+// the agent's ttyd when it says ttyd: agent, or sets neither ttyd nor a port;
+// ttyd then listens on ttydPort and serves under the base path itself, so the
+// request must not set a port or strip_prefix. A terminal with a port and no
+// ttyd serves its own page, as every terminal did before the agent's ttyd.
+// Any session that serves its own page runs the image as it is.
+func (r *Request) applyTTYDMode(ttydImage string) error {
+	if r.Kind == Terminal && r.TTYD == "" {
+		r.TTYD = TTYDAgent
+		if r.Port != 0 {
+			r.TTYD = TTYDImage
+		}
+	}
+
+	switch {
+	case r.Kind == Desktop && r.TTYD != "":
+		return errors.New("ttyd is a terminal setting")
+	case r.TTYD != "" && r.TTYD != TTYDAgent && r.TTYD != TTYDImage:
+		return errors.New("ttyd must be agent or image")
+	case r.TTYD != TTYDAgent && len(r.Command) > 0:
+		return errors.New("command needs the agent's ttyd")
+	case r.TTYD != TTYDAgent && r.Port == 0:
+		return errors.New("port required")
+	case r.TTYD == TTYDAgent && (r.Port != 0 || r.StripPrefix):
+		return errors.New("port and strip_prefix are not allowed with the agent's ttyd")
+	case r.TTYD == TTYDAgent && ttydImage == "":
+		return errors.New("this node has no ttyd image")
+	}
+
+	if r.TTYD == TTYDAgent {
+		r.Port = ttydPort
+		r.ttydImage = ttydImage
 	}
 	return nil
 }

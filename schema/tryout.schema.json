@@ -252,7 +252,38 @@
     "workload": {
       "description": "What runs in a session container. Shared by the configuration and the agent API.",
       "type": "object",
-      "required": ["image", "kind", "port"],
+      "required": ["image", "kind"],
+      "allOf": [
+        {
+          "description": "A desktop serves its own page on its port, and runs the image as it is.",
+          "if": { "properties": { "kind": { "const": "desktop" } }, "required": ["kind"] },
+          "then": { "required": ["port"], "properties": { "port": {}, "ttyd": { "not": {} }, "command": { "not": {} } } }
+        },
+        {
+          "description": "A terminal runs in the agent's ttyd when it says ttyd: agent, or sets neither ttyd nor port: ttyd listens where the agent says and serves under the base path, so no port and no strip_prefix.",
+          "if": {
+            "properties": { "kind": { "const": "terminal" } },
+            "required": ["kind"],
+            "anyOf": [
+              { "properties": { "ttyd": { "const": "agent" } }, "required": ["ttyd"] },
+              { "not": { "anyOf": [{ "required": ["ttyd"] }, { "required": ["port"] }] } }
+            ]
+          },
+          "then": { "properties": { "port": { "not": {} }, "strip_prefix": { "not": {} } } }
+        },
+        {
+          "description": "Otherwise a terminal serves its own page (ttyd: image, or a port without ttyd, as before ttyd existed): it needs a port, and runs the image as it is.",
+          "if": {
+            "properties": { "kind": { "const": "terminal" } },
+            "required": ["kind"],
+            "anyOf": [
+              { "properties": { "ttyd": { "const": "image" } }, "required": ["ttyd"] },
+              { "required": ["port"], "not": { "required": ["ttyd"] } }
+            ]
+          },
+          "then": { "required": ["port"], "properties": { "port": {}, "command": { "not": {} } } }
+        }
+      ],
       "properties": {
         "image": {
           "description": "Docker image, preferably pinned by digest.",
@@ -263,8 +294,20 @@
           "description": "Selects the hardening profile.",
           "enum": ["terminal", "desktop"]
         },
+        "ttyd": {
+          "description": "Terminal only. agent: the agent mounts its own ttyd and runs the image's command in it, so the image needs no web server. image: the image serves its own page on port. Defaults to image when port is set, else agent.",
+          "enum": ["agent", "image"]
+        },
+        "command": {
+          "description": "Terminal with the agent's ttyd only: the program ttyd runs, as an argument list. Defaults to the image's entrypoint and command.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "prefixItems": [{ "type": "string", "minLength": 1, "pattern": "^[^\\x00]*$" }],
+          "items": { "type": "string", "pattern": "^[^\\x00]*$" }
+        },
         "port": {
-          "description": "HTTP port of the container.",
+          "description": "HTTP port of an image that serves its own page: required for a desktop and a terminal with ttyd: image; a terminal without ttyd that sets it serves its own page. Not allowed with the agent's ttyd.",
           "type": "integer",
           "minimum": 1,
           "maximum": 65535
@@ -275,7 +318,7 @@
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
         },
         "strip_prefix": {
-          "description": "Strip /s/<id> before forwarding, for an application that cannot serve under a base path.",
+          "description": "Strip /s/<id> before forwarding, for an application that cannot serve under a base path. Not allowed for a terminal with the agent's ttyd.",
           "type": "boolean"
         },
         "limits": {

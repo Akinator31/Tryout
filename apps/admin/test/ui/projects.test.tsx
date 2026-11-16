@@ -85,11 +85,25 @@ test("a new project is checked as typed, then put in the draft and reviewed", as
     document: {
       projects: {
         "cli-hello": CLI,
-        "my-cli": { node: "local", image: "ghcr.io/me/my-cli:1", kind: "terminal", port: 7681, max_sessions: 1, max_age: "15m", env: { GREETING: "hello" } },
+        "my-cli": { node: "local", image: "ghcr.io/me/my-cli:1", kind: "terminal", max_sessions: 1, max_age: "15m", env: { GREETING: "hello" } },
       },
     },
   });
   expect(await screen.findByRole("heading", { name: "my-cli" })).toBeTruthy();
+});
+
+test("a terminal takes a command in Tryout's terminal, or a port when its image serves its own page", async () => {
+  const user = userEvent.setup();
+  renderAdmin("/admin/projects/new", routes());
+
+  const command = await screen.findByRole("textbox", { name: /^Command/ });
+  expect(screen.queryByRole("textbox", { name: /HTTP port/ })).toBeNull();
+  await user.type(command, 'bash -c "unclosed');
+  expect(screen.getByText("Close the quote.")).toBeTruthy();
+
+  await user.click(screen.getByText("The image serves its own page"));
+  expect(screen.getByRole("textbox", { name: /HTTP port/ })).toBeTruthy();
+  expect(screen.queryByRole("textbox", { name: /^Command/ })).toBeNull();
 });
 
 test("creating with problems lists them all and keeps the draft untouched", async () => {

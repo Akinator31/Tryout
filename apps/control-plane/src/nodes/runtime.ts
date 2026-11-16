@@ -53,7 +53,11 @@ export function agentRuntime(settings: () => Settings, client: (node: string) =>
     throw new Error(`agent ${res.status}: ${detail}`);
   }
 
-  /** The POST /v1/sessions body (`$defs/session_request` in the schema). */
+  /**
+   * The POST /v1/sessions body (`$defs/session_request` in the schema).
+   * Unset fields stay undefined, which JSON leaves out: port and strip_prefix
+   * are not allowed with the agent's ttyd.
+   */
   function sessionRequest({ sessionId, project }: SessionRef) {
     const p = settings().projects[project];
     return {
@@ -61,10 +65,12 @@ export function agentRuntime(settings: () => Settings, client: (node: string) =>
       project,
       image: p.image,
       kind: p.kind,
+      ttyd: p.ttyd,
+      command: p.command,
       port: p.port,
       runtime: p.runtime,
       max_age_s: p.max_age_s + AGENT_MAX_AGE_MARGIN_S,
-      strip_prefix: p.strip_prefix ?? false,
+      strip_prefix: p.strip_prefix,
       env: p.env,
       limits: p.limits ?? {},
     };

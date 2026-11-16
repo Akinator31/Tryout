@@ -126,13 +126,16 @@ jobs:
           - name: tryout-node
             context: apps/node
             description: Tryout node, agent and gateway binaries in one image
+          - name: tryout-ttyd
+            context: apps/node/ttyd
+            description: The web terminal the Tryout agent mounts into terminal sessions
           - name: tryout-control-plane
             context: .
             file: apps/control-plane/Dockerfile
             description: Tryout control plane, queue, embed page and admin UI
           - name: tryout-example-cli-hello
             context: examples/cli-hello
-            description: Sample Tryout terminal project (ttyd)
+            description: Sample Tryout terminal project
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-qemu-action@v4
@@ -145,12 +148,78 @@ jobs:
           push: false
           cache-from: type=gha,scope=${{ matrix.name }}
 
+  publish-ttyd:
+    # Published first: tryout-node embeds its digest as the agent's default TTYD_IMAGE,
+    # so each release pins the ttyd its terminals run.
+    name: Publish tryout-ttyd (amd64 + arm64)
+    if: github.event_name == 'push'
+    needs: [node, control-plane, embed, admin, shellcheck, e2e, e2e-deploy]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      image: ${{ steps.name.outputs.image }}@${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Image name
+        id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/tryout-ttyd" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@v6
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+        with:
+          images: ${{ steps.name.outputs.image }}
+          tags: |
+            type=edge,branch=main
+            type=sha,format=short
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
+          labels: |
+            org.opencontainers.image.title=tryout-ttyd
+            org.opencontainers.image.description=The web terminal the Tryout agent mounts into terminal sessions
+          annotations: |
+            org.opencontainers.image.description=The web terminal the Tryout agent mounts into terminal sessions
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: apps/node/ttyd
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=tryout-ttyd
+          cache-to: type=gha,mode=max,scope=tryout-ttyd
+      - name: GitHub build attestation
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ steps.name.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
   publish:
     # main and v* tags: build and push to ghcr.io, only after every test passed.
     # See docs/published-images.md.
     name: Publish ${{ matrix.name }} (amd64 + arm64)
     if: github.event_name == 'push'
-    needs: [node, control-plane, embed, admin, shellcheck, e2e, e2e-deploy]
+    needs: [node, control-plane, embed, admin, shellcheck, e2e, e2e-deploy, publish-ttyd]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -170,7 +239,7 @@ jobs:
             description: Tryout control plane, queue, embed page and admin UI
           - name: tryout-example-cli-hello
             context: examples/cli-hello
-            description: Sample Tryout terminal project (ttyd)
+            description: Sample Tryout terminal project
     steps:
       - uses: actions/checkout@v7
       - name: Image name
@@ -222,7 +291,9 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
-          build-args: VERSION=${{ steps.version.outputs.version }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            TTYD_IMAGE=${{ needs.publish-ttyd.outputs.image }}
           provenance: mode=max
           sbom: true
           cache-from: type=gha,scope=${{ matrix.name }}
@@ -245,10 +316,12 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: Build the example project image
-        run: docker build -t tryout-example/cli-hello:dev examples/cli-hello
+      - name: Build the example project image and the ttyd image
+        run: |
+          docker build -t tryout-example/cli-hello:dev examples/cli-hello
+          docker build -t tryout/ttyd:dev apps/node/ttyd
       - name: Example image meets the project contract
-        run: scripts/check-image.sh tryout-example/cli-hello:dev
+        run: scripts/check-image.sh --ttyd-image tryout/ttyd:dev tryout-example/cli-hello:dev
       - name: Start the stack
         run: |
           cp deploy/.env.example deploy/.env

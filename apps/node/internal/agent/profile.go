@@ -19,9 +19,14 @@ import (
 //   - single-host: a dedicated rootless daemon, cgroup v2 (otherwise rootless
 //     resource limits are silently ignored) and gVisor, unless ALLOW_RUNC=true.
 //
-// It also records the daemon's architecture and runtimes, and settles the
-// default runtime (see resolveDefaultRuntime).
+// It first refuses a daemon older than the API the agent speaks (see
+// checkDockerVersion). It also records the daemon's architecture and
+// runtimes, and settles the default runtime (see resolveDefaultRuntime).
 func (a *Agent) CheckProfile(ctx context.Context) error {
+	if err := a.checkDockerVersion(ctx); err != nil {
+		return err
+	}
+
 	info, err := a.docker.Info(ctx)
 	if err != nil {
 		return fmt.Errorf("docker unreachable at %s: %w", a.dockerHost, err)
@@ -42,6 +47,21 @@ func (a *Agent) CheckProfile(ctx context.Context) error {
 		slog.Warn("ALLOW_RUNC=true: sessions may use runtimes other than gVisor, such as runc on the host kernel")
 	}
 	return a.resolveDefaultRuntime()
+}
+
+// checkDockerVersion refuses a daemon whose API is older than the one the
+// agent speaks (Docker Engine 28, API 1.48, for image mounts), whatever the
+// profile: the agent's ttyd needs it.
+func (a *Agent) checkDockerVersion(ctx context.Context) error {
+	v, err := a.docker.Version(ctx)
+	if err != nil {
+		return fmt.Errorf("docker unreachable at %s: %w", a.dockerHost, err)
+	}
+
+	if !dockerapi.APIAtLeast(v.APIVersion, dockerapi.MinAPIVersion) {
+		return fmt.Errorf("docker %s (API %s) is too old: Docker Engine 28 or later is required (API %s)", v.Version, v.APIVersion, dockerapi.MinAPIVersion)
+	}
+	return nil
 }
 
 // checkProfileRequirements checks what the node profile demands of the daemon.

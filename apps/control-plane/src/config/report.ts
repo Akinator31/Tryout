@@ -2,6 +2,7 @@
 // numbers, and the translation of JSON Schema errors into operator messages.
 import type { ErrorObject } from "ajv/dist/2020.js";
 import { isMap, isScalar, type Document, type LineCounter } from "yaml";
+import { schema } from "./schema.ts";
 
 /** A location in the configuration: object keys and array indexes, from the root. */
 export type Path = (string | number)[];
@@ -70,7 +71,7 @@ function locate(doc: Document, path: Path): number | undefined {
 
 /** Reports the schema's errors, each at the key it is about when it is about a key. */
 export function reportSchemaErrors(errors: ErrorObject[], report: Report): void {
-  for (const e of relevant(errors)) {
+  for (const e of relevant(errors, declared)) {
     const path = e.instancePath.split("/").slice(1).map(unescape);
     const key = keyOf(e);
     report(key === undefined ? path : [...path, key], message(e));
@@ -78,22 +79,46 @@ export function reportSchemaErrors(errors: ErrorObject[], report: Report): void 
 }
 
 /**
- * A field that fails inside allOf is also reported as unevaluated by the
- * enclosing object: drop that duplicate, but keep the report of a field that
- * has no other error (it really is unknown). propertyNames errors only repeat
- * their causes.
+ * A subschema that fails does not count its properties as evaluated, so the
+ * enclosing object reports the failing field and its valid siblings as
+ * unevaluated. Such a report is dropped when the field has another error, or
+ * when it bears a name the schema declares and its object has another error;
+ * a field that really is unknown is still reported. propertyNames errors only
+ * repeat their causes, and if errors only say which branch failed.
  */
-function relevant(errors: ErrorObject[]): ErrorObject[] {
+function relevant(errors: ErrorObject[], declared: ReadonlySet<string>): ErrorObject[] {
+  const real = errors.filter((e) => e.keyword !== "unevaluatedProperties" && e.keyword !== "if");
+  const within = (path: string, object: string) => path === object || path.startsWith(object + "/");
+
   return errors.filter((e) => {
-    if (e.keyword === "propertyNames") return false;
+    if (e.keyword === "propertyNames" || e.keyword === "if") return false;
     if (e.keyword !== "unevaluatedProperties") return true;
 
-    const field = `${e.instancePath}/${escape(String(keyOf(e)))}`;
-    const fieldHasOtherError = errors.some(
-      (o) => o !== e && (o.instancePath === field || o.instancePath.startsWith(field + "/")),
+    const name = String(keyOf(e));
+    const field = `${e.instancePath}/${escape(name)}`;
+    const spurious = real.some(
+      (o) => within(o.instancePath, field) || (declared.has(name) && within(o.instancePath, e.instancePath)),
     );
-    return !fieldHasOtherError;
+    return !spurious;
   });
+}
+
+/** Every property name the schema declares, at any depth. */
+const declared = declaredNames(schema);
+
+/** Every property name a JSON Schema document declares, at any depth. */
+function declaredNames(schema: unknown): Set<string> {
+  const names = new Set<string>();
+  const walk = (v: unknown): void => {
+    if (Array.isArray(v)) return v.forEach(walk);
+    if (typeof v !== "object" || v === null) return;
+
+    const props = (v as { properties?: unknown }).properties;
+    if (typeof props === "object" && props !== null) Object.keys(props).forEach((k) => names.add(k));
+    Object.values(v).forEach(walk);
+  };
+  walk(schema);
+  return names;
 }
 
 /** The key an error is about, when it is about a key rather than a value. */
@@ -109,6 +134,8 @@ function message(e: ErrorObject): string {
   if (e.propertyName !== undefined) {
     return e.keyword === "not" ? "this name is reserved" : `invalid name: ${e.message}`;
   }
+
+  if (e.keyword === "not") return "not allowed here";
 
   if (e.keyword === "enum") {
     const allowed = (e.params as { allowedValues: unknown[] }).allowedValues;

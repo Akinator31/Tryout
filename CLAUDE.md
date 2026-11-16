@@ -8,7 +8,8 @@ session.
 **Tryout** lets portfolio visitors try projects in their browser. Each visitor gets a dedicated,
 disposable Docker container:
 
-- **command-line** projects are served through a web terminal (**ttyd**);
+- **command-line** projects are served through a web terminal (**ttyd**) that the agent mounts
+  read-only into the session; a terminal with a `port` (or `ttyd: image`) serves its own page;
 - **graphical** projects are streamed through **Selkies** (WebSocket mode);
 - each project has a **limit on concurrent sessions** and an app-managed **queue**;
 - every session is a **fresh container** on its own `--internal` network, with no egress and a
@@ -58,6 +59,10 @@ Key facts that are easy to forget:
   - It also sets defaults a project may override: 720p, 96 DPI, 15–30 fps, audio off.
   - It locks, with no override: file transfer, microphone, webcam, printing, gamepads, second
     screen.
+- **Terminals**: the agent mounts the `TTYD_IMAGE` image (`apps/node/ttyd`, one static binary)
+  at `/opt/tryout` with a Docker image mount (Engine API 1.48, so nodes need Docker 28+) and runs
+  the image's entrypoint + command, or the project's `command`, in ttyd with locked options. CI
+  publishes `tryout-ttyd` first and builds its digest into the agent (`internal/version`).
 - **Measured costs**: gVisor uses 2–2.5× the CPU of runc for Selkies desktops on a Raspberry Pi 5,
   with negligible overhead for terminals. Without the resolution cap, a HiDPI client pushes near-4K
   at 60 fps and saturates a small node.
@@ -66,7 +71,7 @@ Key facts that are easy to forget:
   and the agent's `POST /v1/sessions` body (`$defs/workload` is shared). Edit only that file, then run
   `scripts/sync-schema.sh` to refresh its three copies; tests and CI fail on a stale copy.
 - **Docker client**: a hand-written Engine API client (`apps/node/internal/dockerapi`, API
-  v1.47), with no SDK dependency.
+  v1.48), with no SDK dependency.
 - **Docker Desktop**: its socket is `root:root` inside the VM, which is why the dev compose runs
   the agent as root.
 
@@ -86,7 +91,7 @@ apps/node/            Go, one image: thin cmd/{agent,gateway,certs}; internal/se
 deploy/               compose.dev.yaml, tryout.dev.yaml, .env.example (dev); node/, control-plane/ (production
                       examples from published images, docs/deployment.md)
 schema/               tryout.schema.json (source of truth) + testdata/ fixtures shared by TS and Go
-examples/cli-hello/   sample terminal project (ttyd)
+examples/cli-hello/   sample terminal project (its program only; the agent's ttyd serves it)
 scripts/              e2e/ (cli, metrics, admin, queue, sse, mtls, limits, reattach .ts; deploy.sh),
                       check-image.sh, feasibility-node.sh, sync-schema.sh, subset-fonts.sh
 docs/                 Zensical documentation (English)
@@ -132,8 +137,11 @@ vault with the original stack study (in French) and its sources.
     settings draft reviewed with a dry run before it is applied). Exit criteria checked on the
     dev stack.
 
-  Next: M5 Hosting options (`docs/roadmap.md`).
-- CI publishes `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
+  - M5 Hosting options, in progress: Go code split into thin `cmd/*` and `internal/` packages;
+    terminals served by the agent's ttyd (`apps/node/ttyd`, `internal/session/ttyd.go`).
+
+  Next: the rest of M5 (`docs/roadmap.md`).
+- CI publishes `tryout-ttyd` (first), `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
   `ghcr.io/<owner>/` (`edge`, `sha-*`, semver on `v*` tags) after all tests pass.
 - Repository: <https://github.com/Akinator31/Tryout> (Go module
   `github.com/Akinator31/Tryout/apps/node`, docs at <https://akinator31.github.io/Tryout/>).

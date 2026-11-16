@@ -10,7 +10,7 @@ import { signedInAdmin } from "../support/admin.ts";
 import { fakeClock, freshDb } from "../support/support.ts";
 
 const node = (host = "n1") => ({ agent_url: `https://${host}.example:7000`, public_url: `https://${host}.example/s/{session}/`, max_sessions: 2 });
-const project = { node: "n1", image: "ghcr.io/me/cli:1", kind: "terminal", port: 7681, max_sessions: 1, max_age: "15m" };
+const project = { node: "n1", image: "ghcr.io/me/cli:1", kind: "terminal", max_sessions: 1, max_age: "15m" };
 const settings = (extra: SettingsDocument = {}): SettingsDocument => ({ nodes: { n1: node() }, projects: { cli: project }, ...extra });
 
 interface Options {
