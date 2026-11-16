@@ -419,9 +419,9 @@ jobs:
           sudo ls -la "/run/user/$uid"
       - name: Install the rootless daemon
         run: |
-          sudo -u "$NODE_USER" -H env XDG_RUNTIME_DIR="/run/user/$NODE_UID" \
-            dockerd-rootless-setuptool.sh install
-          sudo -u "$NODE_USER" -H docker --context rootless info | tee info.txt
+          as_user=(sudo -u "$NODE_USER" env HOME="/home/$NODE_USER" XDG_RUNTIME_DIR="/run/user/$NODE_UID")
+          (cd /tmp && "${as_user[@]}" dockerd-rootless-setuptool.sh install)
+          (cd /tmp && "${as_user[@]}" docker --context rootless info) | tee info.txt
           grep -q "name=rootless" info.txt
       - name: Load the egress filter
         run: |
