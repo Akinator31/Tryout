@@ -360,7 +360,9 @@ export function projectFromForm(form: ProjectForm, previous?: ProjectSettings): 
   };
   const env = Object.fromEntries(form.env.map((v) => [v.name, v.value]));
   const ownPage = servesOwnPage(form);
-  const command = ownPage ? [] : parseCommand(form.command)!;
+  // The editor's preview also runs on a form with problems: a command whose
+  // quote is still open is left out until it parses.
+  const command = ownPage ? [] : (parseCommand(form.command) ?? []);
 
   return {
     title: form.title.trim() || undefined,
