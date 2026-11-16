@@ -420,7 +420,7 @@ jobs:
       - name: Install the rootless daemon
         run: |
           as_user=(sudo -u "$NODE_USER" env HOME="/home/$NODE_USER" XDG_RUNTIME_DIR="/run/user/$NODE_UID")
-          (cd /tmp && "${as_user[@]}" dockerd-rootless-setuptool.sh install)
+          (cd /tmp && "${as_user[@]}" sh -x "$(command -v dockerd-rootless-setuptool.sh)" install)
           (cd /tmp && "${as_user[@]}" docker --context rootless info) | tee info.txt
           grep -q "name=rootless" info.txt
       - name: Load the egress filter
