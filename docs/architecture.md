@@ -154,7 +154,9 @@ What it does:
   certificate from the deployment's private CA, made with `tryout-certs`
   ([Certificates](certificates.md)).
 - The only component that talks to Docker, through a configurable endpoint (`DOCKER_HOST`).
-- Checks at startup that the node **profile** is met (gVisor, rootless, cgroup v2), that the
+- Checks at startup that the node **profile** is met (gVisor, rootless, cgroup v2; a
+  `single-host` node runs runc with `ALLOW_RUNC=true` until gVisor runs rootless, see
+  [Single-host node](single-host.md)), that the
   daemon applies memory, CPU and pids limits (outside `dev`) and that it is Docker Engine 28 or
   later, pulls its **ttyd image** (`TTYD_IMAGE`), and refuses to
   start otherwise.

@@ -27,9 +27,9 @@ browser ─► https://tryout.example.org             https://sbx.example.dev/s/
 ```
 
 This guide covers nodes in the `strict` profile: a machine or VM dedicated to sessions. The
-control plane may run on the same machine. The `single-host` profile, for a machine shared with
-other services, needs a dedicated rootless daemon and has its own guide on the
-[Roadmap](roadmap.md#m5-hosting-options).
+control plane may run on the same machine. For a machine shared with other services, the
+`single-host` profile runs the node on a dedicated rootless daemon: follow
+[Single-host node](single-host.md) for the node, and this guide for the rest.
 
 ## Requirements
 

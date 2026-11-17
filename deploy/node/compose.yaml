@@ -2,8 +2,8 @@
 # Guide: docs/deployment.md. Run it next to its .env, on the machine that runs sessions,
 # against the Docker daemon that runs them:
 #   cp .env.example .env && docker compose up -d
-# Written for the strict profile (a machine or VM dedicated to sessions); single-host,
-# with a rootless daemon, has its own guide on the roadmap.
+# Written for the strict profile (a machine or VM dedicated to sessions). On a machine shared
+# with other services, run it on a dedicated rootless daemon: docs/single-host.md.
 name: tryout-node
 
 x-hardening: &hardening
