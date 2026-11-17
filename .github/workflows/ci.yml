@@ -413,6 +413,7 @@ jobs:
           sudo sed -i '/^XDG_/d' /etc/environment
           sudo adduser --disabled-password --comment "" "$NODE_USER"
           grep "^$NODE_USER:" /etc/subuid /etc/subgid
+          sudo getfacl -p / /home "/home/$NODE_USER" || true
           uid=$(id -u "$NODE_USER")
           echo "NODE_UID=$uid" >>"$GITHUB_ENV"
           sudo install -D -m 644 deploy/node/single-host/delegate.conf \
