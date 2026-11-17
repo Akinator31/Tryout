@@ -81,6 +81,11 @@ sudo loginctl enable-linger tryout
 
 If the manager was already running, restart it: `sudo systemctl restart user@$uid.service`.
 
+The home must carry no default ACL (`getfacl /home/tryout` lists none), which the daemon's
+storage would inherit: creating the node's volume then fails with
+`failed to copy xattrs: … system.posix_acl_default`. Remove them with
+`sudo setfacl -R -b -k /home/tryout`.
+
 ## 3. Install the rootless daemon
 
 Open a shell as the user, through systemd so that its session is complete, and install its

@@ -413,7 +413,9 @@ jobs:
           sudo sed -i '/^XDG_/d' /etc/environment
           sudo adduser --disabled-password --comment "" "$NODE_USER"
           grep "^$NODE_USER:" /etc/subuid /etc/subgid
-          sudo getfacl -p / /home "/home/$NODE_USER" || true
+          # The runner image gives its user a default ACL on /home, which the new home inherits:
+          # the rootless daemon cannot copy it into volumes (docs/single-host.md).
+          sudo setfacl -R -b -k "/home/$NODE_USER"
           uid=$(id -u "$NODE_USER")
           echo "NODE_UID=$uid" >>"$GITHUB_ENV"
           sudo install -D -m 644 deploy/node/single-host/delegate.conf \
