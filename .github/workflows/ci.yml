@@ -430,6 +430,9 @@ jobs:
           (cd /tmp && "${as_user[@]}" docker --context rootless info)
           (cd /tmp && "${as_user[@]}" docker --context rootless info --format '{{.SecurityOptions}}') \
             | grep -q name=rootless
+          sudo cat "/proc/$(pgrep -u "$NODE_USER" -x dockerd)/uid_map"
+          (cd /tmp && "${as_user[@]}" docker --context rootless run --rm busybox:1.37 \
+            sh -c 'cat /proc/self/uid_map; touch /tmp/x && chown 65532:65532 /tmp/x && ls -ln /tmp/x')
       - name: Load the egress filter
         run: |
           IFS=: read -r _ start count < <(grep "^$NODE_USER:" /etc/subuid)
