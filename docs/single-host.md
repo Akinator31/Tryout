@@ -33,7 +33,8 @@ one machine
 
 CI follows this guide on a fresh Ubuntu runner (amd64), with a root daemon running next to the
 rootless one, and runs the end-to-end tests against it (`NODE_USER=tryout
-scripts/e2e/deploy.sh`).
+scripts/e2e/deploy.sh`). It has also been followed by hand on a fresh Debian 13 machine
+(amd64), with the same tests passing.
 
 ## Requirements
 
@@ -50,7 +51,7 @@ or copied to the machine.
 
 ```bash
 sudo apt-get install docker-ce-rootless-extras uidmap slirp4netns dbus-user-session \
-  systemd-container nftables
+  systemd-container nftables acl
 ```
 
 On Ubuntu, the AppArmor profile that lets RootlessKit create user namespaces comes with the
@@ -132,6 +133,10 @@ sudoedit /etc/tryout/tryout-egress.nft     # tryout_uids = { 1001, 165536-231071
 sudo install -m 644 deploy/node/single-host/tryout-egress.service /etc/systemd/system/
 sudo systemctl enable --now tryout-egress.service
 ```
+
+Restarting `nftables.service` flushes the root daemon's rules too: restart the root daemon
+afterwards (`sudo systemctl restart docker`), or its containers lose their network. The
+rootless daemon has no rules on the host and is not affected.
 
 Check it from the user's shell:
 

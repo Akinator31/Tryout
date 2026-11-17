@@ -144,7 +144,8 @@ vault with the original stack study (in French) and its sources.
     terminals served by the agent's ttyd (`apps/node/ttyd`, `internal/session/ttyd.go`); both
     released as `v0.3.0`. Then isolated session bridges and the refusal of ignored resource
     limits; the single-host guide (`docs/single-host.md`, `deploy/node/single-host/`, CI job
-    `e2e-single-host` running `NODE_USER=tryout scripts/e2e/deploy.sh`).
+    `e2e-single-host` running `NODE_USER=tryout scripts/e2e/deploy.sh`), also followed by hand on
+    a fresh Debian 13 VM.
 
   Next: the rest of M5 (`docs/roadmap.md`).
 - CI publishes `tryout-ttyd` (first), `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to
