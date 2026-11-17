@@ -243,4 +243,5 @@ Done. Checked on the dev stack from an empty database, in a browser:
   one, cgroup delegation, and an nftables egress filter for that user and its subordinate uids.
   Sessions use runc until gVisor runs rootless
   ([google/gvisor#12575](https://github.com/google/gvisor/issues/12575)). CI follows the guide
-  and runs the end-to-end tests against it. See [Single-host node](single-host.md).
+  and runs the end-to-end tests against it; it was also followed by hand on a fresh Debian 13
+  machine. See [Single-host node](single-host.md).
