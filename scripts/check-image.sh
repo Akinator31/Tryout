@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Checks a project image against the Tryout contract (docs/project-images.md) before it goes
 # to production: runs it the way the agent runs a session, then probes it the way the control
-# plane does, through its base path, until it answers below 400.
+# plane does, through its base path (the Selkies backend for a desktop), until it answers below
+# 400.
 #
 # The constraints mirror the agent's (apps/node/internal/session: hardening.go, env.go): an
 # internal network with no egress, no capabilities (desktop: the six its init needs),
@@ -229,9 +230,13 @@ add_environment() {
   done
 }
 
-# probe_path is the path the gateway forwards to the container.
+# probe_path is the path the gateway forwards to the container. A desktop is probed on the
+# Selkies backend (api/websockets), which can start well after its web server; the control
+# plane probes the same path (apps/control-plane/src/nodes/runtime.ts): keep both in step.
 probe_path() {
-  if [ "$strip_prefix" = true ]; then echo /; else echo "$base_path/"; fi
+  local root
+  if [ "$strip_prefix" = true ]; then root=/; else root="$base_path/"; fi
+  if [ "$kind" = desktop ]; then echo "${root}api/websockets"; else echo "$root"; fi
 }
 
 # wait_until_reachable probes the image from a container on the session network, like the

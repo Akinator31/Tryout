@@ -130,7 +130,6 @@ Done. Checked on the dev stack from an empty database, in a browser:
 | gVisor in `single-host` | runc with `ALLOW_RUNC=true` | Waits for gVisor to run under a rootless daemon ([google/gvisor#12575](https://github.com/google/gvisor/issues/12575)) |
 | Docker endpoint over SSH or TLS | `unix://` or `tcp://` only | |
 | Subdomain routing in the gateway | Path routing only | Needs wildcard DNS and TLS; see [Public exposure](exposure.md) |
-| Readiness probe that waits for the desktop backend | A probe that only waits for the web server | Under gVisor, Selkies answers its WebSocket about a minute after nginx, and the visitor sees "WebSocket disconnected" until then |
 | Minimal desktop example project | No desktop example image | An image with only what its program needs, checked by `scripts/check-image.sh` in CI like `cli-hello` |
 
 ## Done
@@ -245,3 +244,7 @@ Done. Checked on the dev stack from an empty database, in a browser:
   ([google/gvisor#12575](https://github.com/google/gvisor/issues/12575)). CI follows the guide
   and runs the end-to-end tests against it; it was also followed by hand on a fresh Debian 13
   machine. See [Single-host node](single-host.md).
+- **M5:** a desktop session opens once the Selkies backend answers (`api/websockets` below the
+  base path), not as soon as nginx serves the page: under gVisor the backend starts about a
+  minute later, and visitors saw "WebSocket disconnected" until then. `scripts/check-image.sh`
+  probes the same path. See [Architecture](architecture.md#life-of-a-session).

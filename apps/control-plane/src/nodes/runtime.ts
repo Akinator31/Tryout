@@ -1,7 +1,7 @@
 // SessionRuntime adapter for real nodes: agent API over mutual TLS
 // + readiness probe through the gateway. Tests use an in-memory adapter instead.
 import { readCapped, type AgentClient } from "./agents.ts";
-import type { Settings } from "../config/config.ts";
+import type { Kind, NodeConfig, Settings } from "../config/config.ts";
 import type { SessionRef, SessionRuntime } from "../queue/queue.ts";
 
 /** Timeout of an agent call that has no signal of its own (stop). */
@@ -13,8 +13,31 @@ const PROBE_INTERVAL_MS = 1000;
 /** The agent's hard stop is a safety net, slightly later than the queue's maximum age. */
 const AGENT_MAX_AGE_MARGIN_S = 60;
 
+/**
+ * Selkies' WebSocket endpoint, below the session's base path. nginx answers
+ * 502 there until the backend listens, which under gVisor can be a minute
+ * after the page itself; a plain GET gets 204 once it does.
+ * scripts/check-image.sh probes the same path: keep both in step.
+ */
+const SELKIES_BACKEND_PATH = "api/websockets";
+
 /** Fills a public_url or probe_url template with a session id. */
 const fill = (tpl: string, session: string) => tpl.replaceAll("{session}", session);
+
+/**
+ * The URL polled until a new session answers: the session's page for a
+ * terminal, the Selkies backend for a desktop, so the visitor never loads a
+ * desktop whose stream is not up yet.
+ */
+export function readinessUrl(node: NodeConfig, kind: Kind, session: string): string {
+  const url = fill(node.probe_url ?? node.public_url, session);
+  if (kind !== "desktop") return url;
+
+  const probe = new URL(url);
+  const dir = probe.pathname.endsWith("/") ? probe.pathname : `${probe.pathname}/`;
+  probe.pathname = dir + SELKIES_BACKEND_PATH;
+  return probe.href;
+}
 
 /** Resolves after `ms`, or rejects with the signal's reason as soon as it aborts. */
 const sleep = (ms: number, signal: AbortSignal) =>
@@ -33,8 +56,8 @@ const sleep = (ms: number, signal: AbortSignal) =>
 /**
  * The runtime for the nodes of the active settings, read at each call: a
  * start uses the project as it is when it starts. A start creates the session
- * on the agent, then polls the session URL through the gateway until it
- * answers. The queue aborts the start's signal when the visitor leaves or the
+ * on the agent, then polls the session through the gateway until it answers
+ * (see readinessUrl). The queue aborts the start's signal when the visitor leaves or the
  * start deadline passes.
  */
 export function agentRuntime(settings: () => Settings, client: (node: string) => AgentClient): SessionRuntime {
@@ -58,8 +81,8 @@ export function agentRuntime(settings: () => Settings, client: (node: string) =>
    * Unset fields stay undefined, which JSON leaves out: port and strip_prefix
    * are not allowed with the agent's ttyd.
    */
-  function sessionRequest({ sessionId, project }: SessionRef) {
-    const p = settings().projects[project];
+  function sessionRequest({ sessionId, project }: SessionRef, s: Settings) {
+    const p = s.projects[project];
     return {
       id: sessionId,
       project,
@@ -93,10 +116,12 @@ export function agentRuntime(settings: () => Settings, client: (node: string) =>
 
   return {
     async start(session: SessionRef, signal: AbortSignal) {
-      await call(session.node, "POST", "/v1/sessions", sessionRequest(session), signal);
+      const s = settings();
+      const n = s.nodes[session.node];
+      const { kind } = s.projects[session.project];
+      await call(session.node, "POST", "/v1/sessions", sessionRequest(session, s), signal);
 
-      const n = settings().nodes[session.node];
-      await waitUntilReachable(fill(n.probe_url ?? n.public_url, session.sessionId), signal);
+      await waitUntilReachable(readinessUrl(n, kind, session.sessionId), signal);
       return { url: fill(n.public_url, session.sessionId) };
     },
 

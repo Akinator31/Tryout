@@ -202,8 +202,11 @@ What it does:
    `POST /v1/sessions` on the agent.
 4. The agent creates the network and the container, attaches the gateway, and publishes the
    route.
-5. The control plane probes the URL through the gateway, then marks the ticket `active` with
-   the public URL.
+5. The control plane probes the session through the gateway until it answers below 400, then
+   marks the ticket `active` with the public URL. A terminal is probed on its base path; a
+   desktop on Selkies' WebSocket endpoint (`<base path>api/websockets`), since nginx serves the
+   page well before the stream backend listens (about a minute later under gVisor), and a
+   visitor sent in earlier would see "WebSocket disconnected".
 6. The page shows the session URL in a nested iframe.
 7. At the end, the control plane calls `DELETE /v1/sessions/<id>`, and the agent removes
    everything.

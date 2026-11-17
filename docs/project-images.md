@@ -84,7 +84,8 @@ CMD ["bash", "-c", "hello; exec bash -l"]
 Start from a Selkies-based LinuxServer image (`lscr.io/linuxserver/baseimage-selkies` or
 `lscr.io/linuxserver/webtop`) and install your application. The agent provides `SUBFOLDER`, which
 the image's nginx applies, and the Selkies settings (see [Configuration](configuration.md)). The
-port is `3000`.
+port is `3000`. The session opens once `<base path>api/websockets` answers below 400, which
+LinuxServer's nginx forwards to the Selkies backend.
 
 - **Tested**: `lscr.io/linuxserver/webtop` boots with the reduced capability set, under runc and
   gVisor, on amd64 and arm64.
