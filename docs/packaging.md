@@ -114,7 +114,7 @@ OK   wordfreq:dev meets the contract for a terminal session
 `scripts/check-image.sh`, from the Tryout repository, runs the image the way the agent runs a
 session: internal network, no capabilities, read-only root filesystem, the kind's limits and
 variables, and the program in ttyd (the published `tryout-ttyd` image, or `--ttyd-image`). It then
-probes the base path the way the control plane does, and prints the container's logs when the
+probes the base path the way the control plane does (the Selkies backend for a desktop), and prints the container's logs when the
 image does not answer. Its options mirror the project's configuration:
 
 - `--kind terminal|desktop`;
@@ -199,12 +199,13 @@ scripts/check-image.sh --kind desktop mousepad-desktop:dev
 ```
 ok   architecture amd64
 ok   started with the session constraints (desktop, port 3000)
-ok   answers 200 on /s/check84055b320749516a/ after 5 s
+ok   answers 204 on /s/check84055b320749516a/api/websockets after 5 s
 OK   mousepad-desktop:dev meets the contract for a desktop session
 ```
 
-The check proves that the desktop's page answers under the base path, not that your application
-started. To see it, run the project on the dev stack ([Quickstart](quickstart.md)): copy the
+That run used runc; under gVisor (`--runtime runsc`), the stream backend can take about a minute
+to answer. The check proves that the backend answers under the base path, as the control plane
+waits for before it opens the session, not that your application started. To see it, run the project on the dev stack ([Quickstart](quickstart.md)): copy the
 `webtop` entry of `deploy/tryout.dev.yaml` and change its image.
 
 - **Resources**: the stream costs far more than the application. The agent caps it at 720p and
