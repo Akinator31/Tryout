@@ -147,7 +147,7 @@ the node's certificates into the user's home:
 ```bash
 sudo cp -r deploy/node /home/tryout/tryout-node
 sudo cp -r pki/nodes/cli/ /home/tryout/tryout-node/pki    # tls.crt, tls.key, ca.crt
-sudo chown -R tryout: /home/tryout/tryout-node
+sudo chown -R tryout:tryout /home/tryout/tryout-node
 ```
 
 In the user's shell, give the certificates to the agent, then prepare `.env`:

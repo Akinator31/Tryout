@@ -154,7 +154,7 @@ issue_certificates() {
 install_node_dir() {
   node_dir=$(sudo -u "$node_user" mktemp -d -p "$node_home" e2e-node.XXXXXX)
   sudo cp -r "$work/node/." "$node_dir/"
-  sudo chown -R "$node_user:" "$node_dir"
+  sudo chown -R "$node_user:$(id -gn "$node_user")" "$node_dir"
   node_docker run --rm -v "$node_dir/pki:/pki" busybox:1.37 chown -R 65532:65532 /pki
 }
 
