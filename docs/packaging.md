@@ -213,6 +213,10 @@ waits for before it opens the session, not that your application started. To see
   [Performance](performance.md)). Keep `max_sessions` low on small nodes.
 - **Settings**: a project may override the stream's defaults through `env`, such as a higher
   resolution (see [Desktop session defaults](configuration.md#desktop-session-defaults)).
+- **Games and animations**: at 15–30 fps, an application that draws 60 frames per second looks
+  choppy in the stream even when the node keeps up. Set `SELKIES_FRAMERATE: "60"` in the
+  project's `env`, and raise `limits.cpus` above the desktop default of 1.5 so that the
+  application and the encoder are not throttled.
 
 ## Publish the image
 
