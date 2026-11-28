@@ -73,3 +73,27 @@ test("a desktop start waits for the Selkies backend before handing out the sessi
     gateway.close();
   }
 });
+
+test("a GPU project asks the agent for a GPU", async () => {
+  const gateway = await fakeGateway(0);
+  try {
+    const bodies: unknown[] = [];
+    const agent = {
+      fetch: async (_url: string, init: RequestInit) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return new Response(null, { status: 201 });
+      },
+      close: async () => {},
+    } as unknown as AgentClient;
+    const settings = {
+      nodes: { local: { ...node, probe_url: `http://127.0.0.1:${gateway.port}/s/{session}/` } },
+      projects: { game: { image: "game", kind: "desktop", port: 3000, max_age_s: 60, gpu: true } as ProjectConfig },
+    } as unknown as Settings;
+
+    await agentRuntime(() => settings, () => agent).start({ sessionId: "abc", project: "game", node: "local" }, AbortSignal.timeout(10_000));
+
+    assert.equal((bodies[0] as { gpu?: boolean }).gpu, true);
+  } finally {
+    gateway.close();
+  }
+});

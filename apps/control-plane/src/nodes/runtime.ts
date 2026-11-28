@@ -94,6 +94,7 @@ export function agentRuntime(settings: () => Settings, client: (node: string) =>
       runtime: p.runtime,
       max_age_s: p.max_age_s + AGENT_MAX_AGE_MARGIN_S,
       strip_prefix: p.strip_prefix,
+      gpu: p.gpu,
       env: p.env,
       limits: p.limits ?? {},
     };

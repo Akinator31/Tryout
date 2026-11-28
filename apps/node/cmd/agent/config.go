@@ -28,6 +28,7 @@ type config struct {
 func loadConfig() config {
 	maxSessions, _ := strconv.Atoi(env("MAX_SESSIONS", "10"))
 	maxAge, _ := time.ParseDuration(env("SESSION_MAX_AGE_CAP", "2h"))
+	gpuSessions, _ := strconv.Atoi(os.Getenv("GPU_SESSIONS"))
 
 	return config{
 		agent: agent.Config{
@@ -39,6 +40,8 @@ func loadConfig() config {
 			MaxSessions:    maxSessions,
 			MaxAge:         maxAge,
 			TTYDImage:      env("TTYD_IMAGE", version.TTYDImage),
+			GPUDevices:     list(os.Getenv("GPU_DEVICES")),
+			GPUSessions:    gpuSessions,
 		},
 		listen:           env("AGENT_LISTEN", ":7000"),
 		tlsCert:          os.Getenv("AGENT_TLS_CERT"),
@@ -56,4 +59,16 @@ func env(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// list splits a comma-separated variable, trimming spaces and dropping empty
+// items.
+func list(v string) []string {
+	out := []string{}
+	for item := range strings.SplitSeq(v, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }

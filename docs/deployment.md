@@ -300,8 +300,9 @@ Each agent serves two read-only endpoints on its mutual TLS API, so only a clien
 control plane's certificate can call them:
 
 - `GET /healthz` answers `200` with the node's version, profile, architecture, default
-  runtime, installed runtimes, session count (starts in progress included) and `MAX_SESSIONS`, or `503` when the agent cannot
-  reach its Docker daemon.
+  runtime, installed runtimes, session count (starts in progress included) and `MAX_SESSIONS`,
+  plus, on a GPU node, `gpu`: its devices, `GPU_SESSIONS` and the GPU sessions in use; or `503`
+  when the agent cannot reach its Docker daemon.
 - `GET /metrics` answers in the Prometheus text format, relayed by the control plane with a
   `node` label:
 

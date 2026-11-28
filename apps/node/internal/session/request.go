@@ -70,8 +70,10 @@ type Request struct {
 	StripPrefix bool              `json:"strip_prefix,omitempty"`
 	Env         map[string]string `json:"env,omitempty"`
 	Limits      Limits            `json:"limits"`
+	GPU         bool              `json:"gpu,omitempty"`
 
-	ttydImage string // Policy.TTYDImage, for a terminal with the agent's ttyd
+	ttydImage  string   // Policy.TTYDImage, for a terminal with the agent's ttyd
+	gpuDevices []string // Policy.GPUDevices, for a session with gpu
 }
 
 // Policy is what the node allows, settled at startup from its profile and
@@ -83,6 +85,7 @@ type Policy struct {
 	Runtimes       map[string]bool // installed on the daemon
 	MaxAge         time.Duration   // SESSION_MAX_AGE_CAP
 	TTYDImage      string          // TTYD_IMAGE: mounted into terminals with the agent's ttyd
+	GPUDevices     []string        // GPU_DEVICES: CDI device names given to GPU sessions
 }
 
 // RuntimeAllowed is the node profile's runtime rule. Outside dev, only gVisor
@@ -117,6 +120,9 @@ func (r *Request) validate(p Policy) error {
 		return err
 	}
 	if err := r.applyRuntimePolicy(p); err != nil {
+		return err
+	}
+	if err := r.applyGPUPolicy(p); err != nil {
 		return err
 	}
 	if err := r.checkEnv(); err != nil {
@@ -191,6 +197,29 @@ func (r *Request) applyRuntimePolicy(p Policy) error {
 	if !p.RuntimeAllowed(r.Runtime) {
 		return fmt.Errorf("runtime %q refused by node profile %s: only runsc without ALLOW_RUNC", r.Runtime, p.Profile)
 	}
+	return nil
+}
+
+// applyGPUPolicy gives a desktop that asks for a GPU the node's CDI devices.
+// It runs after applyRuntimePolicy, so the runtime is settled: a GPU is only
+// given under runsc, whatever the profile or ALLOW_RUNC, because gVisor's
+// nvproxy is what filters the driver calls. Under runc the visitor would
+// reach the whole NVIDIA kernel driver.
+func (r *Request) applyGPUPolicy(p Policy) error {
+	if !r.GPU {
+		return nil
+	}
+
+	switch {
+	case r.Kind != Desktop:
+		return errors.New("gpu is a desktop setting")
+	case len(p.GPUDevices) == 0:
+		return errors.New("this node has no GPU")
+	case r.Runtime != "runsc":
+		return fmt.Errorf("gpu needs runtime runsc (gVisor nvproxy), not %q", r.Runtime)
+	}
+
+	r.gpuDevices = p.GPUDevices
 	return nil
 }
 

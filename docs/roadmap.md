@@ -130,6 +130,7 @@ Done. Checked on the dev stack from an empty database, in a browser:
 | gVisor in `single-host` | runc with `ALLOW_RUNC=true` | Waits for gVisor to run under a rootless daemon ([google/gvisor#12575](https://github.com/google/gvisor/issues/12575)) |
 | Docker endpoint over SSH or TLS | `unix://` or `tcp://` only | |
 | Subdomain routing in the gateway | Path routing only | Needs wildcard DNS and TLS; see [Public exposure](exposure.md) |
+| GPU desktop sessions (`strict`) | Desktops render and encode on the CPU | Through gVisor's nvproxy: NVENC and OpenGL via VirtualGL, no Vulkan. Agent side done; next, the control plane counts GPU slots before it starts a session, warns about GPU projects without a GPU node, and the admin and `scripts/check-image.sh --gpu` know about GPUs |
 | Minimal desktop example project | No desktop example image | An image with only what its program needs, checked by `scripts/check-image.sh` in CI like `cli-hello` |
 
 ## Done
@@ -248,3 +249,7 @@ Done. Checked on the dev stack from an empty database, in a browser:
   base path), not as soon as nginx serves the page: under gVisor the backend starts about a
   minute later, and visitors saw "WebSocket disconnected" until then. `scripts/check-image.sh`
   probes the same path. See [Architecture](architecture.md#life-of-a-session).
+- **M5:** GPU desktop sessions, agent side: a desktop with `gpu: true` gets the node's GPU
+  (`GPU_DEVICES`, CDI devices) under `runsc` with nvproxy only, within `GPU_SESSIONS`; the agent
+  refuses to start when `runsc` lacks `--nvproxy`, and reports GPU use on `/healthz`. See
+  [GPU desktop sessions](gpu.md).

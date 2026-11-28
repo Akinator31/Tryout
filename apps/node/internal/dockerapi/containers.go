@@ -31,6 +31,7 @@ type HostConfig struct {
 	ReadonlyRootfs  bool              `json:",omitempty"`
 	Tmpfs           map[string]string `json:",omitempty"`
 	Mounts          []Mount           `json:",omitempty"`
+	DeviceRequests  []DeviceRequest   `json:",omitempty"`
 	Memory          int64             `json:",omitempty"`
 	MemorySwap      int64             `json:",omitempty"`
 	NanoCpus        int64             `json:",omitempty"`
@@ -50,6 +51,15 @@ type Mount struct {
 	Source   string
 	Target   string
 	ReadOnly bool
+}
+
+// DeviceRequest is an entry of HostConfig.DeviceRequests. The agent only
+// uses CDI requests (Driver "cdi"): DeviceIDs are fully qualified CDI device
+// names, such as nvidia.com/gpu=all, that the daemon resolves from its CDI
+// specification files.
+type DeviceRequest struct {
+	Driver    string
+	DeviceIDs []string
 }
 
 // LogConfig selects a container's logging driver and its options.

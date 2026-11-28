@@ -14,7 +14,7 @@ import (
 )
 
 // sessionsDocker returns a fake Docker client listing one session container
-// per "project/state" pair.
+// per "project/state" pair, or "project/state/gpu" for a GPU session.
 func sessionsDocker(t *testing.T, sessions ...string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/containers/json") {
@@ -25,8 +25,10 @@ func sessionsDocker(t *testing.T, sessions ...string) http.HandlerFunc {
 
 		out := []any{}
 		for i, s := range sessions {
-			project, state, _ := strings.Cut(s, "/")
-			out = append(out, map[string]any{"Id": fmt.Sprint(i), "State": state, "Labels": map[string]string{session.LabelSession: fmt.Sprint(i), session.LabelProject: project}})
+			project, rest, _ := strings.Cut(s, "/")
+			state, gpu, _ := strings.Cut(rest, "/")
+			labels := map[string]string{session.LabelSession: fmt.Sprint(i), session.LabelProject: project, session.LabelGPU: fmt.Sprint(gpu == "gpu")}
+			out = append(out, map[string]any{"Id": fmt.Sprint(i), "State": state, "Labels": labels})
 		}
 		_ = json.NewEncoder(w).Encode(out)
 	}

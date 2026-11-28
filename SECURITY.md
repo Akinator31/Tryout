@@ -78,6 +78,7 @@ can turn them off.
 | Admin settings and sessions API | A signed-in account publishes settings, so it decides which images run on which nodes: every account is trusted like the operator. Each publication, rollback and logo upload is logged with the account name, and each revision keeps its author. The dry run makes the control plane call `/healthz` on the agent URLs of the submitted document, over mutual TLS, presenting its client certificate, with a 3-second deadline and answers capped at 64 KB; it reports whether each agent answered, with the reason cut to 200 characters (a refused connection, a certificate error, the agent's own error), which an account could use to probe what the control plane reaches. Logos are sniffed when stored and served with their own type, `nosniff` and a `sandbox` Content Security Policy that allows inline styles only and no framing, so an SVG can neither run scripts, load anything nor be framed; since their URL names their content, the browser may keep them privately for a day, unlike other admin answers. The node health shown to admins keeps only the known, well-typed fields of the agent's report. The sessions list never shows a session's URL, which is the credential that opens it, nor the visitor's address; an account can stop any session, and each stop is logged with the account name and the ticket's 6-character prefix. |
 | Admin interface | Static files built into the control plane's image and served on the admin listener only, under `/admin/`. Its Content-Security-Policy allows scripts, fonts and API calls from its own origin only, styles from its stylesheet or carrying a nonce drawn afresh for each HTML answer (Chakra UI inserts styles at run time), images from itself, `data:` and `blob:`, frames from `public_url` only, for the project preview (none without it or with `admin_preview: false`), and no framing (`frame-ancestors 'none'`); the HTML is never cached and sends no referrer. It holds no secret: the session stays in the `HttpOnly` cookie, and after sign-in it only returns to a path of the app. Pending settings changes stay in the tab's `sessionStorage` (no secrets live in the settings) until applied, discarded or signed out; every publication still goes through the server's checks. The project preview is the public embed page in a frame, started by a click: it gets no admin privilege, takes a queue slot like a visitor, and works only if the operator lists the admin's origin in `embed_frame_ancestors`. |
 | State store | PostgreSQL is reachable by the control plane only: the dev compose file and the production example (`deploy/control-plane`) put it on an internal network that no node component joins. It holds the queue and the settings revisions, which are checked by the same schema as the file before they are stored; no secret is stored in it. |
+| GPU | Off unless the node sets `GPU_DEVICES`. Only a desktop that asks for it gets the GPU, as CDI devices, and only under `runsc` with nvproxy, whatever the profile or `ALLOW_RUNC`: the agent refuses to start when the `runsc` runtime lacks `--nvproxy`, and refuses a GPU session under any other runtime. `GPU_SESSIONS` caps the GPU sessions. See [GPU sessions](#gpu-sessions). |
 | Prerequisites | The agent **refuses to start** if the declared profile is not met (see below). |
 
 ## Node profiles
@@ -197,6 +198,30 @@ published on an address you choose.
   settings: whoever can write to it chooses the images that nodes run and the origins allowed to
   frame the embed page. The node's hardening does not depend on it: it is hard-coded in the
   agent. No secret is stored there; the TLS keys stay files.
+
+## GPU sessions
+
+A node with `GPU_DEVICES` gives its NVIDIA GPU to the desktops that ask for it (`gpu: true`),
+through gVisor's nvproxy (see [GPU desktop sessions](gpu.md)).
+
+- **What nvproxy filters**: the session still runs on gVisor's kernel. Its GPU calls are
+  forwarded to the host driver only if they are on nvproxy's list for that driver version, and
+  the device files gVisor exposes are limited to `nvidiactl`, `nvidia-uvm` and `nvidia#`. Under
+  runc, the session would reach every ioctl of the NVIDIA kernel driver and its DRM and modeset
+  devices; the agent never gives a GPU under runc.
+- **What it does not**: the allowed calls reach the real driver with arguments the visitor
+  chooses. gVisor documents that nvproxy is much less effective against driver flaws on those
+  calls, and NVIDIA's bulletins regularly fix privilege escalation and cross-process memory
+  access flaws in that layer. A GPU node therefore trusts the NVIDIA driver on top of gVisor:
+  keep it up to date, within the versions gVisor supports, and run GPU sessions on a dedicated
+  machine or VM (`strict`).
+- **No isolation between GPU sessions**: without MIG or vGPU, sessions share the GPU's memory
+  and engines, with no memory or fault isolation beyond what the driver enforces between
+  processes, and no cap on a session's GPU memory or compute. A session can fill the GPU memory
+  or keep the GPU busy and degrade the others; `GPU_SESSIONS` only bounds their number.
+- **The NVIDIA Container Toolkit** only generates the CDI specification; the agent asks Docker
+  for CDI devices and never uses the toolkit's runtime hooks, the path of its past container
+  escapes. Project images are chosen by the operator, not by visitors.
 
 ## Known limitations
 

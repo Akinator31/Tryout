@@ -34,7 +34,8 @@ func (a *Agent) Handler() http.Handler {
 }
 
 // handleHealthz describes the node and its load, counting the sessions being
-// created as reserveSlot does. The node is healthy when its
+// created as reserveSlot does. A GPU node adds its devices, GPU_SESSIONS and
+// the GPU sessions in use. The node is healthy when its
 // Docker daemon answers: otherwise it answers 503, since it could neither
 // start nor list sessions.
 func (a *Agent) handleHealthz(w http.ResponseWriter, r *http.Request) {
@@ -44,16 +45,24 @@ func (a *Agent) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	health := map[string]any{
 		"ok":              true,
 		"version":         version.Version,
 		"profile":         a.policy.Profile,
 		"arch":            a.arch,
 		"default_runtime": a.policy.DefaultRuntime,
 		"runtimes":        sortedKeys(a.policy.Runtimes),
-		"sessions":        n + a.creatingCount(),
+		"sessions":        n.all + a.creatingCount(),
 		"max_sessions":    a.maxSessions,
-	})
+	}
+	if len(a.policy.GPUDevices) > 0 {
+		health["gpu"] = map[string]any{
+			"devices":  a.policy.GPUDevices,
+			"sessions": a.gpuSessions,
+			"in_use":   n.gpu + a.creatingGPUCount(),
+		}
+	}
+	writeJSON(w, http.StatusOK, health)
 }
 
 // handleCreateSession validates the request (400 when invalid) and creates
