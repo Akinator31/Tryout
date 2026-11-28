@@ -43,6 +43,8 @@ export interface ProjectSettings {
   port?: number;
   runtime?: string;
   strip_prefix?: boolean;
+  /** Desktops only: the session gets the node's GPU. */
+  gpu?: boolean;
   limits?: { memory_mb?: number; cpus?: number; pids?: number };
   env?: Record<string, string>;
 }

@@ -61,11 +61,12 @@ interface NodeCardProps {
   onRemove: () => void;
 }
 
-/** The lines under a node's header: what the agent said or why it is down, its projects, and the dev profile's warning. */
+/** The lines under a node's header: what the agent said or why it is down, its GPU, its projects, and the dev profile's warning. */
 function NodeDetails({ node, view, users }: Pick<NodeCardProps, "node" | "view" | "users">) {
   const now = useNow(5000);
   const state = nodeState(view);
   const D = N.details;
+  const gpu = view?.agent?.gpu;
 
   const first = {
     draft: D.draft,
@@ -77,6 +78,7 @@ function NodeDetails({ node, view, users }: Pick<NodeCardProps, "node" | "view" 
   return (
     <>
       {first && <DetailLine tone={state === "unreachable" ? "error" : "muted"}>{first}</DetailLine>}
+      {state === "healthy" && gpu && <DetailLine>{D.gpu(gpu.in_use, gpu.sessions, gpu.devices)}</DetailLine>}
       {state !== "unreachable" && <DetailLine>{D.users(users)}</DetailLine>}
       {state === "healthy" && view?.agent?.profile === "dev" && <DetailLine tone="warning">{D.dev}</DetailLine>}
     </>

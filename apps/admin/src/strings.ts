@@ -97,6 +97,10 @@ export const strings = {
     edit: "Edit settings",
     missing: "This project is not in the settings.",
     back: "Back to projects",
+    noGpu: {
+      title: (node: string) => `Node ${node} has no GPU`,
+      body: "Visitors wait in the queue until the node sets GPU_DEVICES, or the project moves to a node with a GPU.",
+    },
     paused: {
       title: "Paused",
       body: "New visitors see “unavailable”. Sessions running now and visitors already in line carry on.",
@@ -234,6 +238,9 @@ export const strings = {
       nodeDefault: (runtime: string | undefined) => (runtime ? `Node default (${runtime})` : "Node default"),
       strictHelp: (profile: string) => `Profile ${profile} accepts runsc only, unless ALLOW_RUNC=true on the node.`,
       runtimeHelp: "The node's default unless the project needs another.",
+      gpu: "GPU",
+      gpuText: "Use the node's GPU",
+      gpuHelp: "Through gVisor's nvproxy, under runsc only. Start the app with vglrun -d egl for OpenGL on the GPU.",
     },
     capacity: {
       title: "Capacity",
@@ -279,6 +286,8 @@ export const strings = {
       nodeDown: (node: string) => `Node ${node} does not answer`,
       nodeUnknown: (node: string) => `Node ${node} not checked yet`,
       overbooked: (node: string) => `Node ${node} would be overbooked (see Capacity)`,
+      gpu: (node: string, inUse: number, sessions: number) => `Node ${node} has a GPU (${inUse} of ${sessions} GPU sessions)`,
+      noGpu: (node: string) => `Node ${node} has no GPU: visitors would wait`,
       review: "The review runs the control plane's checks before anything is applied.",
     },
     yaml: (name: string) => `projects.${name || NAME_PLACEHOLDER} in tryout.yaml`,
@@ -308,6 +317,7 @@ export const strings = {
       profile: (p: string) => `profile ${p}`,
       runtime: (r: string) => `runtime ${r}`,
       load: (live: number, max: number) => `${live} of ${max} sessions.`,
+      gpu: (inUse: number, sessions: number, devices: string[]) => `GPU: ${inUse} of ${sessions} GPU sessions (${devices.join(", ")}).`,
       checked: (when: string) => `(checked ${when}).`,
       noAnswer: "The agent does not answer.",
       waiting: (projects: string[]) => `${list(projects)} ${projects.length === 1 ? "waits" : "wait"} for it.`,

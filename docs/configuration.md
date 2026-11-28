@@ -69,6 +69,9 @@ underline errors as you type.
 
 - A node whose projects allow more sessions than its own `max_sessions` gets a warning only:
   the node cap wins.
+- The admin's settings review also asks each node's agent for its GPU, and warns about a GPU
+  project on a node without one (its visitors wait) and about GPU projects allowing more
+  sessions than the node's `GPU_SESSIONS` (the GPU cap wins).
 
 The agent validates each session request against the same schema and rejects any field it does
 not know. A newer control plane that sends a new field to an older agent gets an error rather
@@ -260,7 +263,7 @@ the embed page poll instead, which keeps its place in line.
 | `max_sessions` | Concurrent sessions for this project. Later visitors wait in the queue. |
 | `max_age` | Maximum session age: `90s`, `15m`, `1h30m`, at most `24h`. The agent also enforces its own cap (`SESSION_MAX_AGE_CAP`). |
 | `runtime` | Optional: `runsc`, `runc`… Defaults to the node's runtime. Outside the `dev` profile, the agent refuses any runtime but `runsc` unless it runs with `ALLOW_RUNC=true`. |
-| `gpu` | Optional, desktops only: the session gets the node's GPU, through gVisor's nvproxy. The node must have `GPU_DEVICES`, and the session runs under `runsc`. See [GPU desktop sessions](gpu.md). |
+| `gpu` | Optional, desktops only: the session gets the node's GPU, through gVisor's nvproxy. The node must have `GPU_DEVICES`, and the session runs under `runsc`. Visitors wait in the queue while the node's `GPU_SESSIONS` are all taken, or while the node reports no GPU. See [GPU desktop sessions](gpu.md). |
 | `strip_prefix` | Optional, for an image that serves its own page: strip `/s/<id>` before forwarding, for an application that cannot serve under a base path. |
 | `limits` | Optional: `memory_mb`, `cpus`, `pids`. Defaults: 256 MB / 0.5 CPU / 128 PIDs for terminals, 2 GB / 1.5 CPU / 1024 PIDs for desktops. |
 | `env` | Optional: project environment variables, as strings (quote numbers: `WIDTH: "1920"`). Reserved variables are rejected: `TRYOUT_*`, `SUBFOLDER`, `PUID`, `PGID`, `HOME`, and the Selkies security settings. |

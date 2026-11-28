@@ -69,6 +69,8 @@ export interface AgentReport {
   runtimes?: string[];
   sessions?: number;
   max_sessions?: number;
+  /** Only on a node with GPU_DEVICES: its CDI devices, GPU_SESSIONS and the GPU sessions in use. */
+  gpu?: { devices: string[]; sessions: number; in_use: number };
 }
 
 /** One node of `GET nodes`: a node of the applied settings, its last health check and live tickets. */

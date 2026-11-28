@@ -27,6 +27,9 @@
 #   --runtime NAME            container runtime, such as runsc (default: the daemon's default)
 #   --timeout SECONDS         how long the image may take to answer; default 30 (terminal),
 #                             170 (desktop), under the control plane's 180 s start limit
+#   --gpu                     a desktop with gpu: true: also warns when the image cannot use
+#                             the GPU (musl libc, no VirtualGL). The session itself runs
+#                             without a GPU
 set -euo pipefail
 
 kind=terminal
@@ -35,6 +38,7 @@ ttyd_image=${TTYD_IMAGE:-ghcr.io/akinator31/tryout-ttyd:edge}
 command=()
 port=
 strip_prefix=false
+gpu=false
 runtime=
 timeout=
 image=
@@ -84,6 +88,7 @@ parse_args() {
         ;;
       --strip-prefix) strip_prefix=true; shift ;;
       --own-server) own_server=true; shift ;;
+      --gpu) gpu=true; shift ;;
       --) shift; command=("$@"); break ;;
       -h | --help) usage ;;
       -*) echo "unknown option $1" >&2; usage ;;
@@ -98,6 +103,11 @@ parse_args() {
     desktop) port=${port:-3000}; timeout=${timeout:-170} ;;
     *) echo "--kind must be terminal or desktop" >&2; exit 2 ;;
   esac
+
+  if [ "$gpu" = true ] && [ "$kind" != desktop ]; then
+    echo "--gpu is for a desktop (--kind desktop)" >&2
+    exit 2
+  fi
 
   if agent_ttyd; then
     if [ "$strip_prefix" = true ]; then
@@ -149,6 +159,26 @@ check_arch() {
     fail "image is $image_arch but this machine is $daemon_arch: build a multi-architecture image"
   fi
   echo "ok   architecture $image_arch"
+}
+
+# check_gpu warns about what keeps a GPU desktop on the CPU without an error (docs/gpu.md):
+# a musl image, where the NVIDIA libraries the node injects do not load, and no VirtualGL,
+# without which applications render with llvmpipe.
+check_gpu() {
+  local found
+  found=$(docker run --rm --network none --entrypoint /bin/sh "$image" -c '
+    for f in /lib/ld-musl-*; do [ -e "$f" ] && echo musl; done
+    if command -v vglrun >/dev/null 2>&1 || [ -x /opt/VirtualGL/bin/vglrun ]; then echo vglrun; fi
+  ') || fail "could not run /bin/sh in the image to check its GPU support"
+
+  case $found in
+    *musl*) echo "warn musl libc (Alpine?): the NVIDIA libraries do not load, the session renders on the CPU" ;;
+    *) echo "ok   glibc" ;;
+  esac
+  case $found in
+    *vglrun*) echo "ok   VirtualGL (start the application with vglrun -d egl)" ;;
+    *) echo "warn no vglrun: applications render on the CPU; install VirtualGL (docs/gpu.md)" ;;
+  esac
 }
 
 # start_session creates the session's internal network and runs the image on it, with the
@@ -289,6 +319,7 @@ parse_args "$@"
 check_project_env
 trap cleanup EXIT
 check_arch
+if [ "$gpu" = true ]; then check_gpu; fi
 start_session
 wait_until_reachable
 echo "OK   $image meets the contract for a $kind session"

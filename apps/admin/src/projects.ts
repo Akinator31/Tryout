@@ -81,6 +81,15 @@ export function projectState({ project, applied, nodeUp, load }: StateInputs): P
   return live(load) > 0 ? "running" : "ready";
 }
 
+/**
+ * Whether a node can give a GPU, from its last check: `yes` when its agent
+ * reports one, `no` when it answers without one, `unknown` before an answer.
+ */
+export function nodeGpu(view: NodeView | undefined): "yes" | "no" | "unknown" {
+  if (!view?.up || !view.agent) return "unknown";
+  return view.agent.gpu ? "yes" : "no";
+}
+
 /** Whether each node is up, from `GET nodes`. */
 export function nodesUp(nodes: NodeView[] | undefined): Map<string, boolean> {
   return new Map((nodes ?? []).map((n) => [n.name, n.up]));
@@ -132,6 +141,8 @@ export interface ProjectForm {
   command: string;
   port: string;
   stripPrefix: boolean;
+  /** Desktops only: the session gets the node's GPU. */
+  gpu: boolean;
   node: string;
   /** Empty for the node's default runtime. */
   runtime: string;
@@ -154,6 +165,7 @@ export function newProjectForm(node = ""): ProjectForm {
     command: "",
     port: String(KIND_PORTS.terminal),
     stripPrefix: false,
+    gpu: false,
     node,
     runtime: "",
     maxSessions: "1",
@@ -178,6 +190,7 @@ export function projectForm(name: string, p: ProjectSettings): ProjectForm {
     command: formatCommand(p.command ?? []),
     port: String(p.port ?? KIND_PORTS[p.kind]),
     stripPrefix: p.strip_prefix ?? false,
+    gpu: p.gpu ?? false,
     node: p.node,
     runtime: p.runtime ?? "",
     maxSessions: String(p.max_sessions),
@@ -375,6 +388,7 @@ export function projectFromForm(form: ProjectForm, previous?: ProjectSettings): 
     port: ownPage ? parseWhole(form.port)! : undefined,
     runtime: form.runtime || undefined,
     strip_prefix: (ownPage && form.stripPrefix) || undefined,
+    gpu: (form.kind === "desktop" && form.gpu) || undefined,
     max_sessions: parseWhole(form.maxSessions)!,
     max_age: form.maxAge.trim(),
     limits,

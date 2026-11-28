@@ -5,10 +5,10 @@
 // revision based on the one it read.
 import type { Account } from "./auth.ts";
 import { Refusal, readBody, type Reply, type RouteHandler, type Routes, type SignedIn } from "./request.ts";
-import { ConfigError, type NodeConfig, type SettingsDocument } from "../config/config.ts";
+import { ConfigError, gpuWarnings, type NodeConfig, type SettingsDocument } from "../config/config.ts";
 import { imageFormat } from "../config/theme.ts";
 import { NodeInUseError, RevisionConflictError, type ConfigStore, type Revision } from "../config/store.ts";
-import type { HealthReport, NodeStatus } from "../nodes/health.ts";
+import { reportedGpu, type HealthReport, type NodeStatus } from "../nodes/health.ts";
 import type { ProjectStats } from "../queue/queue.ts";
 
 /** Live tickets of one node, by state. */
@@ -18,8 +18,8 @@ const NO_TICKETS: TicketCounts = { waiting: 0, starting: 0, active: 0 };
 
 export interface SettingsRoutesDeps {
   store: ConfigStore;
-  /** Checks that a node's agent answers /healthz, with a client made for this call. */
-  probeNode: (node: NodeConfig, signal: AbortSignal) => Promise<void>;
+  /** Checks that a node's agent answers /healthz, with a client made for this call; resolves with its report. */
+  probeNode: (node: NodeConfig, signal: AbortSignal) => Promise<HealthReport>;
   /** The nodes of the settings this instance applied. */
   nodeNames: () => string[];
   /** The last health check of each node checked so far. */
@@ -55,6 +55,7 @@ const REPORT_FIELDS: Record<string, (v: unknown) => boolean> = {
   runtimes: (v) => Array.isArray(v) && v.every((r) => typeof r === "string"),
   sessions: (v) => typeof v === "number",
   max_sessions: (v) => typeof v === "number",
+  gpu: (v) => reportedGpu({ gpu: v }) !== undefined,
 };
 
 /** How long the dry run waits for a node's agent by default. */
@@ -153,19 +154,19 @@ function noteOf(body: Record<string, unknown>): string | undefined {
  */
 export function settingsRoutes({ store, probeNode, nodeNames, health, tickets, probeTimeoutMs = PROBE_TIMEOUT_MS, log = () => {} }: SettingsRoutesDeps): Routes {
   /**
-   * A warning when the node's agent does not answer within the deadline, or
-   * null. The admin's Test connection reads its wording (apps/admin/src/nodes.ts).
+   * Probes a node within the deadline: its report when the agent answers,
+   * otherwise a warning. The admin's Test connection reads the warning's
+   * wording (apps/admin/src/nodes.ts).
    */
-  async function reachability(name: string, node: NodeConfig): Promise<string | null> {
+  async function reachability(name: string, node: NodeConfig): Promise<{ report: HealthReport } | { warning: string }> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new Error(`no answer within ${probeTimeoutMs / 1000} s`)), probeTimeoutMs);
 
     try {
-      await probeNode(node, controller.signal);
-      return null;
+      return { report: await probeNode(node, controller.signal) };
     } catch (e) {
       const reason = controller.signal.aborted ? controller.signal.reason : e;
-      return `node ${name}: the agent does not answer: ${String(reason instanceof Error ? reason.message : reason).slice(0, 200)}`;
+      return { warning: `node ${name}: the agent does not answer: ${String(reason instanceof Error ? reason.message : reason).slice(0, 200)}` };
     } finally {
       clearTimeout(timer);
     }
@@ -174,6 +175,7 @@ export function settingsRoutes({ store, probeNode, nodeNames, health, tickets, p
   /**
    * Runs the publication's checks on the body's document, then probes its
    * nodes together. An unreachable node is a warning: it may come up later.
+   * The nodes that answer tell whether the GPU projects fit (gpuWarnings).
    * A node it would move while sessions run there is one more problem.
    */
   async function validate({ req }: SignedIn): Promise<Reply> {
@@ -182,9 +184,16 @@ export function settingsRoutes({ store, probeNode, nodeNames, health, tickets, p
       throw e instanceof NodeInUseError ? new Refusal(422, "invalid settings", { details: { problems: [e.message], nodes: e.nodes } }) : e;
     });
 
-    const nodes = Object.entries(settings.nodes);
-    const unreachable = await Promise.all(nodes.map(([name, node]) => reachability(name, node)));
-    return { status: 200, body: { warnings: [...warnings, ...unreachable.filter((w) => w !== null)] } };
+    const names = Object.keys(settings.nodes);
+    const probes = new Map(await Promise.all(names.map(async (name) => [name, await reachability(name, settings.nodes[name])] as const)));
+    const gpuOf = (node: string) => {
+      const probe = probes.get(node);
+      if (!probe || !("report" in probe)) return undefined;
+      return reportedGpu(probe.report) ?? null;
+    };
+
+    const unreachable = [...probes.values()].flatMap((p) => ("warning" in p ? [p.warning] : []));
+    return { status: 200, body: { warnings: [...warnings, ...gpuWarnings(settings, gpuOf), ...unreachable] } };
   }
 
   /** The active revision's document, or an empty one. */

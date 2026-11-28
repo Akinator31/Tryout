@@ -122,7 +122,9 @@ image does not answer. Its options mirror the project's configuration:
 - `--port N` (or `--own-server` on 7681) and `--strip-prefix` for an image that serves its own
   page;
 - `--env KEY=VALUE`, repeatable, for the project's variables;
-- `--runtime runsc` to try the image under gVisor, like a production node.
+- `--runtime runsc` to try the image under gVisor, like a production node;
+- `--gpu`, for a desktop with `gpu: true`, to warn about what keeps it on the CPU (see
+  [Package a GPU project](gpu.md#package-a-gpu-project)).
 
 The check only proves that the page answers. Open a shell in similar conditions to try the tool
 itself:
