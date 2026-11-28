@@ -33,7 +33,7 @@ type agentMetrics struct {
 func newAgentMetrics() *agentMetrics {
 	m := &agentMetrics{}
 	m.starts = m.registry.NewCounter("tryout_session_starts_total",
-		"Session creations by result: ok, full (the node was at MAX_SESSIONS) or error.", "project", "result")
+		"Session creations by result: ok, full (the node was at MAX_SESSIONS, or GPU_SESSIONS for a GPU session) or error.", "project", "result")
 	m.startSeconds = m.registry.NewHistogram("tryout_session_start_seconds",
 		"Time to start a session, image pull included, for successful starts.", startBuckets, "project")
 	m.reaped = m.registry.NewCounter("tryout_sessions_reaped_total",

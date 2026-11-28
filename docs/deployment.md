@@ -312,7 +312,7 @@ control plane's certificate can call them:
 | `tryout_node_sessions` | gauge | `project`, `state` | Session containers on the node, by Docker state (`running`, `created`…). |
 | `tryout_node_sessions_max` | gauge | | `MAX_SESSIONS`. |
 | `tryout_node_docker_up` | gauge | | 1 when the Docker daemon answered the scrape, else 0 (the session gauge is then missing). |
-| `tryout_session_starts_total` | counter | `project`, `result` | Session creations: `ok`, `full` (the node was at `MAX_SESSIONS`) or `error`. |
+| `tryout_session_starts_total` | counter | `project`, `result` | Session creations: `ok`, `full` (the node was at `MAX_SESSIONS`, or `GPU_SESSIONS` for a GPU session) or `error`. |
 | `tryout_session_start_seconds` | histogram | `project` | Time to start a session, image pull included, for successful starts. |
 | `tryout_sessions_reaped_total` | counter | `reason` | Sessions the reconcile loop removed: `expired`, `dead` or `stuck`. |
 
