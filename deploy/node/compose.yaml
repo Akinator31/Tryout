@@ -33,6 +33,8 @@ services:
       GATEWAY_ADMIN_SOCKET: unix:///run/tryout/gateway.sock
       REGISTRY_AUTH_FILE: ${REGISTRY_AUTH_FILE:-}
       MAX_SESSIONS: ${MAX_SESSIONS:-10}
+      GPU_DEVICES: ${GPU_DEVICES:-}   # empty: no GPU sessions (docs/gpu.md)
+      GPU_SESSIONS: ${GPU_SESSIONS:-}
       SESSION_MAX_AGE_CAP: ${SESSION_MAX_AGE_CAP:-2h}
       TTYD_IMAGE: ${TTYD_IMAGE:-}   # empty: the release's own, pinned by digest
     volumes:

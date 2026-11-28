@@ -147,6 +147,10 @@ vault with the original stack study (in French) and its sources.
     `e2e-single-host` running `NODE_USER=tryout scripts/e2e/deploy.sh`), also followed by hand on
     a fresh Debian 13 VM. Desktop sessions open once the Selkies backend answers
     (`api/websockets`, `nodes/runtime.ts` `readinessUrl`), as does `scripts/check-image.sh`.
+    GPU desktop sessions, agent side (`docs/gpu.md`): `gpu: true` gets `GPU_DEVICES` as CDI
+    devices under `runsc` with nvproxy only (the agent reads `runtimeArgs` from `/info`), capped
+    by `GPU_SESSIONS` (`internal/agent/gpu.go`, label `tryout.gpu`); OpenGL through VirtualGL in
+    the project image, no Vulkan.
 
   Next: the rest of M5 (`docs/roadmap.md`).
 - CI publishes `tryout-ttyd` (first), `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to

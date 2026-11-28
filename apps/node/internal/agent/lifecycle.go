@@ -12,8 +12,13 @@ import (
 	"github.com/Akinator31/Tryout/apps/node/internal/session"
 )
 
-// errNodeFull refuses a session when the node runs MAX_SESSIONS already.
-var errNodeFull = errors.New("node full")
+var (
+	// errNodeFull refuses a session when the node runs MAX_SESSIONS already.
+	errNodeFull = errors.New("node full")
+	// errGPUFull refuses a GPU session when the node runs GPU_SESSIONS
+	// GPU sessions already.
+	errGPUFull = errors.New("no GPU session left on this node")
+)
 
 // create starts a session: it pulls the image if needed, builds the
 // hardened container from it, creates the session's --internal network and
@@ -21,7 +26,7 @@ var errNodeFull = errors.New("node full")
 // and pushes the new route table. A failure after the network exists
 // removes everything it made.
 func (a *Agent) create(ctx context.Context, r session.Request) error {
-	if err := a.reserveSlot(ctx, r.ID); err != nil {
+	if err := a.reserveSlot(ctx, r.ID, r.GPU); err != nil {
 		return err
 	}
 	defer a.finishCreating(r.ID)
@@ -59,10 +64,11 @@ func (a *Agent) create(ctx context.Context, r session.Request) error {
 }
 
 // reserveSlot marks a session as being created, unless it already is or the
-// node is full (MAX_SESSIONS, counting the sessions still being created).
+// node is full (MAX_SESSIONS, counting the sessions still being created). A
+// GPU session also needs one of the GPU_SESSIONS slots, counted the same way.
 // The count and the mark happen under the same lock, so two concurrent
 // requests cannot both take the last slot.
-func (a *Agent) reserveSlot(ctx context.Context, id string) error {
+func (a *Agent) reserveSlot(ctx context.Context, id string, gpu bool) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -74,18 +80,40 @@ func (a *Agent) reserveSlot(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if n+len(a.creating) >= a.maxSessions {
+	if n.all+len(a.creating) >= a.maxSessions {
 		return errNodeFull
+	}
+	if gpu && n.gpu+len(a.creatingGPU) >= a.gpuSessions {
+		return errGPUFull
 	}
 
 	a.creating[id] = true
+	if gpu {
+		a.creatingGPU[id] = true
+	}
 	return nil
 }
 
+// sessionCount is how many session containers a node has, in any state.
+type sessionCount struct {
+	all int
+	gpu int // those with a GPU
+}
+
 // countSessions counts the session containers on the node, in any state.
-func (a *Agent) countSessions(ctx context.Context) (int, error) {
+func (a *Agent) countSessions(ctx context.Context) (sessionCount, error) {
 	cs, err := a.docker.ContainerList(ctx, session.LabelSession)
-	return len(cs), err
+	if err != nil {
+		return sessionCount{}, err
+	}
+
+	n := sessionCount{all: len(cs)}
+	for _, c := range cs {
+		if c.Labels[session.LabelGPU] == "true" {
+			n.gpu++
+		}
+	}
+	return n, nil
 }
 
 // ensureImage pulls ref when it is missing, with the credentials of its

@@ -23,6 +23,9 @@ import (
 // Outside dev, it also refuses a daemon that ignores memory, CPU or pids
 // limits (see checkResourceLimits).
 //
+// With GPU_DEVICES, it also refuses a runsc runtime without nvproxy (see
+// checkGPU).
+//
 // It first refuses a daemon older than the API the agent speaks (see
 // checkDockerVersion). It also records the daemon's architecture and
 // runtimes, and settles the default runtime (see resolveDefaultRuntime).
@@ -48,6 +51,9 @@ func (a *Agent) CheckProfile(ctx context.Context) error {
 		return err
 	}
 	if err := a.checkResourceLimits(info); err != nil {
+		return err
+	}
+	if err := a.checkGPU(info); err != nil {
 		return err
 	}
 	if a.policy.AllowRunc && a.policy.Profile != "dev" {

@@ -48,6 +48,8 @@ export interface Workload {
   port?: number;
   runtime?: string;
   strip_prefix?: boolean;
+  /** Desktops only: the session gets the node's GPU (the agent's GPU_DEVICES). */
+  gpu?: boolean;
   limits?: { memory_mb?: number; cpus?: number; pids?: number };
   env?: Record<string, string>;
 }

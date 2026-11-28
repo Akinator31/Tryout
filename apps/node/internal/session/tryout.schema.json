@@ -282,6 +282,11 @@
             ]
           },
           "then": { "required": ["port"], "properties": { "port": {}, "command": { "not": {} } } }
+        },
+        {
+          "description": "Only a desktop may ask for a GPU.",
+          "if": { "properties": { "kind": { "const": "terminal" } }, "required": ["kind"] },
+          "then": { "properties": { "gpu": { "const": false } } }
         }
       ],
       "properties": {
@@ -319,6 +324,10 @@
         },
         "strip_prefix": {
           "description": "Strip /s/<id> before forwarding, for an application that cannot serve under a base path. Not allowed for a terminal with the agent's ttyd.",
+          "type": "boolean"
+        },
+        "gpu": {
+          "description": "Desktop only: give the session the node's GPU (GPU_DEVICES), through gVisor's nvproxy. The agent refuses it on a node without a GPU and under any runtime but runsc.",
           "type": "boolean"
         },
         "limits": {

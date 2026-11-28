@@ -11,7 +11,7 @@ import (
 type Info struct {
 	Architecture    string
 	SecurityOptions []string
-	Runtimes        map[string]any
+	Runtimes        map[string]Runtime
 	DefaultRuntime  string
 	CgroupVersion   string
 
@@ -21,6 +21,13 @@ type Info struct {
 	SwapLimit   bool
 	CPUCfsQuota bool `json:"CpuCfsQuota"`
 	PidsLimit   bool
+}
+
+// Runtime is an entry of Info.Runtimes: the runtime's binary and the
+// arguments the daemon passes it (runtimeArgs in daemon.json).
+type Runtime struct {
+	Path string   `json:"path"`
+	Args []string `json:"runtimeArgs"`
 }
 
 // Info describes the daemon: architecture, runtimes, rootless mode, cgroup

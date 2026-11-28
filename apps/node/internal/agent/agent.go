@@ -11,6 +11,7 @@
 //	agent.go      the agent and its in-flight session bookkeeping
 //	profile.go    startup checks: Docker version, node profile, runtime policy
 //	ttyd.go       startup: the ttyd image mounted into terminals
+//	gpu.go        startup: the GPU check; the cap on GPU sessions
 //	lifecycle.go  create, destroy and remove a session
 //	reconcile.go  the reconcile loop and gateway reattachment
 //	routes.go     the route table pushed to the gateway
@@ -39,6 +40,8 @@ type Config struct {
 	MaxSessions    int           // MAX_SESSIONS
 	MaxAge         time.Duration // SESSION_MAX_AGE_CAP
 	TTYDImage      string        // TTYD_IMAGE: the ttyd mounted into terminals
+	GPUDevices     []string      // GPU_DEVICES: CDI device names given to GPU sessions
+	GPUSessions    int           // GPU_SESSIONS: cap on concurrent GPU sessions
 }
 
 // RouteTable is where the agent pushes the route table: the gateway's admin
@@ -54,6 +57,7 @@ type Agent struct {
 	dockerHost  string
 	gatewayName string
 	maxSessions int
+	gpuSessions int
 	policy      session.Policy // the rest of Config, completed by CheckProfile
 	arch        string         // normalised daemon architecture, set by CheckProfile
 	docker      *dockerapi.Client
@@ -61,9 +65,10 @@ type Agent struct {
 	gateway     RouteTable
 	metrics     *agentMetrics
 
-	mu         sync.Mutex
-	creating   map[string]bool // ids being created: reconciler must not touch them
-	destroying map[string]bool // ids being removed through the API: same
+	mu          sync.Mutex
+	creating    map[string]bool // ids being created: reconciler must not touch them
+	creatingGPU map[string]bool // the GPU sessions among creating
+	destroying  map[string]bool // ids being removed through the API: same
 }
 
 // New wires an agent. CheckProfile must succeed before it serves requests.
@@ -72,19 +77,22 @@ func New(cfg Config, docker *dockerapi.Client, registry *registryauth.Store, gat
 		dockerHost:  cfg.DockerHost,
 		gatewayName: cfg.GatewayName,
 		maxSessions: cfg.MaxSessions,
+		gpuSessions: cfg.GPUSessions,
 		policy: session.Policy{
 			Profile:        cfg.Profile,
 			AllowRunc:      cfg.AllowRunc,
 			DefaultRuntime: cfg.DefaultRuntime,
 			MaxAge:         cfg.MaxAge,
 			TTYDImage:      cfg.TTYDImage,
+			GPUDevices:     cfg.GPUDevices,
 		},
-		docker:     docker,
-		registry:   registry,
-		gateway:    gateway,
-		metrics:    newAgentMetrics(),
-		creating:   map[string]bool{},
-		destroying: map[string]bool{},
+		docker:      docker,
+		registry:    registry,
+		gateway:     gateway,
+		metrics:     newAgentMetrics(),
+		creating:    map[string]bool{},
+		creatingGPU: map[string]bool{},
+		destroying:  map[string]bool{},
 	}
 }
 
@@ -100,6 +108,7 @@ func (a *Agent) finishCreating(id string) {
 	defer a.mu.Unlock()
 
 	delete(a.creating, id)
+	delete(a.creatingGPU, id)
 }
 
 // startDestroying marks a session as being removed through the API.
@@ -124,6 +133,14 @@ func (a *Agent) creatingCount() int {
 	defer a.mu.Unlock()
 
 	return len(a.creating)
+}
+
+// creatingGPUCount returns how many GPU sessions are being created.
+func (a *Agent) creatingGPUCount() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return len(a.creatingGPU)
 }
 
 // busyIDs returns a snapshot of the sessions being created or removed.

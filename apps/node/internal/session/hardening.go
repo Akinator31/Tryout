@@ -19,6 +19,7 @@ const (
 	LabelExpires = "tryout.expires"
 	LabelPort    = "tryout.port"
 	LabelStrip   = "tryout.strip-prefix"
+	LabelGPU     = "tryout.gpu"
 )
 
 // namePrefix starts the names of session containers and networks.
@@ -87,6 +88,9 @@ func hostConfig(r Request, network string) dockerapi.HostConfig {
 		hc.CapAdd = slices.Clone(desktopCapabilities)
 		hc.ShmSize = 1 << 30
 	}
+	if r.GPU {
+		hc.DeviceRequests = []dockerapi.DeviceRequest{{Driver: "cdi", DeviceIDs: slices.Clone(r.gpuDevices)}}
+	}
 	return hc
 }
 
@@ -100,5 +104,6 @@ func labels(r Request, created time.Time) map[string]string {
 		LabelExpires: strconv.FormatInt(expires.Unix(), 10),
 		LabelPort:    strconv.Itoa(r.Port),
 		LabelStrip:   strconv.FormatBool(r.StripPrefix),
+		LabelGPU:     strconv.FormatBool(r.GPU),
 	}
 }

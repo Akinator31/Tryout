@@ -176,10 +176,13 @@ What it does:
     gateway container starts with only its compose networks);
   - republishes the routes.
 - Validates every session request against the shared JSON Schema and refuses unknown fields.
+- Gives a desktop with `gpu` the node's GPU (`GPU_DEVICES`, CDI devices) under `runsc` only,
+  within `GPU_SESSIONS` (see [GPU through nvproxy](#gpu-through-nvproxy)).
 - Pulls a missing project image, with the registry credentials of `REGISTRY_AUTH_FILE` when
   the registry has an entry.
 - Checks that the image architecture matches the node.
-- Reports its health on `/healthz` (version, profile, default runtime, session count and cap;
+- Reports its health on `/healthz` (version, profile, default runtime, session count and cap,
+  GPU devices and use;
   503 when its Docker daemon does not answer) and Prometheus metrics on `/metrics`, both on the
   same mutual TLS API: the node opens no other port.
 
@@ -237,6 +240,28 @@ runs the ttyd version, options and theme of its node's release.
   configured before the agent's ttyd has one, so stored revisions and their images keep working
   through the upgrade, with no migration. The schema refuses `port` and `strip_prefix` with
   `ttyd: agent`, and `command` without the agent's ttyd, rather than ignore them.
+
+### GPU through nvproxy
+
+A GPU desktop runs under gVisor like any other session; the GPU goes through nvproxy, which
+forwards only the NVIDIA driver calls it knows. Measured on an RTX A2000, this gives NVENC
+encoding and, through VirtualGL's EGL backend, OpenGL rendering on the GPU, but no Vulkan and no
+zero-copy capture, since gVisor does not back the DRM and modeset devices. runc would give all of that, at the cost
+of exposing the whole NVIDIA kernel driver to the visitor; the agent does not offer it.
+
+- **The operator's `runsc`, with nvproxy.** nvproxy is a flag of the runtime, set in the
+  daemon's `runtimeArgs`. The agent keeps its runtime allowlist (`runsc` only) and reads those
+  arguments from the daemon at startup instead of accepting a second runtime name. nvproxy does
+  nothing for containers without a GPU device, so other sessions are unchanged.
+- **CDI devices.** The agent asks Docker for the CDI device names of `GPU_DEVICES`
+  (`DeviceRequests` with the `cdi` driver). Any vendor with a CDI specification fits; only
+  NVIDIA is tested. The toolkit's runtime hooks are not involved.
+- **A cap per node.** One GPU is shared by several sessions, with no memory or compute limit
+  per session. `GPU_SESSIONS` bounds their number, counted like `MAX_SESSIONS`: from the
+  `tryout.gpu` label of the session containers, plus the GPU sessions being created.
+- **Rendering is the project's.** The project image starts its application through VirtualGL
+  (`vglrun -d egl`). The agent injects nothing: a library preloaded into every program would
+  break those that do not expect it, and only the project knows what needs the GPU.
 
 ### A thin orchestrator
 
