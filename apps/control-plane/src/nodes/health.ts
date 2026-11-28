@@ -1,6 +1,7 @@
 // Node health: the control plane checks each agent's /healthz in turn and
-// keeps the last result. The queue starts no session on a node that is not up;
-// the admin listener reports it as tryout_node_up. Each instance keeps its own
+// keeps the last result. The queue starts no session on a node that is not up,
+// and no GPU session beyond the GPU sessions its last report allows; the admin
+// listener reports it as tryout_node_up. Each instance keeps its own
 // view: nodes never call the control plane.
 
 /** What the agent's /healthz tells about a healthy node (version, profile, load...). */
@@ -18,6 +19,8 @@ export interface NodeStatus {
 export interface NodeHealth {
   /** Whether the node's last check succeeded. A node not yet checked, or unknown, is down. */
   isUp(node: string): boolean;
+  /** The node's GPU sessions and those in use, from its last report; none for a node down or without a GPU. */
+  gpu(node: string): { sessions: number; inUse: number };
   /** The last check of every node of the active settings checked so far. */
   snapshot(): Record<string, NodeStatus>;
   /**
@@ -101,6 +104,11 @@ export function createNodeHealth(deps: NodeHealthDeps): NodeHealth {
 
   return {
     isUp: (node) => nodes().includes(node) && statuses.get(node)?.up === true,
+    gpu(node) {
+      const status = statuses.get(node);
+      const gpu = nodes().includes(node) && status?.up ? parseGpu(status.report?.gpu) : undefined;
+      return { sessions: gpu?.sessions ?? 0, inUse: gpu?.in_use ?? 0 };
+    },
     snapshot: () => Object.fromEntries([...statuses].filter(([node]) => nodes().includes(node))),
     probe,
     async recheck(changed) {
@@ -112,6 +120,23 @@ export function createNodeHealth(deps: NodeHealthDeps): NodeHealth {
       await probe();
     },
   };
+}
+
+/** What an agent reports about its GPU on /healthz. */
+export interface GpuReport {
+  devices: string[];
+  sessions: number;
+  in_use: number;
+}
+
+/** The `gpu` field of an agent's report; undefined when absent or malformed. */
+export function parseGpu(gpu: unknown): GpuReport | undefined {
+  if (typeof gpu !== "object" || gpu === null) return undefined;
+
+  const { devices, sessions, in_use } = gpu as Record<string, unknown>;
+  const valid =
+    Array.isArray(devices) && devices.every((d) => typeof d === "string") && Number.isInteger(sessions) && Number.isInteger(in_use);
+  return valid ? { devices, sessions, in_use } as GpuReport : undefined;
 }
 
 /** An error's message; for a network failure, undici's "fetch failed" hides the reason in its cause. */

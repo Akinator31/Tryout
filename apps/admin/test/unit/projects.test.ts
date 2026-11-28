@@ -9,6 +9,7 @@ import {
   formatCommand,
   loadBy,
   newProjectForm,
+  nodeGpu,
   overbooking,
   parseCommand,
   projectForm,
@@ -93,6 +94,7 @@ test("a valid project form has no problem and gives the project, defaults left o
     port: undefined,
     runtime: undefined,
     strip_prefix: undefined,
+    gpu: undefined,
     max_sessions: 1,
     max_age: "15m",
     limits: { memory_mb: undefined, cpus: undefined, pids: undefined },
@@ -135,6 +137,7 @@ test("an existing project's form round-trips, keeping enabled", () => {
   roundTrip({ ...CLI, ttyd: "image", port: 7681, strip_prefix: true, limits: {}, env: {} });
   roundTrip({ ...CLI, port: 7681, limits: {}, env: {} });
   roundTrip({ ...CLI, ttyd: "agent", limits: {}, env: {} });
+  roundTrip({ ...CLI, kind: "desktop", port: 3000, gpu: true, limits: {}, env: {} });
   assert.equal(projectForm("v02", { ...CLI, port: 7681 }).ownServer, true, "a terminal with a port serves its own page");
 });
 
@@ -155,6 +158,17 @@ test("a terminal runs in Tryout's ttyd unless its image serves its own page", ()
   assert.equal(checkProjectForm(form({ command: 'bash -c "unclosed' }), ctx).command, "Close the quote.");
   assert.match(checkProjectForm(form({ command: '"" x' }), ctx).command ?? "", /cannot be empty/);
   assert.equal(checkProjectForm(form({ port: "0" }), ctx).port, undefined, "the port is not used with Tryout's ttyd");
+});
+
+test("only a desktop asks for the GPU, and a node offers one only when its agent reports it", () => {
+  assert.equal(projectFromForm(form({ kind: "desktop", port: "3000", gpu: true })).gpu, true);
+  assert.equal(projectFromForm(form({ gpu: true })).gpu, undefined, "a terminal never asks for it");
+
+  const view = (agent?: object, up = true) => ({ name: "n", up, checked_at: 1, agent, tickets: { waiting: 0, starting: 0, active: 0 } });
+  assert.equal(nodeGpu(view({ gpu: { devices: ["nvidia.com/gpu=all"], sessions: 2, in_use: 0 } })), "yes");
+  assert.equal(nodeGpu(view({ version: "0.3.0" })), "no");
+  assert.equal(nodeGpu(view(undefined, false)), "unknown");
+  assert.equal(nodeGpu(undefined), "unknown");
 });
 
 test("a command is split on spaces, with quotes for an argument that holds one", () => {

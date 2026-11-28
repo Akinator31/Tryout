@@ -8,6 +8,7 @@ import { validateSettingsDocument } from "./schema.ts";
 import { assetHash, assetLogos, loadTheme, type LogoReader } from "./theme.ts";
 import { isObject, parseDuration } from "./values.ts";
 import type { Limits, NodeConfig, ProjectConfig, Settings } from "./config.ts";
+import type { GpuReport } from "../nodes/health.ts";
 import { FORGET_ENDED_MS } from "../queue/timing.ts";
 
 /** The top-level keys of the settings, in the order a document lists them. */
@@ -162,6 +163,34 @@ function overbookingWarnings(settings: Settings): string[] {
 
     if (booked > n.max_sessions) {
       warnings.push(`node ${name}: its projects allow ${booked} sessions, the node caps them at ${n.max_sessions}`);
+    }
+  }
+  return warnings;
+}
+
+/**
+ * Warnings about the GPU projects, from what their nodes report: a node
+ * without a GPU, where their visitors would wait until it has one, or GPU
+ * projects that together allow more sessions than the node's GPU_SESSIONS.
+ * `gpuOf` gives a node's GPU, null when it reports none, and undefined when
+ * its report is unknown (the node did not answer): no warning then.
+ */
+export function gpuWarnings(settings: Settings, gpuOf: (node: string) => GpuReport | null | undefined): string[] {
+  const warnings: string[] = [];
+  const gpuProjects = Object.entries(settings.projects).filter(([, p]) => p.gpu === true);
+
+  for (const [name, p] of gpuProjects) {
+    if (gpuOf(p.node) === null) {
+      warnings.push(`project ${name}: asks for a GPU, node ${p.node} has none: its visitors wait until the node sets GPU_DEVICES`);
+    }
+  }
+
+  for (const node of Object.keys(settings.nodes)) {
+    const gpu = gpuOf(node);
+    const booked = gpuProjects.filter(([, p]) => p.node === node).reduce((sum, [, p]) => sum + p.max_sessions, 0);
+
+    if (gpu && booked > gpu.sessions) {
+      warnings.push(`node ${node}: its GPU projects allow ${booked} sessions, its GPU_SESSIONS caps them at ${gpu.sessions}`);
     }
   }
   return warnings;

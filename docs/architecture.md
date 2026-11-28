@@ -22,11 +22,11 @@ Sources live in `src/`, one folder per area; `test/` mirrors it.
 
 | Module | Role |
 |---|---|
-| `queue/queue.ts` | **The core.** Interface: `join`, `poll`, `watch`, `release`, `tick`, `configure`, `stats`, `list`, `stop`. Behind it: per-project and per-node caps, node health (no promotion to a node that is down), per-IP ticket limits, FIFO promotion, session start, heartbeat loss, maximum age, start timeout, change notifications (`LISTEN/NOTIFY`). State lives in Postgres. |
+| `queue/queue.ts` | **The core.** Interface: `join`, `poll`, `watch`, `release`, `tick`, `configure`, `stats`, `list`, `stop`. Behind it: per-project and per-node caps, GPU slots (`GPU_SESSIONS` from the node's health check), node health (no promotion to a node that is down), per-IP ticket limits, FIFO promotion, session start, heartbeat loss, maximum age, start timeout, change notifications (`LISTEN/NOTIFY`). State lives in Postgres. |
 | `queue/*.ts` | The queue's internals: table and migrations (`schema`), per-IP ticket limits (`limits`), stream watchers (`watchers`), delays (`timing`). |
 | `nodes/runtime.ts` | `SessionRuntime` adapter for real nodes: agent API over mutual TLS + readiness probe through the gateway. Tests use an in-memory adapter. |
 | `nodes/agents.ts` | One mutual TLS client per node of the active settings, shared by the runtime, the health check and the metrics relay; the agent's `/healthz` and `/metrics` calls, with size-capped answers. |
-| `nodes/health.ts` | Node health: checks every node's `/healthz` every 10 s and keeps the last result; the queue starts no session on a node that is not up. |
+| `nodes/health.ts` | Node health: checks every node's `/healthz` every 10 s and keeps the last result; the queue starts no session on a node that is not up, and no GPU session beyond the `GPU_SESSIONS` it reports. |
 | `admin/http.ts` | The admin listener's routes: `/metrics` behind an optional bearer token, and the admin API under `/admin/api/` (login, logout, the signed-in account, accounts, and the routes of `admin/settings`), with its session cookie and same-origin checks. |
 | `admin/settings.ts` | The admin API's settings routes: the active document, the dry run with node reachability, revisions and rollback, logos and the nodes' health. |
 | `admin/sessions.ts` | The admin API's sessions routes: the live tickets, without session URLs or client addresses, and the operator's stop. |
@@ -259,6 +259,14 @@ of exposing the whole NVIDIA kernel driver to the visitor; the agent does not of
 - **A cap per node.** One GPU is shared by several sessions, with no memory or compute limit
   per session. `GPU_SESSIONS` bounds their number, counted like `MAX_SESSIONS`: from the
   `tryout.gpu` label of the session containers, plus the GPU sessions being created.
+- **Placement stays the operator's.** A project names its node, GPU or not. The control plane
+  learns each node's `GPU_SESSIONS` from `/healthz` rather than from its own settings, so the
+  node's `.env` stays the single place that says what its GPU allows. A GPU project's ticket
+  takes a GPU slot at promotion, recorded on the ticket, and keeps it until it ends even if the
+  project stops asking for a GPU. The queue counts at least the GPU sessions the agent reports
+  in use, which covers what the tickets miss: sessions started before an upgrade, or whose stop
+  failed. A full GPU then holds a ticket in the queue instead of failing its start. A node without a GPU holds GPU tickets in the queue rather
+  than failing them: the operator may be adding the GPU, and the settings review warns.
 - **Rendering is the project's.** The project image starts its application through VirtualGL
   (`vglrun -d egl`). The agent injects nothing: a library preloaded into every program would
   break those that do not expect it, and only the project knows what needs the GPU.

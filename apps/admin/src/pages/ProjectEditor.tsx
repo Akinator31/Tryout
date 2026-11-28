@@ -26,6 +26,7 @@ import {
   loadBy,
   loadOf,
   newProjectForm,
+  nodeGpu,
   overbooking,
   projectForm,
   projectFromForm,
@@ -244,7 +245,7 @@ function runtimeOptions(agent: AgentReport | undefined, current: string): string
   return [...new Set([...known, ...(current ? [current] : [])])];
 }
 
-/** Node and runtime, with what the node's agent said about itself. */
+/** Node, runtime and, for a desktop, the GPU, with what the node's agent said about itself. */
 function PlacementSection({ form, set, shown, document, views }: SectionProps & { document: SettingsDocument; views: NodeView[] }) {
   const P = F.placement;
   const nodes = Object.entries(document.nodes ?? {});
@@ -278,6 +279,11 @@ function PlacementSection({ form, set, shown, document, views }: SectionProps & 
           ))}
         </SelectField>
       </Grid>
+      {form.kind === "desktop" && (
+        <Box mt="5">
+          <SwitchField label={P.gpu} text={P.gpuText} help={P.gpuHelp} checked={form.gpu} onChange={(v) => set("gpu", v)} />
+        </Box>
+      )}
     </Section>
   );
 }
@@ -448,9 +454,12 @@ function CheckLine({ tone, children }: { tone: "ok" | "error" | "warning"; child
   );
 }
 
-/** What the browser checked: the fields, the node's last health check, and the node's cap. */
-function ChecksCard({ problems, node, view, overbooked }: { problems: number; node: string; view: NodeView | undefined; overbooked: boolean }) {
+/** What the browser checked: the fields, the node's last health check, its cap and, for a GPU project, its GPU. */
+function ChecksCard(props: { problems: number; node: string; view: NodeView | undefined; overbooked: boolean; gpu: boolean }) {
+  const { problems, node, view, overbooked, gpu } = props;
   const C = F.checks;
+  const nodeGpuState = nodeGpu(view);
+  const reported = view?.agent?.gpu;
 
   return (
     <Card p="5">
@@ -463,6 +472,8 @@ function ChecksCard({ problems, node, view, overbooked }: { problems: number; no
         {node && view?.up === false && view.checked_at !== null && <CheckLine tone="warning">{C.nodeDown(node)}</CheckLine>}
         {node && (!view || view.checked_at === null) && <CheckLine tone="warning">{C.nodeUnknown(node)}</CheckLine>}
         {overbooked && <CheckLine tone="warning">{C.overbooked(node)}</CheckLine>}
+        {gpu && node && reported && <CheckLine tone="ok">{C.gpu(node, reported.in_use, reported.sessions)}</CheckLine>}
+        {gpu && node && nodeGpuState === "no" && <CheckLine tone="warning">{C.noGpu(node)}</CheckLine>}
       </Stack>
       <Text mt="3" textStyle="text-xs" color="fg.subtle">
         {C.review}
@@ -581,7 +592,7 @@ function Editor({ name, document }: EditorProps) {
           <EnvSection form={form} set={set} shown={shown} />
         </Stack>
         <Stack w="380px" flexShrink="0" gap="4" position="sticky" top="6">
-          <ChecksCard problems={count} node={form.node} view={views.find((v) => v.name === form.node)} overbooked={overbooked !== null} />
+          <ChecksCard problems={count} node={form.node} view={views.find((v) => v.name === form.node)} overbooked={overbooked !== null} gpu={project.gpu === true} />
           <CodeBlock label={F.yaml(form.name)} text={stringify({ projects: { [F.yamlKey(form.name)]: project } })} />
           <AgentCard />
         </Stack>

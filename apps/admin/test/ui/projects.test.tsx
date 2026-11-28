@@ -106,6 +106,19 @@ test("a terminal takes a command in Tryout's terminal, or a port when its image 
   expect(screen.queryByRole("textbox", { name: /^Command/ })).toBeNull();
 });
 
+test("a desktop may ask for the GPU, and the GPU of its node is checked", async () => {
+  const user = userEvent.setup();
+  const GAME = { node: "local", image: "ghcr.io/me/game:1", kind: "desktop", port: 3000, gpu: true, max_sessions: 1, max_age: "10m" };
+  renderAdmin("/admin/projects/game", routes({ ...DOC, projects: { game: GAME } }));
+
+  expect(await screen.findByText("Node local has no GPU")).toBeTruthy();
+  await user.click(screen.getByRole("link", { name: /Edit/ }));
+  expect(await screen.findByText("Node local has no GPU: visitors would wait")).toBeTruthy();
+
+  await user.click(screen.getByText("Use the node's GPU"));
+  expect(screen.queryByText("Node local has no GPU: visitors would wait")).toBeNull();
+});
+
 test("creating with problems lists them all and keeps the draft untouched", async () => {
   const user = userEvent.setup();
   renderAdmin("/admin/projects/new", routes());

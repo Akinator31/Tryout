@@ -18,6 +18,8 @@ interface Options {
   unreachable?: string[];
   /** Makes every probe wait until it is aborted. */
   hanging?: boolean;
+  /** The report of each node's probe, by the host of its agent_url; {} by default. */
+  reports?: Record<string, object>;
   /** The nodes of the active settings, as the instance applied them. */
   nodeNames?: string[];
   health?: Record<string, NodeStatus>;
@@ -26,7 +28,7 @@ interface Options {
 }
 
 /** An admin listener with the settings routes, one account (alice), and a session for it. */
-async function setup(t: TestContext, { unreachable = [], hanging = false, nodeNames = [], health = {}, tickets = {} }: Options = {}) {
+async function setup(t: TestContext, { unreachable = [], hanging = false, reports = {}, nodeNames = [], health = {}, tickets = {} }: Options = {}) {
   const db = await freshDb();
   t.after(() => db.close());
   const clock = fakeClock();
@@ -39,6 +41,7 @@ async function setup(t: TestContext, { unreachable = [], hanging = false, nodeNa
       probed.push(n.agent_url);
       if (hanging) await new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason)));
       if (unreachable.some((u) => n.agent_url.includes(u))) throw new Error("connect ECONNREFUSED");
+      return reports[new URL(n.agent_url).hostname] ?? {};
     },
     nodeNames: () => nodeNames,
     health: () => health,
@@ -111,6 +114,23 @@ test("validate publishes nothing, and warns about overbooked and unreachable nod
   ]);
   assert.deepEqual(probed.sort(), ["https://n1.example:7000", "https://n2.example:7000"]);
   assert.equal((await call("/admin/api/settings")).body.revision, null);
+});
+
+test("validate warns about GPU projects on a node without a GPU, or beyond its GPU sessions", async (t) => {
+  const gpu = { devices: ["nvidia.com/gpu=all"], sessions: 2, in_use: 0 };
+  const { call } = await setup(t, { unreachable: ["n3."], reports: { "n2.example": { gpu } } });
+  const game = { ...project, kind: "desktop", port: 3000, gpu: true };
+  const document = settings({
+    nodes: { n1: node(), n2: { ...node("n2"), max_sessions: 9 }, n3: node("n3") },
+    projects: { cpu: { ...game }, big: { ...game, node: "n2", max_sessions: 3 }, later: { ...game, node: "n3" } },
+  });
+
+  const res = await call("/admin/api/config/validate", { method: "POST", body: { document } });
+  assert.deepEqual(res.body.warnings, [
+    "project cpu: asks for a GPU, node n1 has none: its visitors wait until the node sets GPU_DEVICES",
+    "node n2: its GPU projects allow 3 sessions, its GPU_SESSIONS caps them at 2",
+    "node n3: the agent does not answer: connect ECONNREFUSED",
+  ]);
 });
 
 test("validate refuses an invalid document without probing its nodes", async (t) => {
@@ -214,7 +234,8 @@ test("only small images in base64 are stored", async (t) => {
 });
 
 test("nodes show their last health check, with only the known fields of the agent's report", async (t) => {
-  const report = { ok: true, version: "0.2.0", profile: "strict", arch: "arm64", default_runtime: "runsc", runtimes: ["runsc"], sessions: 1, max_sessions: 4, extra: "<b>" };
+  const gpu = { devices: ["nvidia.com/gpu=all"], sessions: 2, in_use: 1 };
+  const report = { ok: true, version: "0.2.0", profile: "strict", arch: "arm64", default_runtime: "runsc", runtimes: ["runsc"], sessions: 1, max_sessions: 4, gpu, extra: "<b>" };
   const { call } = await setup(t, {
     nodeNames: ["n1", "n2", "n3"],
     health: {
@@ -231,7 +252,7 @@ test("nodes show their last health check, with only the known fields of the agen
         name: "n1",
         up: true,
         checked_at: 5000,
-        agent: { version: "0.2.0", profile: "strict", arch: "arm64", default_runtime: "runsc", runtimes: ["runsc"], sessions: 1, max_sessions: 4 },
+        agent: { version: "0.2.0", profile: "strict", arch: "arm64", default_runtime: "runsc", runtimes: ["runsc"], sessions: 1, max_sessions: 4, gpu },
         tickets: { waiting: 3, starting: 0, active: 2 },
       },
       { name: "n2", up: false, checked_at: 6000, error: "agent 503: docker: unreachable", tickets: none },

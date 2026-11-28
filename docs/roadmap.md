@@ -130,7 +130,6 @@ Done. Checked on the dev stack from an empty database, in a browser:
 | gVisor in `single-host` | runc with `ALLOW_RUNC=true` | Waits for gVisor to run under a rootless daemon ([google/gvisor#12575](https://github.com/google/gvisor/issues/12575)) |
 | Docker endpoint over SSH or TLS | `unix://` or `tcp://` only | |
 | Subdomain routing in the gateway | Path routing only | Needs wildcard DNS and TLS; see [Public exposure](exposure.md) |
-| GPU desktop sessions (`strict`) | Desktops render and encode on the CPU | Through gVisor's nvproxy: NVENC and OpenGL via VirtualGL, no Vulkan. Agent side done; next, the control plane counts GPU slots before it starts a session, warns about GPU projects without a GPU node, and the admin and `scripts/check-image.sh --gpu` know about GPUs |
 | Minimal desktop example project | No desktop example image | An image with only what its program needs, checked by `scripts/check-image.sh` in CI like `cli-hello` |
 
 ## Done
@@ -253,3 +252,8 @@ Done. Checked on the dev stack from an empty database, in a browser:
   (`GPU_DEVICES`, CDI devices) under `runsc` with nvproxy only, within `GPU_SESSIONS`; the agent
   refuses to start when `runsc` lacks `--nvproxy`, and reports GPU use on `/healthz`. See
   [GPU desktop sessions](gpu.md).
+- **M5:** GPU desktop sessions, control plane side: the queue counts GPU slots against each
+  node's reported `GPU_SESSIONS`, so GPU visitors wait instead of failing; the settings review
+  warns about GPU projects on a node without a GPU or beyond its `GPU_SESSIONS`; the admin
+  shows and edits `gpu` and each node's GPU; `scripts/check-image.sh --gpu` warns about musl
+  images and a missing VirtualGL; `scripts/e2e/gpu.ts` checks a GPU node by hand.

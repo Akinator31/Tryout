@@ -95,7 +95,7 @@ deploy/               compose.dev.yaml, tryout.dev.yaml, .env.example (dev); nod
                       filter, its unit, cgroup delegation, docs/single-host.md)
 schema/               tryout.schema.json (source of truth) + testdata/ fixtures shared by TS and Go
 examples/cli-hello/   sample terminal project (its program only; the agent's ttyd serves it)
-scripts/              e2e/ (cli, metrics, admin, queue, sse, mtls, limits, reattach .ts; deploy.sh),
+scripts/              e2e/ (cli, metrics, admin, queue, sse, mtls, limits, reattach, gpu .ts; deploy.sh),
                       check-image.sh, feasibility-node.sh, sync-schema.sh, subset-fonts.sh
 docs/                 Zensical documentation (English)
 SECURITY.md           threat model and profiles (included in the docs site)
@@ -150,7 +150,10 @@ vault with the original stack study (in French) and its sources.
     GPU desktop sessions, agent side (`docs/gpu.md`): `gpu: true` gets `GPU_DEVICES` as CDI
     devices under `runsc` with nvproxy only (the agent reads `runtimeArgs` from `/info`), capped
     by `GPU_SESSIONS` (`internal/agent/gpu.go`, label `tryout.gpu`); OpenGL through VirtualGL in
-    the project image, no Vulkan.
+    the project image, no Vulkan. Control plane side: the queue takes a GPU slot per GPU ticket
+    (`tickets.gpu`) against the `GPU_SESSIONS` read from `/healthz` (`nodes/health.ts`
+    `gpuSessions`); dry-run warnings (`gpuWarnings`); admin `gpu` switch and node GPU line;
+    `scripts/check-image.sh --gpu`; manual `scripts/e2e/gpu.ts` (no GPU in CI).
 
   Next: the rest of M5 (`docs/roadmap.md`).
 - CI publishes `tryout-ttyd` (first), `tryout-node`, `tryout-control-plane` and `tryout-example-cli-hello` to

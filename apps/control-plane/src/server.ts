@@ -150,6 +150,7 @@ const queue = await createQueue({
   runtime: agentRuntime(current, agents.get),
   log,
   nodeUp: health.isUp,
+  nodeGpu: health.gpu,
   onStart: metrics.onStart,
 });
 const tick = () => queue.tick().catch((e) => log("tick failed", { err: String(e) }));

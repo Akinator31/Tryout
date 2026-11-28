@@ -15,7 +15,7 @@ import { PendingActions } from "../components/PendingActions.tsx";
 import { Problem } from "../components/Problem.tsx";
 import { ProjectBadge, StateBadge, TagBadge } from "../components/StateBadge.tsx";
 import { editProjectPath, paths } from "../navigation.ts";
-import { formatCommand, live, loadBy, loadOf, nodesUp, projectState, resources, type Load } from "../projects.ts";
+import { formatCommand, live, loadBy, loadOf, nodeGpu, nodesUp, projectState, resources, type Load } from "../projects.ts";
 import { useMe, useNodes, useSessions } from "../queries.ts";
 import { deepEqual, type ProjectSettings, type SettingsDocument } from "../settings/document.ts";
 import { sessionRow } from "../sessions.ts";
@@ -117,6 +117,7 @@ function settingsRows(p: ProjectSettings, defaultRuntime: string | undefined): [
     ...(p.command ? [["command", formatCommand(p.command)] as [string, string]] : []),
     ...(p.port !== undefined ? [["port", String(p.port)] as [string, string]] : []),
     ...(p.strip_prefix ? [["strip_prefix", "true"] as [string, string]] : []),
+    ...(p.gpu ? [["gpu", "true"] as [string, string]] : []),
     ["max_sessions", String(p.max_sessions)],
     ["max_age", p.max_age],
     ["runtime", p.runtime ?? S.nodeDefault(defaultRuntime)],
@@ -230,7 +231,9 @@ function ProjectPage({ name, project, document, applied }: { name: string; proje
   const isApplied = running !== undefined;
   const state = projectState({ project: running ?? project, applied: isApplied, nodeUp: nodesUp(nodes).get((running ?? project).node), load });
   const pending = changes.length > 0 && !deepEqual(applied?.projects?.[name], project);
-  const defaultRuntime = nodes?.find((n) => n.name === project.node)?.agent?.default_runtime;
+  const nodeView = nodes?.find((n) => n.name === project.node);
+  const defaultRuntime = nodeView?.agent?.default_runtime;
+  const gpuMissing = project.gpu === true && nodeGpu(nodeView) === "no";
 
   /** Pauses or resumes the project in the draft, then opens the review. */
   const pause = (paused: boolean) => {
@@ -259,6 +262,7 @@ function ProjectPage({ name, project, document, applied }: { name: string; proje
         <Stack flex="1" minW="0" gap="6">
           {!isApplied && <Callout title={P.draft.title}>{P.draft.body}</Callout>}
           {running?.enabled === false && <Callout title={P.paused.title}>{P.paused.body}</Callout>}
+          {gpuMissing && <Callout title={P.noGpu.title(project.node)}>{P.noGpu.body}</Callout>}
           <Stats project={project} load={load} nodeLoad={nodeLoad} nodeCap={document.nodes?.[project.node]?.max_sessions ?? 0} />
           <LiveSessions name={name} />
           <SettingsCard rows={settingsRows(project, defaultRuntime)} source={pending ? P.settings.pending : P.settings.active(active.data?.revision ?? null)} />

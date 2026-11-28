@@ -1,7 +1,7 @@
 // Queue: the control plane's deep module.
 //
 // Interface: join / poll / watch / release / tick / configure / stats / list / stop. Behind it: per-project
-// and per-node caps, node health, per-client limits, FIFO promotion, session start and
+// and per-node caps, GPU slots, node health, per-client limits, FIFO promotion, session start and
 // readiness, heartbeat loss, maximum age, change notifications. State lives in Postgres
 // so several control plane instances can share it; time comes from an
 // injected clock. The storage, the limits and the watchers live in the
@@ -19,7 +19,8 @@ export { FORGET_ENDED_MS, START_TIMEOUT_MS } from "./timing.ts";
 export interface QueueConfig {
   nodes: Record<string, { maxSessions: number }>;
   /** A project with `enabled: false` is paused: it refuses new tickets. */
-  projects: Record<string, { node: string; maxSessions: number; maxAgeS: number; enabled?: boolean }>;
+  /** A project with `gpu: true` also takes one of its node's GPU sessions (see QueueDeps.nodeGpu). */
+  projects: Record<string, { node: string; maxSessions: number; maxAgeS: number; enabled?: boolean; gpu?: boolean }>;
   /** Per-client limits on join; 0 disables a limit. */
   limits?: {
     /** Tickets not yet ended (waiting, starting, active). */
@@ -167,45 +168,84 @@ export function randomId(): string {
   return Array.from(randomBytes(26), (b) => alphabet[b & 31]).join("");
 }
 
-/** Sessions starting or running, per project and per node. */
+/** Sessions starting or running, per project and per node, and GPU sessions per node. */
 interface Usage {
   perProject: Map<string, number>;
   perNode: Map<string, number>;
+  gpuPerNode: Map<string, number>;
 }
 
-/** Counts the sessions starting or running, per project and per node. */
+/** A node's GPU as its agent last reported it: the GPU sessions it allows, and those in use. */
+export interface NodeGpu {
+  sessions: number;
+  inUse: number;
+}
+
+/** What the scheduler asks of the nodes: whether one is up, and its GPU. */
+interface NodeView {
+  up: (node: string) => boolean;
+  gpu: (node: string) => NodeGpu;
+}
+
+/** Adds `n` to the count of `key`. */
+const add = (counts: Map<string, number>, key: string, n = 1) => counts.set(key, (counts.get(key) ?? 0) + n);
+
+/**
+ * Counts the sessions starting or running, per project and per node, and
+ * the GPU ones per node. A session counts as GPU by what its ticket took at
+ * promotion, whatever its project says now.
+ */
 async function readUsage(q: Query): Promise<Usage> {
-  const busy = await q<{ project: string; node: string; n: number }>(
-    `SELECT project, node, count(*)::int AS n
+  const busy = await q<{ project: string; node: string; gpu: boolean; n: number }>(
+    `SELECT project, node, gpu, count(*)::int AS n
      FROM tickets
      WHERE state IN ('starting', 'active')
-     GROUP BY project, node`,
+     GROUP BY project, node, gpu`,
   );
 
-  const usage: Usage = { perProject: new Map(), perNode: new Map() };
+  const usage: Usage = { perProject: new Map(), perNode: new Map(), gpuPerNode: new Map() };
   for (const b of busy) {
-    usage.perProject.set(b.project, (usage.perProject.get(b.project) ?? 0) + b.n);
-    usage.perNode.set(b.node, (usage.perNode.get(b.node) ?? 0) + b.n);
+    add(usage.perProject, b.project, b.n);
+    add(usage.perNode, b.node, b.n);
+    if (b.gpu) add(usage.gpuPerNode, b.node, b.n);
   }
   return usage;
 }
 
 /**
- * Takes a slot for `ticket` if its node is up and its project and node are
- * both below their caps. A ticket whose project or node left the
- * configuration never starts.
+ * Counts on each node at least the GPU sessions its agent reports in use.
+ * The agent also sees what the tickets miss: sessions started before the
+ * tickets recorded their GPU, or whose stop failed and that wait for the
+ * reaper. Its report is up to one health check old, so a freed GPU slot may
+ * wait for the next check.
  */
-function takeSlot(config: QueueConfig, nodeUp: (node: string) => boolean, usage: Usage, ticket: Pick<Row, "project" | "node">): boolean {
+function countReportedGpu(usage: Usage, nodes: NodeView, names: string[]): void {
+  for (const node of names) {
+    usage.gpuPerNode.set(node, Math.max(usage.gpuPerNode.get(node) ?? 0, nodes.gpu(node).inUse));
+  }
+}
+
+/**
+ * Takes a slot for `ticket` if its node is up and its project and node are
+ * both below their caps; a GPU project also needs one of the node's GPU
+ * sessions free. A ticket whose project or node left the configuration
+ * never starts.
+ */
+function takeSlot(config: QueueConfig, nodes: NodeView, usage: Usage, ticket: Pick<Row, "project" | "node">): boolean {
   const project = config.projects[ticket.project];
   const node = config.nodes[ticket.node];
+  if (!project || !node || !nodes.up(ticket.node)) return false;
+
   const usedByProject = usage.perProject.get(ticket.project) ?? 0;
   const usedOnNode = usage.perNode.get(ticket.node) ?? 0;
-
-  if (!project || !node || !nodeUp(ticket.node)) return false;
   if (usedByProject >= project.maxSessions || usedOnNode >= node.maxSessions) return false;
 
-  usage.perProject.set(ticket.project, usedByProject + 1);
-  usage.perNode.set(ticket.node, usedOnNode + 1);
+  const gpuOnNode = usage.gpuPerNode.get(ticket.node) ?? 0;
+  if (project.gpu && gpuOnNode >= nodes.gpu(ticket.node).sessions) return false;
+
+  add(usage.perProject, ticket.project);
+  add(usage.perNode, ticket.node);
+  if (project.gpu) add(usage.gpuPerNode, ticket.node);
   return true;
 }
 
@@ -230,7 +270,8 @@ const sessionOf = (row: Row): SessionRef => ({ sessionId: row.session_id!, proje
 /**
  * What a queue needs: its database, configuration and nodes, plus an
  * injectable clock and logger. `nodeUp` tells whether a node may receive new
- * sessions (every node by default); `onStart` hears how each start run by
+ * sessions (every node by default); `nodeGpu` a node's GPU as its agent
+ * reports it (none by default, so GPU projects wait); `onStart` hears how each start run by
  * this instance ended.
  */
 export interface QueueDeps {
@@ -240,6 +281,7 @@ export interface QueueDeps {
   now?: () => number;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
   nodeUp?: (node: string) => boolean;
+  nodeGpu?: (node: string) => NodeGpu;
   onStart?: (outcome: StartOutcome) => void;
 }
 
@@ -259,7 +301,7 @@ class PgQueue implements Queue {
   readonly #runtime: SessionRuntime;
   readonly #now: () => number;
   readonly #log: (msg: string, extra?: Record<string, unknown>) => void;
-  readonly #nodeUp: (node: string) => boolean;
+  readonly #nodes: NodeView;
   readonly #onStart: (outcome: StartOutcome) => void;
   readonly #watchers: ReturnType<typeof createWatchers>;
 
@@ -273,7 +315,7 @@ class PgQueue implements Queue {
     this.#runtime = deps.runtime;
     this.#now = deps.now ?? Date.now;
     this.#log = deps.log ?? (() => {});
-    this.#nodeUp = deps.nodeUp ?? (() => true);
+    this.#nodes = { up: deps.nodeUp ?? (() => true), gpu: deps.nodeGpu ?? (() => ({ sessions: 0, inUse: 0 })) };
     this.#onStart = deps.onStart ?? (() => {});
     this.#watchers = createWatchers({ db: deps.db, view: (row) => this.#view(row), log: this.#log });
     this.#lastResync = this.#now();
@@ -455,23 +497,26 @@ class PgQueue implements Queue {
    * waiting tickets in arrival order and moves to `starting` each one whose
    * project and node still have room. A ticket that does not fit is skipped,
    * so a full project does not block another project's queue. A ticket starts
-   * on its project's node at promotion, which may have changed since it joined.
+   * on its project's node at promotion, which may have changed since it joined,
+   * and records whether it takes a GPU slot.
    */
   async #promoteWaiting(q: Query): Promise<Row[]> {
     await q(`SELECT pg_advisory_xact_lock(${SCHEDULER_LOCK})`);
     const usage = await readUsage(q);
+    countReportedGpu(usage, this.#nodes, Object.keys(this.#config.nodes));
     const waiting = await q<Row>(`SELECT * FROM tickets WHERE state = 'waiting' ORDER BY seq`);
 
     const promoted: Row[] = [];
     for (const ticket of waiting) {
-      const node = this.#config.projects[ticket.project]?.node ?? ticket.node;
-      if (!takeSlot(this.#config, this.#nodeUp, usage, { project: ticket.project, node })) continue;
+      const project = this.#config.projects[ticket.project];
+      const node = project?.node ?? ticket.node;
+      if (!takeSlot(this.#config, this.#nodes, usage, { project: ticket.project, node })) continue;
 
       const [row] = await q<Row>(
-        `UPDATE tickets SET state = 'starting', session_id = $2, start_deadline = $3, node = $4
+        `UPDATE tickets SET state = 'starting', session_id = $2, start_deadline = $3, node = $4, gpu = $5
          WHERE id = $1
          RETURNING *`,
-        [ticket.id, randomId(), this.#now() + START_TIMEOUT_MS, node],
+        [ticket.id, randomId(), this.#now() + START_TIMEOUT_MS, node, project?.gpu === true],
       );
       promoted.push(row);
     }

@@ -19,7 +19,7 @@ import type { QueueConfig } from "../queue/queue.ts";
 
 export { ConfigError } from "./report.ts";
 export { schema, validateSessionRequest } from "./schema.ts";
-export { checkSettings, DEFAULT_LIMITS, type Seed, type SettingsDocument } from "./settings.ts";
+export { checkSettings, DEFAULT_LIMITS, gpuWarnings, type Seed, type SettingsDocument } from "./settings.ts";
 export { parseDuration } from "./values.ts";
 
 export type Kind = "terminal" | "desktop";
@@ -287,12 +287,12 @@ export function frameAncestors(cfg: Settings): string {
   return ["'self'", ...cfg.embed_frame_ancestors].join(" ");
 }
 
-/** The queue's view of the configuration: caps, maximum ages and per-client limits. */
+/** The queue's view of the configuration: caps, GPU projects, maximum ages and per-client limits. */
 export function queueConfig(cfg: Settings): QueueConfig {
   const nodes = Object.entries(cfg.nodes).map(([name, n]) => [name, { maxSessions: n.max_sessions }]);
   const projects = Object.entries(cfg.projects).map(([name, p]) => [
     name,
-    { node: p.node, maxSessions: p.max_sessions, maxAgeS: p.max_age_s, enabled: p.enabled },
+    { node: p.node, maxSessions: p.max_sessions, maxAgeS: p.max_age_s, enabled: p.enabled, gpu: p.gpu === true },
   ]);
   const rate = cfg.limits.new_tickets_per_ip;
 

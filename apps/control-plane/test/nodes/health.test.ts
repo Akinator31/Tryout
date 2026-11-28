@@ -69,6 +69,26 @@ test("only changes of state are logged", async () => {
   );
 });
 
+test("a node's GPU comes from its last report, and are none while it is down", async () => {
+  const gpu = { devices: ["nvidia.com/gpu=all"], sessions: 3, in_use: 1 };
+  let aUp = true;
+  const { health } = setup({
+    a: async () => (aUp ? { ...report, gpu } : Promise.reject(new Error("agent 503"))),
+    b: async () => ({ ...report, gpu: { sessions: "many" } }),
+  });
+  const none = { sessions: 0, inUse: 0 };
+  assert.deepEqual(health.gpu("a"), none, "not checked yet");
+
+  await health.probe();
+  assert.deepEqual(health.gpu("a"), { sessions: 3, inUse: 1 });
+  assert.deepEqual(health.gpu("b"), none, "a malformed gpu report counts as no GPU");
+  assert.deepEqual(health.gpu("c"), none, "an unknown node");
+
+  aUp = false;
+  await health.probe();
+  assert.deepEqual(health.gpu("a"), none, "a node down");
+});
+
 test("an unknown node is never up", async () => {
   const { health } = setup({ a: async () => report, b: async () => report });
   await health.probe();
