@@ -56,13 +56,19 @@ func (a *Agent) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		"max_sessions":    a.maxSessions,
 	}
 	if len(a.policy.GPUDevices) > 0 {
-		health["gpu"] = map[string]any{
-			"devices":  a.policy.GPUDevices,
-			"sessions": a.gpuSessions,
-			"in_use":   n.gpu + a.creatingGPUCount(),
-		}
+		health["gpu"] = a.gpuHealth(n)
 	}
 	writeJSON(w, http.StatusOK, health)
+}
+
+// gpuHealth is the gpu part of /healthz: the node's GPU devices, GPU_SESSIONS
+// and the GPU sessions in use, counting those being created.
+func (a *Agent) gpuHealth(n sessionCount) map[string]any {
+	return map[string]any{
+		"devices":  a.policy.GPUDevices,
+		"sessions": a.gpuSessions,
+		"in_use":   n.gpu + a.creatingGPUCount(),
+	}
 }
 
 // handleCreateSession validates the request (400 when invalid) and creates

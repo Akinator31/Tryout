@@ -206,7 +206,8 @@ through gVisor's nvproxy (see [GPU desktop sessions](gpu.md)).
 
 - **What nvproxy filters**: the session still runs on gVisor's kernel. Its GPU calls are
   forwarded to the host driver only if they are on nvproxy's list for that driver version, and
-  the device files gVisor exposes are limited to `nvidiactl`, `nvidia-uvm` and `nvidia#`. Under
+  gVisor backs only the `nvidiactl`, `nvidia-uvm` and `nvidia#` device files: the DRM and modeset
+  devices appear in the container but do nothing. Under
   runc, the session would reach every ioctl of the NVIDIA kernel driver and its DRM and modeset
   devices; the agent never gives a GPU under runc.
 - **What it does not**: the allowed calls reach the real driver with arguments the visitor

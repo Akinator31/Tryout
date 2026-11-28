@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -96,11 +97,11 @@ func TestValidateGPUPolicy(t *testing.T) {
 func TestParseGPU(t *testing.T) {
 	body := `{"id":"` + strings.Repeat("a", 26) + `","project":"p","image":"img","kind":"desktop","port":3000,"max_age_s":60,"gpu":%s}`
 
-	r, err := Parse([]byte(strings.Replace(body, "%s", "true", 1)), gpuPolicy())
+	r, err := Parse([]byte(fmt.Sprintf(body, "true")), gpuPolicy())
 	if err != nil || !r.GPU {
 		t.Errorf("gpu true: %+v, %v", r, err)
 	}
-	if _, err := Parse([]byte(strings.Replace(body, "%s", `"yes"`, 1)), gpuPolicy()); err == nil {
+	if _, err := Parse([]byte(fmt.Sprintf(body, `"yes"`)), gpuPolicy()); err == nil {
 		t.Error("gpu \"yes\" accepted")
 	}
 }

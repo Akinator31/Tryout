@@ -7,8 +7,8 @@ host driver.
 
 What a GPU session gets:
 
-- **Hardware video encoding**: Selkies encodes the stream with NVENC on its own, without any
-  setting.
+- **Hardware video encoding**: Selkies encodes the stream with NVENC on its own. The agent sets
+  no variable for it: the CDI devices bring the NVIDIA libraries.
 - **OpenGL rendering on the GPU**, for applications started through VirtualGL
   (`vglrun -d egl`), which renders off screen on the GPU and copies each frame to the desktop.
   Applications started without it render on the CPU (llvmpipe).
@@ -96,12 +96,14 @@ VM.
 ### How many sessions
 
 `GPU_SESSIONS` caps the GPU sessions on the node, on top of `MAX_SESSIONS`. Measured on the
-A2000 at 720p and 30 fps, each session takes 350 to 450 MB of GPU memory, and four streaming
-sessions use about 13 % of its single encoder. GPU memory is the first limit: nothing caps a
+A2000 at 720p and 30 fps, each session takes about 350 MB of GPU memory before its application
+renders anything, and four streaming sessions use about 13 % of its single encoder. GPU memory is the first limit: nothing caps a
 session's share, so leave room for the heaviest application you run.
 
-A GPU session is refused with `409` once `GPU_SESSIONS` GPU sessions run. Keep the
-`max_sessions` of the GPU projects on a node within `GPU_SESSIONS`.
+A GPU session is refused with `409` once `GPU_SESSIONS` GPU sessions run, and with `400` on a
+node without `GPU_DEVICES`. The control plane does not count GPU slots yet, so such a refusal
+fails the visitor's start instead of keeping them in the queue: assign GPU projects to a GPU
+node, and keep the sum of their `max_sessions` within its `GPU_SESSIONS`.
 
 ## Package a GPU project
 

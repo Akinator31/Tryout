@@ -63,12 +63,12 @@ func TestCheckProfileWithoutGPU(t *testing.T) {
 	}
 }
 
-// gpuAgent returns a strict agent with one GPU device and room for cap GPU
+// gpuAgent returns a strict agent with one GPU device and room for slots GPU
 // sessions, on a daemon that lists the given sessions (see sessionsDocker).
-func gpuAgent(t *testing.T, cap int, sessions ...string) *Agent {
+func gpuAgent(t *testing.T, slots int, sessions ...string) *Agent {
 	a := testAgent("strict", false)
 	a.maxSessions = 10
-	a.gpuSessions = cap
+	a.gpuSessions = slots
 	a.policy.GPUDevices = []string{"nvidia.com/gpu=all"}
 	a.docker = fakeDockerClient(t, sessionsDocker(t, sessions...))
 	return a
@@ -131,5 +131,34 @@ func TestHealthzGPU(t *testing.T) {
 	plain.docker = fakeDockerClient(t, sessionsDocker(t, "shell/running"))
 	if body := serveAPI(plain, "/healthz").Body.String(); strings.Contains(body, `"gpu"`) {
 		t.Errorf("node without GPU: %s", body)
+	}
+}
+
+// TestGPUFullStartIsFull checks that a start refused by GPU_SESSIONS counts
+// as a full node, not as an error.
+func TestGPUFullStartIsFull(t *testing.T) {
+	a := gpuAgent(t, 1)
+	a.metrics.observeStart("game", 0, errGPUFull)
+
+	if body := serveAPI(a, "/metrics").Body.String(); !strings.Contains(body, `tryout_session_starts_total{project="game",result="full"} 1`) {
+		t.Errorf("metrics:\n%s", body)
+	}
+}
+
+// TestNvproxyCapabilities checks the capability list read from runsc's
+// arguments, whatever the flag's spelling.
+func TestNvproxyCapabilities(t *testing.T) {
+	cases := map[string][]string{
+		"compute,utility":                {"--nvproxy"},
+		"compute,utility,graphics,video": nvproxyArgs,
+		"all":                            {"--nvproxy", "--nvproxy-allowed-driver-capabilities", "all"},
+	}
+	for want, args := range cases {
+		if got := nvproxyCapabilities(args); got != want {
+			t.Errorf("%q: got %q, want %q", args, got, want)
+		}
+	}
+	if !rendersOnGPU("all") || !rendersOnGPU("graphics,video,compute") || rendersOnGPU("compute,utility,video") {
+		t.Error("rendersOnGPU")
 	}
 }

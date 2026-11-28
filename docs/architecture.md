@@ -246,7 +246,7 @@ runs the ttyd version, options and theme of its node's release.
 A GPU desktop runs under gVisor like any other session; the GPU goes through nvproxy, which
 forwards only the NVIDIA driver calls it knows. Measured on an RTX A2000, this gives NVENC
 encoding and, through VirtualGL's EGL backend, OpenGL rendering on the GPU, but no Vulkan and no
-zero-copy capture, since gVisor exposes no DRM device. runc would give all of that, at the cost
+zero-copy capture, since gVisor does not back the DRM and modeset devices. runc would give all of that, at the cost
 of exposing the whole NVIDIA kernel driver to the visitor; the agent does not offer it.
 
 - **The operator's `runsc`, with nvproxy.** nvproxy is a flag of the runtime, set in the

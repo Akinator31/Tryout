@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/Akinator31/Tryout/apps/node/internal/dockerapi"
@@ -17,6 +18,9 @@ import (
 // but render and encode on the CPU.
 func (a *Agent) checkGPU(info *dockerapi.Info) error {
 	if len(a.policy.GPUDevices) == 0 {
+		if a.gpuSessions > 0 {
+			slog.Warn("GPU_SESSIONS is set without GPU_DEVICES: this node gives no GPU")
+		}
 		return nil
 	}
 
@@ -28,7 +32,7 @@ func (a *Agent) checkGPU(info *dockerapi.Info) error {
 		return errors.New("GPU_DEVICES is set: the runsc runtime needs --nvproxy in its runtimeArgs (daemon.json)")
 	}
 
-	if caps := nvproxyCapabilities(runsc.Args); !strings.Contains(caps, "graphics") || !strings.Contains(caps, "video") {
+	if caps := nvproxyCapabilities(runsc.Args); !rendersOnGPU(caps) {
 		slog.Warn("runsc nvproxy does not allow the graphics and video driver capabilities: GPU sessions will render and encode on the CPU", "capabilities", caps)
 	}
 	slog.Info("gpu", "devices", a.policy.GPUDevices, "sessions", a.gpuSessions)
@@ -52,12 +56,27 @@ func nvproxyOn(args []string) bool {
 
 // nvproxyCapabilities returns the driver capabilities runsc arguments allow
 // GPU sessions, or nvproxy's default (compute,utility) when they set none.
+// The flag may carry its value (--flag=caps) or be followed by it.
 func nvproxyCapabilities(args []string) string {
+	const flag = "nvproxy-allowed-driver-capabilities"
+
 	caps := "compute,utility"
-	for _, arg := range args {
-		if v, ok := strings.CutPrefix(strings.TrimLeft(arg, "-"), "nvproxy-allowed-driver-capabilities="); ok {
-			caps = v
+	for i, arg := range args {
+		name, value, hasValue := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+		switch {
+		case name != flag:
+		case hasValue:
+			caps = value
+		case i+1 < len(args):
+			caps = args[i+1]
 		}
 	}
 	return caps
+}
+
+// rendersOnGPU reports whether a capability list lets sessions render
+// (graphics) and encode (video) on the GPU.
+func rendersOnGPU(caps string) bool {
+	list := strings.Split(caps, ",")
+	return slices.Contains(list, "all") || (slices.Contains(list, "graphics") && slices.Contains(list, "video"))
 }

@@ -103,6 +103,9 @@ type sessionCount struct {
 // countSessions counts the session containers on the node, in any state.
 func (a *Agent) countSessions(ctx context.Context) (sessionCount, error) {
 	cs, err := a.docker.ContainerList(ctx, session.LabelSession)
+	if err != nil {
+		return sessionCount{}, err
+	}
 
 	n := sessionCount{all: len(cs)}
 	for _, c := range cs {
@@ -110,7 +113,7 @@ func (a *Agent) countSessions(ctx context.Context) (sessionCount, error) {
 			n.gpu++
 		}
 	}
-	return n, err
+	return n, nil
 }
 
 // ensureImage pulls ref when it is missing, with the credentials of its

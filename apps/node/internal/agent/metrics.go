@@ -47,7 +47,7 @@ func (m *agentMetrics) observeStart(project string, took time.Duration, err erro
 	case err == nil:
 		m.starts.Inc(project, "ok")
 		m.startSeconds.Observe(took.Seconds(), project)
-	case errors.Is(err, errNodeFull):
+	case errors.Is(err, errNodeFull), errors.Is(err, errGPUFull):
 		m.starts.Inc(project, "full")
 	default:
 		m.starts.Inc(project, "error")
