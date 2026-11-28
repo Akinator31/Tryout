@@ -263,7 +263,9 @@ of exposing the whole NVIDIA kernel driver to the visitor; the agent does not of
   learns each node's `GPU_SESSIONS` from `/healthz` rather than from its own settings, so the
   node's `.env` stays the single place that says what its GPU allows. A GPU project's ticket
   takes a GPU slot at promotion, recorded on the ticket, and keeps it until it ends even if the
-  project stops asking for a GPU. A node without a GPU holds GPU tickets in the queue rather
+  project stops asking for a GPU. The queue counts at least the GPU sessions the agent reports
+  in use, which covers what the tickets miss: sessions started before an upgrade, or whose stop
+  failed. A full GPU then holds a ticket in the queue instead of failing its start. A node without a GPU holds GPU tickets in the queue rather
   than failing them: the operator may be adding the GPU, and the settings review warns.
 - **Rendering is the project's.** The project image starts its application through VirtualGL
   (`vglrun -d egl`). The agent injects nothing: a library preloaded into every program would

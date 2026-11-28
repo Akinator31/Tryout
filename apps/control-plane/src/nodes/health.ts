@@ -19,8 +19,8 @@ export interface NodeStatus {
 export interface NodeHealth {
   /** Whether the node's last check succeeded. A node not yet checked, or unknown, is down. */
   isUp(node: string): boolean;
-  /** The GPU sessions the node's last report allows (`gpu.sessions`); 0 for a node down or without a GPU. */
-  gpuSessions(node: string): number;
+  /** The node's GPU sessions and those in use, from its last report; none for a node down or without a GPU. */
+  gpu(node: string): { sessions: number; inUse: number };
   /** The last check of every node of the active settings checked so far. */
   snapshot(): Record<string, NodeStatus>;
   /**
@@ -104,10 +104,10 @@ export function createNodeHealth(deps: NodeHealthDeps): NodeHealth {
 
   return {
     isUp: (node) => nodes().includes(node) && statuses.get(node)?.up === true,
-    gpuSessions(node) {
+    gpu(node) {
       const status = statuses.get(node);
-      if (!nodes().includes(node) || !status?.up) return 0;
-      return reportedGpu(status.report)?.sessions ?? 0;
+      const gpu = nodes().includes(node) && status?.up ? parseGpu(status.report?.gpu) : undefined;
+      return { sessions: gpu?.sessions ?? 0, inUse: gpu?.in_use ?? 0 };
     },
     snapshot: () => Object.fromEntries([...statuses].filter(([node]) => nodes().includes(node))),
     probe,
@@ -129,9 +129,8 @@ export interface GpuReport {
   in_use: number;
 }
 
-/** The GPU an agent's report announces; undefined without one, or when its `gpu` is malformed. */
-export function reportedGpu(report: HealthReport | undefined): GpuReport | undefined {
-  const gpu = report?.gpu;
+/** The `gpu` field of an agent's report; undefined when absent or malformed. */
+export function parseGpu(gpu: unknown): GpuReport | undefined {
   if (typeof gpu !== "object" || gpu === null) return undefined;
 
   const { devices, sessions, in_use } = gpu as Record<string, unknown>;

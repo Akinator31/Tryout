@@ -27,7 +27,7 @@ const config: QueueConfig = {
  * for a ticket to become active; `joinAll` joins one ticket per project, in
  * order. Disposing it closes the database.
  */
-async function setup(opts: { manual?: boolean; config?: QueueConfig } & Pick<QueueDeps, "nodeUp" | "gpuSessions" | "onStart"> = {}) {
+async function setup(opts: { manual?: boolean; config?: QueueConfig } & Pick<QueueDeps, "nodeUp" | "nodeGpu" | "onStart"> = {}) {
   const db = await freshDb();
   const clock = fakeClock();
   const fake = fakeRuntime(opts);
@@ -37,7 +37,7 @@ async function setup(opts: { manual?: boolean; config?: QueueConfig } & Pick<Que
     runtime: fake.runtime,
     now: clock.now,
     nodeUp: opts.nodeUp,
-    gpuSessions: opts.gpuSessions,
+    nodeGpu: opts.nodeGpu,
     onStart: opts.onStart,
   });
 
@@ -426,7 +426,7 @@ const gpuConfig: QueueConfig = {
 };
 
 test("GPU sessions start within the node's GPU sessions; the others wait", async () => {
-  await using s = await setup({ config: gpuConfig, gpuSessions: () => 2 });
+  await using s = await setup({ config: gpuConfig, nodeGpu: () => ({ sessions: 2, inUse: 0 }) });
   const [a, b, c] = await s.joinAll(["game", "game", "game"]);
   await s.active(a.ticket);
   await s.active(b.ticket);
@@ -435,7 +435,7 @@ test("GPU sessions start within the node's GPU sessions; the others wait", async
 });
 
 test("sessions without a GPU do not take GPU slots, nor wait behind GPU ones", async () => {
-  await using s = await setup({ config: gpuConfig, gpuSessions: () => 1 });
+  await using s = await setup({ config: gpuConfig, nodeGpu: () => ({ sessions: 1, inUse: 0 }) });
   const [game, cli, waitingGame, otherCli] = await s.joinAll(["game", "cli", "game", "cli"]);
 
   for (const t of [game, cli, otherCli]) await s.active(t.ticket);
@@ -443,7 +443,7 @@ test("sessions without a GPU do not take GPU slots, nor wait behind GPU ones", a
 });
 
 test("a freed GPU slot goes to the next GPU visitor", async () => {
-  await using s = await setup({ config: gpuConfig, gpuSessions: () => 1 });
+  await using s = await setup({ config: gpuConfig, nodeGpu: () => ({ sessions: 1, inUse: 0 }) });
   const [a, b] = await s.joinAll(["game", "game"]);
   await s.active(a.ticket);
 
@@ -453,7 +453,7 @@ test("a freed GPU slot goes to the next GPU visitor", async () => {
 
 test("a GPU project waits on a node without a GPU, and starts once the node reports one", async () => {
   let gpu = 0;
-  await using s = await setup({ config: gpuConfig, gpuSessions: () => gpu });
+  await using s = await setup({ config: gpuConfig, nodeGpu: () => ({ sessions: gpu, inUse: 0 }) });
   const a = await s.queue.join("game");
 
   await s.queue.tick();
@@ -464,8 +464,17 @@ test("a GPU project waits on a node without a GPU, and starts once the node repo
   assert.equal((await s.active(a.ticket))?.state, "active");
 });
 
+test("GPU sessions the agent reports in use count even without their tickets", async () => {
+  // Two GPU sessions the tickets do not know of, such as sessions started before an upgrade.
+  await using s = await setup({ config: gpuConfig, nodeGpu: () => ({ sessions: 2, inUse: 2 }) });
+  const [game, cli] = await s.joinAll(["game", "cli"]);
+
+  await s.active(cli.ticket);
+  assert.equal((await s.queue.poll(game.ticket))?.state, "waiting");
+});
+
 test("a session keeps its GPU slot after its project stops asking for a GPU", async () => {
-  await using s = await setup({ config: gpuConfig, gpuSessions: () => 1 });
+  await using s = await setup({ config: gpuConfig, nodeGpu: () => ({ sessions: 1, inUse: 0 }) });
   const a = await s.queue.join("game");
   await s.active(a.ticket);
 

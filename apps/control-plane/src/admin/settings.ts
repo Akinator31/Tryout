@@ -8,7 +8,7 @@ import { Refusal, readBody, type Reply, type RouteHandler, type Routes, type Sig
 import { ConfigError, gpuWarnings, type NodeConfig, type SettingsDocument } from "../config/config.ts";
 import { imageFormat } from "../config/theme.ts";
 import { NodeInUseError, RevisionConflictError, type ConfigStore, type Revision } from "../config/store.ts";
-import { reportedGpu, type HealthReport, type NodeStatus } from "../nodes/health.ts";
+import { parseGpu, type HealthReport, type NodeStatus } from "../nodes/health.ts";
 import type { ProjectStats } from "../queue/queue.ts";
 
 /** Live tickets of one node, by state. */
@@ -55,7 +55,7 @@ const REPORT_FIELDS: Record<string, (v: unknown) => boolean> = {
   runtimes: (v) => Array.isArray(v) && v.every((r) => typeof r === "string"),
   sessions: (v) => typeof v === "number",
   max_sessions: (v) => typeof v === "number",
-  gpu: (v) => reportedGpu({ gpu: v }) !== undefined,
+  gpu: (v) => parseGpu(v) !== undefined,
 };
 
 /** How long the dry run waits for a node's agent by default. */
@@ -189,7 +189,7 @@ export function settingsRoutes({ store, probeNode, nodeNames, health, tickets, p
     const gpuOf = (node: string) => {
       const probe = probes.get(node);
       if (!probe || !("report" in probe)) return undefined;
-      return reportedGpu(probe.report) ?? null;
+      return parseGpu(probe.report.gpu) ?? null;
     };
 
     const unreachable = [...probes.values()].flatMap((p) => ("warning" in p ? [p.warning] : []));

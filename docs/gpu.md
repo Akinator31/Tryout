@@ -101,8 +101,10 @@ renders anything, and four streaming sessions use about 13 % of its single encod
 session's share, so leave room for the heaviest application you run.
 
 A GPU session takes a project slot, a node slot and a GPU slot. The control plane reads
-`GPU_SESSIONS` from the agent's `/healthz` and counts the GPU sessions it starts, so a visitor
-beyond it waits in the queue like any other; sessions without a GPU on the same node go ahead.
+`GPU_SESSIONS` from the agent's `/healthz` and counts the GPU sessions it starts, at least as
+many as the agent reports in use, so a visitor beyond it waits in the queue like any other;
+sessions without a GPU on the same node go ahead. A freed GPU slot may wait for the next health
+check, up to 10 s.
 On a node without `GPU_DEVICES`, or before its first health check, a GPU project's visitors wait
 until the node reports a GPU. The settings review warns about both cases: a GPU project on a
 node without a GPU, and GPU projects allowing more sessions than the node's `GPU_SESSIONS`. The

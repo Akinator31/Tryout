@@ -19,7 +19,7 @@ export { FORGET_ENDED_MS, START_TIMEOUT_MS } from "./timing.ts";
 export interface QueueConfig {
   nodes: Record<string, { maxSessions: number }>;
   /** A project with `enabled: false` is paused: it refuses new tickets. */
-  /** A project with `gpu: true` also takes one of its node's GPU sessions (see QueueDeps.gpuSessions). */
+  /** A project with `gpu: true` also takes one of its node's GPU sessions (see QueueDeps.nodeGpu). */
   projects: Record<string, { node: string; maxSessions: number; maxAgeS: number; enabled?: boolean; gpu?: boolean }>;
   /** Per-client limits on join; 0 disables a limit. */
   limits?: {
@@ -175,10 +175,16 @@ interface Usage {
   gpuPerNode: Map<string, number>;
 }
 
-/** What the scheduler asks of the nodes: whether one is up, and how many GPU sessions it allows. */
+/** A node's GPU as its agent last reported it: the GPU sessions it allows, and those in use. */
+export interface NodeGpu {
+  sessions: number;
+  inUse: number;
+}
+
+/** What the scheduler asks of the nodes: whether one is up, and its GPU. */
 interface NodeView {
   up: (node: string) => boolean;
-  gpuSessions: (node: string) => number;
+  gpu: (node: string) => NodeGpu;
 }
 
 /** Adds `n` to the count of `key`. */
@@ -207,6 +213,19 @@ async function readUsage(q: Query): Promise<Usage> {
 }
 
 /**
+ * Counts on each node at least the GPU sessions its agent reports in use.
+ * The agent also sees what the tickets miss: sessions started before the
+ * tickets recorded their GPU, or whose stop failed and that wait for the
+ * reaper. Its report is up to one health check old, so a freed GPU slot may
+ * wait for the next check.
+ */
+function countReportedGpu(usage: Usage, nodes: NodeView, names: string[]): void {
+  for (const node of names) {
+    usage.gpuPerNode.set(node, Math.max(usage.gpuPerNode.get(node) ?? 0, nodes.gpu(node).inUse));
+  }
+}
+
+/**
  * Takes a slot for `ticket` if its node is up and its project and node are
  * both below their caps; a GPU project also needs one of the node's GPU
  * sessions free. A ticket whose project or node left the configuration
@@ -222,7 +241,7 @@ function takeSlot(config: QueueConfig, nodes: NodeView, usage: Usage, ticket: Pi
   if (usedByProject >= project.maxSessions || usedOnNode >= node.maxSessions) return false;
 
   const gpuOnNode = usage.gpuPerNode.get(ticket.node) ?? 0;
-  if (project.gpu && gpuOnNode >= nodes.gpuSessions(ticket.node)) return false;
+  if (project.gpu && gpuOnNode >= nodes.gpu(ticket.node).sessions) return false;
 
   add(usage.perProject, ticket.project);
   add(usage.perNode, ticket.node);
@@ -251,8 +270,8 @@ const sessionOf = (row: Row): SessionRef => ({ sessionId: row.session_id!, proje
 /**
  * What a queue needs: its database, configuration and nodes, plus an
  * injectable clock and logger. `nodeUp` tells whether a node may receive new
- * sessions (every node by default); `gpuSessions` how many GPU sessions a
- * node allows (none by default, so GPU projects wait); `onStart` hears how each start run by
+ * sessions (every node by default); `nodeGpu` a node's GPU as its agent
+ * reports it (none by default, so GPU projects wait); `onStart` hears how each start run by
  * this instance ended.
  */
 export interface QueueDeps {
@@ -262,7 +281,7 @@ export interface QueueDeps {
   now?: () => number;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
   nodeUp?: (node: string) => boolean;
-  gpuSessions?: (node: string) => number;
+  nodeGpu?: (node: string) => NodeGpu;
   onStart?: (outcome: StartOutcome) => void;
 }
 
@@ -296,7 +315,7 @@ class PgQueue implements Queue {
     this.#runtime = deps.runtime;
     this.#now = deps.now ?? Date.now;
     this.#log = deps.log ?? (() => {});
-    this.#nodes = { up: deps.nodeUp ?? (() => true), gpuSessions: deps.gpuSessions ?? (() => 0) };
+    this.#nodes = { up: deps.nodeUp ?? (() => true), gpu: deps.nodeGpu ?? (() => ({ sessions: 0, inUse: 0 })) };
     this.#onStart = deps.onStart ?? (() => {});
     this.#watchers = createWatchers({ db: deps.db, view: (row) => this.#view(row), log: this.#log });
     this.#lastResync = this.#now();
@@ -484,6 +503,7 @@ class PgQueue implements Queue {
   async #promoteWaiting(q: Query): Promise<Row[]> {
     await q(`SELECT pg_advisory_xact_lock(${SCHEDULER_LOCK})`);
     const usage = await readUsage(q);
+    countReportedGpu(usage, this.#nodes, Object.keys(this.#config.nodes));
     const waiting = await q<Row>(`SELECT * FROM tickets WHERE state = 'waiting' ORDER BY seq`);
 
     const promoted: Row[] = [];

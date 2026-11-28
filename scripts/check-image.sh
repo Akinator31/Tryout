@@ -163,13 +163,19 @@ check_arch() {
 
 # check_gpu warns about what keeps a GPU desktop on the CPU without an error (docs/gpu.md):
 # a musl image, where the NVIDIA libraries the node injects do not load, and no VirtualGL,
-# without which applications render with llvmpipe.
+# without which applications render with llvmpipe. Looks with the image's /bin/sh, in a
+# container without network or capabilities; an image without a shell only gets a warning,
+# and the contract check goes on.
 check_gpu() {
   local found
-  found=$(docker run --rm --network none --entrypoint /bin/sh "$image" -c '
-    for f in /lib/ld-musl-*; do [ -e "$f" ] && echo musl; done
-    if command -v vglrun >/dev/null 2>&1 || [ -x /opt/VirtualGL/bin/vglrun ]; then echo vglrun; fi
-  ') || fail "could not run /bin/sh in the image to check its GPU support"
+  if ! found=$(docker run --rm --network none --cap-drop=ALL ${runtime:+--runtime "$runtime"} \
+    --entrypoint /bin/sh "$image" -c '
+      for f in /lib/ld-musl-*; do [ -e "$f" ] && echo musl; done
+      if command -v vglrun >/dev/null 2>&1 || [ -x /opt/VirtualGL/bin/vglrun ]; then echo vglrun; fi
+    ' 2>/dev/null); then
+    echo "warn no /bin/sh in the image: GPU support not checked"
+    return
+  fi
 
   case $found in
     *musl*) echo "warn musl libc (Alpine?): the NVIDIA libraries do not load, the session renders on the CPU" ;;
